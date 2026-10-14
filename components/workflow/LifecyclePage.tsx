@@ -10,6 +10,11 @@ import { apiQueryKeys } from "@/lib/api/query-keys";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { Button } from "@/components/ui/Button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/common/PageHeader";
+import { EmptyState } from "@/components/loading/EmptyState";
 
 const stages = [
   { key: "perencanaan", label: "Perencanaan" },
@@ -59,78 +64,84 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
   });
   const stagesStatusMap = useMemo(() => new Map(stageStatus.map((item: any) => [item.tahap, item.status])), [stageStatus]);
   return (
-    <section className="section page-top">
-      <div className="section-head">
-        <div>
-          <h1 className="page-title">Siklus Pengadaan</h1>
-          <p>Rincian tahap transaksi komoditas.</p>
-        </div>
-        <Button variant="outline" size="icon" type="button" aria-label="Muat ulang" onClick={() => void query.refetch()} disabled={query.isFetching}>
-          <RefreshCw size={18} />
-        </Button>
-      </div>
+    <section className="space-y-5 py-1">
+      <PageHeader
+        title="Siklus Pengadaan"
+        description="Rincian tahap transaksi komoditas."
+        actions={
+          <Button variant="outline" size="icon" type="button" aria-label="Muat ulang" onClick={() => void query.refetch()} disabled={query.isFetching}>
+            <RefreshCw size={18} className={query.isFetching ? "spin" : undefined} />
+          </Button>
+        }
+      />
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <div className="dashboard-error" role="alert">
-          {getApiErrorMessage(query.error)}{" "}
-          <Button variant="link" size="sm" type="button" onClick={() => void query.refetch()}>
-            Coba lagi
-          </Button>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            {getApiErrorMessage(query.error)}{" "}
+            <Button variant="link" size="sm" type="button" onClick={() => void query.refetch()}>
+              Coba lagi
+            </Button>
+          </AlertDescription>
+        </Alert>
       ) : (
         <>
-          <div className="lifecycle-timeline">
-            {stages.map((stage, index) => {
-              const status = stagesStatusMap.get(stage.key) as string | undefined;
-              const complete = status === "selesai";
-              const active = currentStage === stage.key || status === "aktif";
-              return (
-                <div className="lifecycle-step" key={stage.key}>
-                  <button type="button" className={`lifecycle-step-button${stageKey === stage.key ? " is-selected" : ""}`} onClick={() => setStageKey(stage.key)}>
-                    <span className={`lifecycle-icon${complete ? " is-complete" : active ? " is-active" : ""}`}>{complete ? <Check size={18} /> : <Circle size={18} />}</span>
-                    <strong>{stage.label}</strong>
-                    <small>{status?.replaceAll("_", " ") ?? "Belum mulai"}</small>
-                  </button>
-                  {index < stages.length - 1 && <span className={`lifecycle-line${complete ? " is-complete" : ""}`} />}
-                </div>
-              );
-            })}
-          </div>
-          <article className="section lifecycle-panel">
-            <div className="section-head">
+          <Card>
+            <CardContent className="flex gap-2 overflow-x-auto py-5">
+              {stages.map((stage) => {
+                const status = stagesStatusMap.get(stage.key) as string | undefined;
+                const complete = status === "selesai";
+                const active = currentStage === stage.key || status === "aktif";
+                return (
+                  <Button key={stage.key} type="button" variant={stageKey === stage.key ? "default" : "outline"} className="h-auto min-w-36 flex-col items-start gap-1 p-3 text-left" onClick={() => setStageKey(stage.key)}>
+                    <span className="flex items-center gap-2">
+                      {complete ? <Check size={16} /> : <Circle size={16} />}
+                      <strong className="text-xs">{stage.label}</strong>
+                    </span>
+                    <span className="text-[11px] font-normal opacity-80">{active ? "Tahap aktif" : (status?.replaceAll("_", " ") ?? "Belum mulai")}</span>
+                  </Button>
+                );
+              })}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h2>{stages.find((stage) => stage.key === stageKey)?.label}</h2>
-                <p>{currentStage === stageKey ? "Tahap aktif" : "Pilih tahap untuk melihat catatan."}</p>
+                <CardTitle>{stages.find((stage) => stage.key === stageKey)?.label}</CardTitle>
+                <CardDescription className="mt-1">{currentStage === stageKey ? "Tahap aktif" : "Pilih tahap untuk melihat catatan."}</CardDescription>
               </div>
-              {currentStage === stageKey && stageKey !== "selesai" && (
+              {currentStage === stageKey && stageKey !== "selesai" ? (
                 <Button type="button" disabled={updateStage.isPending} onClick={() => updateStage.mutate({ tahap: stageKey, status: "selesai" })}>
                   Tandai tahap selesai
                 </Button>
+              ) : null}
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {stageRecords.length ? (
+                stageRecords.map(([key, rows]) => (
+                  <div className="space-y-2" key={key}>
+                    <h3 className="text-sm font-semibold capitalize">{key.replaceAll(/([A-Z])/g, " $1").replaceAll("_", " ")}</h3>
+                    <ul className="divide-y divide-border rounded-lg border border-border">
+                      {(rows as any[]).map((row, index) => (
+                        <li className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm" key={row.id ?? index}>
+                          <span>{summarize(row)}</span>
+                          {row.status ? <Badge variant="outline">{String(row.status).replaceAll("_", " ")}</Badge> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))
+              ) : (
+                <EmptyState title="Belum ada catatan" description="Belum ada catatan pada tahap ini." />
               )}
-            </div>
-            {stageRecords.length ? (
-              stageRecords.map(([key, rows]) => (
-                <div className="lifecycle-record-group" key={key}>
-                  <h3>{key.replaceAll(/([A-Z])/g, " $1").replaceAll("_", " ")}</h3>
-                  <ul>
-                    {(rows as any[]).map((row, index) => (
-                      <li key={row.id ?? index}>
-                        {summarize(row)} <span>{row.status ? String(row.status).replaceAll("_", " ") : ""}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))
-            ) : (
-              <p className="empty">Belum ada catatan pada tahap ini.</p>
-            )}
-          </article>
-          {updateStage.isError && (
-            <p className="form-error" role="alert">
-              {getApiErrorMessage(updateStage.error)}
-            </p>
-          )}
+            </CardContent>
+          </Card>
+          {updateStage.isError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{getApiErrorMessage(updateStage.error)}</AlertDescription>
+            </Alert>
+          ) : null}
         </>
       )}
     </section>

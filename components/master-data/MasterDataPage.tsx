@@ -13,7 +13,10 @@ import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { Button } from "@/components/ui/Button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/common/PageHeader";
 
 type Entity = { id: string; nama: string; [key: string]: unknown };
 type Field = { name: string; label: string; type?: string; required?: boolean };
@@ -135,7 +138,7 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
       key: "actions",
       header: "Aksi",
       render: (row: Entity) => (
-        <div className="data-actions">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="outline"
@@ -168,26 +171,28 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
   }
   const busy = create.isPending || update.isPending;
   return (
-    <section className="section page-top">
-      <div className="section-head">
-        <div>
-          <h1 className="page-title">{cfg.title}</h1>
-          <p>{cfg.description}</p>
-        </div>
-        <Button type="button" onClick={beginCreate}>
-          <Plus size={18} /> Tambah
-        </Button>
-      </div>
+    <section className="space-y-5 py-1">
+      <PageHeader
+        title={cfg.title}
+        description={cfg.description}
+        actions={
+          <Button type="button" onClick={beginCreate}>
+            <Plus size={18} /> Tambah
+          </Button>
+        }
+      />
 
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <div className="dashboard-error" role="alert">
-          {getApiErrorMessage(query.error)}{" "}
-          <Button type="button" variant="link" size="sm" onClick={() => void query.refetch()}>
-            Coba lagi
-          </Button>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            {getApiErrorMessage(query.error)}{" "}
+            <Button type="button" variant="link" size="sm" onClick={() => void query.refetch()}>
+              Coba lagi
+            </Button>
+          </AlertDescription>
+        </Alert>
       ) : (
         <DataTable
           columns={columns}
@@ -204,11 +209,11 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
           }
         />
       )}
-      {(create.isError || update.isError || remove.isError) && (
-        <p className="form-error" role="alert">
-          {getApiErrorMessage(create.error ?? update.error ?? remove.error)}
-        </p>
-      )}
+      {create.isError || update.isError || remove.isError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{getApiErrorMessage(create.error ?? update.error ?? remove.error)}</AlertDescription>
+        </Alert>
+      ) : null}
       <Modal
         open={open}
         onClose={() => setOpen(false)}
@@ -224,12 +229,19 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
           </>
         }
       >
-        <form id="master-form" className="master-form" onSubmit={save}>
+        <form id="master-form" className="grid gap-4" onSubmit={save}>
           {cfg.fields.map((field) => (
-            <label className="field" key={field.name}>
-              <span>{field.label}</span>
-              <Input name={field.name} type={field.type ?? "text"} required={field.required} value={form[field.name] ?? ""} onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))} />
-            </label>
+            <div className="grid gap-2" key={field.name}>
+              <Label htmlFor={`master-${field.name}`}>{field.label}</Label>
+              <Input
+                id={`master-${field.name}`}
+                name={field.name}
+                type={field.type ?? "text"}
+                required={field.required}
+                value={form[field.name] ?? ""}
+                onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))}
+              />
+            </div>
           ))}
         </form>
       </Modal>

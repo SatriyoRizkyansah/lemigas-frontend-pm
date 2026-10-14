@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { PageHeader } from "@/components/common/PageHeader";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Card, CardContent } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "Bantuan" };
 
@@ -19,16 +22,22 @@ const faqs = [
 
 export default function BantuanPage() {
   return (
-    <section className="section page-top">
-      <h1 className="page-title">Bantuan</h1>
-      <div className="panel faq">
-        {faqs.map((f) => (
-          <details key={f.q}>
-            <summary>{f.q}</summary>
-            <p>{f.a}</p>
-          </details>
-        ))}
-      </div>
+    <section className="space-y-5 py-1">
+      <PageHeader title="Bantuan" />
+      <Card>
+        <CardContent className="py-2">
+          <Accordion>
+            <>
+              {faqs.map((f) => (
+                <AccordionItem key={f.q} value={f.q}>
+                  <AccordionTrigger className="py-4">{f.q}</AccordionTrigger>
+                  <AccordionContent className="pb-4 text-muted-foreground">{f.a}</AccordionContent>
+                </AccordionItem>
+              ))}
+            </>
+          </Accordion>
+        </CardContent>
+      </Card>
     </section>
   );
 }

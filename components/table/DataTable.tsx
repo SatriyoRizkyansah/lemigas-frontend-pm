@@ -109,25 +109,27 @@ export function DataTable<T>({
   }
 
   return (
-    <section className="data-table-shell" aria-label="Data">
+    <section className="space-y-3" aria-label="Data">
       {!hideSearch && (
-        <div className="data-table-toolbar">
-          <label className="data-table-search">
-            <Search size={18} aria-hidden="true" />
-            <Input type="search" placeholder={searchPlaceholder} value={activeSearch} onChange={(event) => updateSearch(event.target.value)} aria-label="Cari dalam tabel" />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <label className="relative block w-full sm:max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input className="pl-9" type="search" placeholder={searchPlaceholder} value={activeSearch} onChange={(event) => updateSearch(event.target.value)} aria-label="Cari dalam tabel" />
           </label>
-          {toolbarActions}
+          {toolbarActions ? <div className="flex shrink-0 items-center gap-2">{toolbarActions}</div> : null}
         </div>
       )}
-      <div className="data-table-wrap">
+      <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
         {showFilter && (
-          <div className="data-table-filterbar">
-            <div className="data-table-filter-title">
-              <ListFilter size={17} aria-hidden="true" />
+          <div className="flex flex-col gap-3 border-b border-border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <ListFilter size={16} aria-hidden="true" />
               <span>Filter</span>
-              {hasActiveFilters && <span className="filter-count">{activeFilters.filter((filter) => (filterValues[String(filter.field)] ?? ALL_FILTER_VALUE) !== ALL_FILTER_VALUE).length}</span>}
+              {hasActiveFilters ? (
+                <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">{activeFilters.filter((filter) => (filterValues[String(filter.field)] ?? ALL_FILTER_VALUE) !== ALL_FILTER_VALUE).length}</span>
+              ) : null}
             </div>
-            <div className="data-table-filter-controls">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               {activeFilters.map((filter) => {
                 const filterKey = String(filter.field);
                 return (
@@ -139,7 +141,7 @@ export function DataTable<T>({
                       setPage(0);
                     }}
                   >
-                    <SelectTrigger size="sm" aria-label={`Filter ${filter.label.toLocaleLowerCase("id-ID")}`} className="min-w-35 bg-background">
+                    <SelectTrigger size="sm" aria-label={`Filter ${filter.label.toLocaleLowerCase("id-ID")}`} className="w-full min-w-40 bg-background sm:w-auto">
                       <SelectValue placeholder={filter.label} />
                     </SelectTrigger>
                     <SelectContent>
@@ -152,16 +154,16 @@ export function DataTable<T>({
                   </Select>
                 );
               })}
-              {hasActiveFilters && (
+              {hasActiveFilters ? (
                 <Button variant="ghost" size="sm" type="button" onClick={resetFilters}>
                   <RotateCcw size={14} aria-hidden="true" /> Reset
                 </Button>
-              )}
+              ) : null}
             </div>
           </div>
         )}
-        <div className="data-table-scroll">
-          <Table className="data-table">
+        <div className="w-full overflow-x-auto">
+          <Table className="min-w-[45rem]">
             <TableHeader>
               <TableRow>
                 {columns.map((column) => (
@@ -176,7 +178,7 @@ export function DataTable<T>({
                 pageRows.map((row, index) => (
                   <TableRow key={rowKey(row, safePage * rowsPerPage + index)}>
                     {columns.map((column) => (
-                      <TableCell className={column.className} key={column.key} data-label={column.header}>
+                      <TableCell className={column.className} key={column.key}>
                         {column.render(row, safePage * rowsPerPage + index)}
                       </TableCell>
                     ))}
@@ -184,8 +186,8 @@ export function DataTable<T>({
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={columns.length} className="data-table-empty">
-                    {activeSearch || activeFilters ? "Tidak ada hasil yang cocok." : emptyMessage}
+                  <TableCell colSpan={columns.length} className="h-28 text-center text-muted-foreground">
+                    {activeSearch || hasActiveFilters ? "Tidak ada hasil yang cocok." : emptyMessage}
                   </TableCell>
                 </TableRow>
               )}
@@ -193,11 +195,11 @@ export function DataTable<T>({
           </Table>
         </div>
         {!hidePagination && (
-          <div className="data-table-footer">
-            <div className="data-table-page-size">
+          <div className="flex flex-col gap-3 border-t border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
               <span>Baris per halaman</span>
               <Select value={String(rowsPerPage)} onValueChange={(value) => value && setRowsPerPage(Number(value))}>
-                <SelectTrigger size="sm" aria-label="Jumlah baris per halaman" className="min-w-16 bg-background">
+                <SelectTrigger size="sm" aria-label="Jumlah baris per halaman" className="w-[4.5rem] bg-background">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -211,19 +213,21 @@ export function DataTable<T>({
                 </SelectContent>
               </Select>
             </div>
-            <span className="data-table-count">
-              {startItem}–{endItem} dari {filteredRows.length}
-            </span>
-            <div className="data-table-pagination">
-              <Button variant="outline" size="icon-sm" type="button" disabled={safePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))} aria-label="Halaman sebelumnya" title="Halaman sebelumnya">
-                <ChevronLeft size={16} aria-hidden="true" />
-              </Button>
-              <span aria-live="polite">
-                {safePage + 1} / {pageCount}
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <span>
+                {startItem}–{endItem} dari {filteredRows.length}
               </span>
-              <Button variant="outline" size="icon-sm" type="button" disabled={safePage + 1 >= pageCount} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} aria-label="Halaman berikutnya" title="Halaman berikutnya">
-                <ChevronRight size={16} aria-hidden="true" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="icon-sm" type="button" disabled={safePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))} aria-label="Halaman sebelumnya">
+                  <ChevronLeft size={16} aria-hidden="true" />
+                </Button>
+                <span className="min-w-11 text-center" aria-live="polite">
+                  {safePage + 1} / {pageCount}
+                </span>
+                <Button variant="outline" size="icon-sm" type="button" disabled={safePage + 1 >= pageCount} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} aria-label="Halaman berikutnya">
+                  <ChevronRight size={16} aria-hidden="true" />
+                </Button>
+              </div>
             </div>
           </div>
         )}

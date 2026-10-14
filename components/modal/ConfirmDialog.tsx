@@ -1,7 +1,6 @@
 "use client";
 
-import { Modal } from "./Modal";
-import { Button } from "@/components/ui/Button";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 export function ConfirmDialog({
   open,
@@ -23,22 +22,19 @@ export function ConfirmDialog({
   busy?: boolean;
 }) {
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={title}
-      footer={
-        <>
-          <Button variant="outline" type="button" onClick={onClose} disabled={busy}>
-            {cancelLabel}
-          </Button>
-          <Button variant="destructive" type="button" onClick={onConfirm} disabled={busy}>
+    <AlertDialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{message}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>{cancelLabel}</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" type="button" onClick={onConfirm} disabled={busy}>
             {busy ? "Memproses…" : confirmLabel}
-          </Button>
-        </>
-      }
-    >
-      <p>{message}</p>
-    </Modal>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

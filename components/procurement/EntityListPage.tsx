@@ -9,6 +9,8 @@ import { DataTable } from "@/components/table/DataTable";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { Button } from "@/components/ui/Button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PageHeader } from "@/components/common/PageHeader";
 
 type Row = { id: string; [key: string]: any };
 type Column = { key: string; header: string; render: (row: Row) => ReactNode };
@@ -45,24 +47,19 @@ export default function EntityListPage({ title, description, tag, method, queryA
     },
   });
   return (
-    <section className="section page-top">
-      <div className="section-head">
-        <div>
-          <h1 className="page-title">{title}</h1>
-          <p>{description}</p>
-        </div>
-        {actions}
-      </div>
-
+    <section className="space-y-5 py-1">
+      <PageHeader title={title} description={description} actions={actions} />
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <div className="dashboard-error" role="alert">
-          {getApiErrorMessage(query.error)}{" "}
-          <Button type="button" variant="link" size="sm" onClick={() => void query.refetch()}>
-            Coba lagi
-          </Button>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            {getApiErrorMessage(query.error)}{" "}
+            <Button type="button" variant="link" size="sm" onClick={() => void query.refetch()}>
+              Coba lagi
+            </Button>
+          </AlertDescription>
+        </Alert>
       ) : (
         <DataTable
           columns={columns}

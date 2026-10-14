@@ -11,6 +11,9 @@ import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { entityText, unwrapEntityList } from "@/components/procurement/EntityListPage";
 import { Button } from "@/components/ui/Button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PageHeader } from "@/components/common/PageHeader";
+import { StatusBadge } from "@/components/common/StatusBadge";
 
 export default function ApprovalPage() {
   const query = use_query<any[], Error, Record<string, never>>({
@@ -35,12 +38,12 @@ export default function ApprovalPage() {
     { key: "nomorSurat", header: "Nomor", render: (row: any) => entityText(row.nomorSurat ?? row.pengadaan?.nomorSurat) },
     { key: "judul", header: "Pengadaan", render: (row: any) => entityText(row.judul ?? row.pengadaan?.judul) },
     { key: "pemohon", header: "Pemohon", render: (row: any) => entityText(row.diajukanOlehUser ?? row.pengadaan?.diajukanOlehUser) },
-    { key: "status", header: "Status", render: (row: any) => <span className={`status-pill status-${row.status}`}>{entityText(row.status ?? row.step?.status)}</span> },
+    { key: "status", header: "Status", render: (row: any) => <StatusBadge status={row.status === "ditolak" ? "danger" : row.status === "disetujui" ? "ok" : "warn"}>{entityText(row.status ?? row.step?.status)}</StatusBadge> },
     {
       key: "actions",
       header: "Aksi",
       render: (row: any) => (
-        <div className="data-actions">
+        <div className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" disabled={decide.isPending || !row.pengadaanId || !row.stepId} onClick={() => decide.mutate({ pengadaanId: row.pengadaanId, stepId: row.stepId, keputusan: "disetujui" })}>
             <Check size={16} /> Setujui
           </Button>
@@ -52,31 +55,27 @@ export default function ApprovalPage() {
     },
   ];
   return (
-    <section className="section page-top">
-      <div className="section-head">
-        <div>
-          <h1 className="page-title">Approval</h1>
-          <p>Pengadaan yang menunggu keputusan Anda.</p>
-        </div>
-        <Clock3 size={20} />
-      </div>
+    <section className="space-y-5 py-1">
+      <PageHeader title="Approval" description="Pengadaan yang menunggu keputusan Anda." actions={<Clock3 className="size-5 text-muted-foreground" />} />
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <div className="dashboard-error" role="alert">
-          {getApiErrorMessage(query.error)}{" "}
-          <Button variant="link" size="sm" type="button" onClick={() => void query.refetch()}>
-            Coba lagi
-          </Button>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            {getApiErrorMessage(query.error)}{" "}
+            <Button variant="link" size="sm" type="button" onClick={() => void query.refetch()}>
+              Coba lagi
+            </Button>
+          </AlertDescription>
+        </Alert>
       ) : (
         <DataTable columns={columns} rows={query.data ?? []} rowKey={(row: any) => row.id} emptyMessage="Tidak ada approval menunggu." />
       )}
-      {decide.isError && (
-        <p className="form-error" role="alert">
-          {getApiErrorMessage(decide.error)}
-        </p>
-      )}
+      {decide.isError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{getApiErrorMessage(decide.error)}</AlertDescription>
+        </Alert>
+      ) : null}
     </section>
   );
 }

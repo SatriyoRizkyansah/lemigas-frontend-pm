@@ -3,6 +3,7 @@
 import { ExternalLink, FileText } from "lucide-react";
 import { browserApi } from "@/lib/api/browser-client";
 import EntityListPage, { apiRequest, entityText, dateText } from "@/components/procurement/EntityListPage";
+import { Button } from "@/components/ui/Button";
 
 export default function DokumenPage() {
   const columns = [
@@ -15,9 +16,9 @@ export default function DokumenPage() {
       header: "File",
       render: (row: any) =>
         row.filePath || row.url ? (
-          <a className="btn btn-dark" href={row.filePath ?? row.url} target="_blank" rel="noreferrer">
+          <Button size="sm" render={<a href={row.filePath ?? row.url} target="_blank" rel="noreferrer" />}>
             <ExternalLink size={16} /> Buka
-          </a>
+          </Button>
         ) : (
           <FileText size={18} />
         ),

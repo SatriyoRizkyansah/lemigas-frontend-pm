@@ -10,7 +10,10 @@ import { DataTable } from "@/components/table/DataTable";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { dateText, entityText, unwrapEntityList } from "@/components/procurement/EntityListPage";
-import { Button } from "@/components/ui/legacy-button";
+import { Button } from "@/components/ui/Button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PageHeader } from "@/components/common/PageHeader";
+import { StatusBadge } from "@/components/common/StatusBadge";
 
 export default function NotifikasiPage() {
   const query = use_query<any[], Error, Record<string, never>>({
@@ -44,7 +47,7 @@ export default function NotifikasiPage() {
     { key: "title", header: "Notifikasi", render: (row: any) => <strong>{entityText(row.judul ?? row.title ?? row.pesan)}</strong> },
     { key: "message", header: "Pesan", render: (row: any) => entityText(row.pesan ?? row.message ?? row.deskripsi) },
     { key: "date", header: "Tanggal", render: (row: any) => dateText(row.createdAt) },
-    { key: "status", header: "Status", render: (row: any) => entityText(row.dibaca ? "dibaca" : (row.status ?? "belum dibaca")) },
+    { key: "status", header: "Status", render: (row: any) => <StatusBadge status={row.dibaca ? "ok" : "warn"}>{entityText(row.dibaca ? "dibaca" : (row.status ?? "belum dibaca"))}</StatusBadge> },
     {
       key: "action",
       header: "Aksi",
@@ -52,37 +55,42 @@ export default function NotifikasiPage() {
         row.dibaca ? (
           "—"
         ) : (
-          <Button type="button" variant="dark" size="sm" disabled={markRead.isPending} onClick={() => markRead.mutate(row.id)}>
+          <Button type="button" variant="outline" size="sm" disabled={markRead.isPending} onClick={() => markRead.mutate(row.id)}>
             Tandai dibaca
           </Button>
         ),
     },
   ];
   return (
-    <section className="section page-top">
-      <div className="section-head">
-        <div>
-          <h1 className="page-title">Notifikasi</h1>
-          <p>Informasi terbaru terkait pengadaan Anda.</p>
-        </div>
-        <Button type="button" variant="primary" size="md" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
-          <CheckCheck size={16} /> Tandai semua dibaca
-        </Button>
-      </div>
+    <section className="space-y-5 py-1">
+      <PageHeader
+        title="Notifikasi"
+        description="Informasi terbaru terkait pengadaan Anda."
+        actions={
+          <Button type="button" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
+            <CheckCheck size={16} /> Tandai semua dibaca
+          </Button>
+        }
+      />
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <div className="dashboard-error" role="alert">
-          {getApiErrorMessage(query.error)} <button onClick={() => void query.refetch()}>Coba lagi</button>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            {getApiErrorMessage(query.error)}{" "}
+            <Button type="button" variant="link" size="sm" onClick={() => void query.refetch()}>
+              Coba lagi
+            </Button>
+          </AlertDescription>
+        </Alert>
       ) : (
         <DataTable columns={columns} rows={query.data ?? []} rowKey={(row: any) => row.id} emptyMessage="Belum ada notifikasi." />
       )}
-      {(markRead.isError || markAll.isError) && (
-        <p className="form-error" role="alert">
-          {getApiErrorMessage(markRead.error ?? markAll.error)}
-        </p>
-      )}
+      {markRead.isError || markAll.isError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{getApiErrorMessage(markRead.error ?? markAll.error)}</AlertDescription>
+        </Alert>
+      ) : null}
     </section>
   );
 }
