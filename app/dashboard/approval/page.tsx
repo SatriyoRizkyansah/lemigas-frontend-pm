@@ -10,6 +10,7 @@ import { DataTable } from "@/components/table/DataTable";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { entityText, unwrapEntityList } from "@/components/procurement/EntityListPage";
+import { Button } from "@/components/ui/Button";
 
 export default function ApprovalPage() {
   const query = use_query<any[], Error, Record<string, never>>({
@@ -40,12 +41,12 @@ export default function ApprovalPage() {
       header: "Aksi",
       render: (row: any) => (
         <div className="data-actions">
-          <button type="button" className="btn btn-blue" disabled={decide.isPending || !row.pengadaanId || !row.stepId} onClick={() => decide.mutate({ pengadaanId: row.pengadaanId, stepId: row.stepId, keputusan: "disetujui" })}>
+          <Button type="button" size="sm" disabled={decide.isPending || !row.pengadaanId || !row.stepId} onClick={() => decide.mutate({ pengadaanId: row.pengadaanId, stepId: row.stepId, keputusan: "disetujui" })}>
             <Check size={16} /> Setujui
-          </button>
-          <button type="button" className="btn btn-dark" disabled={decide.isPending || !row.pengadaanId || !row.stepId} onClick={() => decide.mutate({ pengadaanId: row.pengadaanId, stepId: row.stepId, keputusan: "ditolak" })}>
+          </Button>
+          <Button type="button" variant="destructive" size="sm" disabled={decide.isPending || !row.pengadaanId || !row.stepId} onClick={() => decide.mutate({ pengadaanId: row.pengadaanId, stepId: row.stepId, keputusan: "ditolak" })}>
             Tolak
-          </button>
+          </Button>
         </div>
       ),
     },
@@ -63,7 +64,10 @@ export default function ApprovalPage() {
         <LoadingState />
       ) : query.isError ? (
         <div className="dashboard-error" role="alert">
-          {getApiErrorMessage(query.error)} <button onClick={() => void query.refetch()}>Coba lagi</button>
+          {getApiErrorMessage(query.error)}{" "}
+          <Button variant="link" size="sm" type="button" onClick={() => void query.refetch()}>
+            Coba lagi
+          </Button>
         </div>
       ) : (
         <DataTable columns={columns} rows={query.data ?? []} rowKey={(row: any) => row.id} emptyMessage="Tidak ada approval menunggu." />

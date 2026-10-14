@@ -6,6 +6,7 @@ import AppCard from "@/components/AppCard";
 import { apps } from "@/lib/apps";
 import { useDashboardStats } from "@/lib/api/hooks";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { Button } from "@/components/ui/Button";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(new Date(value));
@@ -13,7 +14,7 @@ function formatDate(value: string) {
 
 export default function DashboardPage() {
   const searchParams = useSearchParams();
-  const q = (searchParams.get("q") ?? "").trim();
+  const q = (searchParams?.get("q") ?? "").trim();
   const list = q ? apps.filter((a) => `${a.name} ${a.description}`.toLowerCase().includes(q.toLowerCase())) : apps;
   const statsQuery = useDashboardStats();
   const stats = statsQuery.data?.data;
@@ -39,9 +40,9 @@ export default function DashboardPage() {
             </h2>
             <p>Statistik terkini dari sistem pengadaan</p>
           </div>
-          <button className="icon-btn" type="button" aria-label="Muat ulang statistik" onClick={() => void statsQuery.refetch()} disabled={statsQuery.isFetching}>
+          <Button variant="outline" size="icon" type="button" aria-label="Muat ulang statistik" onClick={() => void statsQuery.refetch()} disabled={statsQuery.isFetching}>
             <RefreshCw size={18} className={statsQuery.isFetching ? "spin" : ""} />
-          </button>
+          </Button>
         </div>
         {statsQuery.isPending ? (
           <div className="dashboard-state" role="status">
@@ -50,9 +51,9 @@ export default function DashboardPage() {
         ) : statsQuery.isError ? (
           <div className="dashboard-error" role="alert">
             {getApiErrorMessage(statsQuery.error)}
-            <button type="button" onClick={() => void statsQuery.refetch()}>
+            <Button type="button" variant="link" size="sm" onClick={() => void statsQuery.refetch()}>
               Coba lagi
-            </button>
+            </Button>
           </div>
         ) : (
           stats && (

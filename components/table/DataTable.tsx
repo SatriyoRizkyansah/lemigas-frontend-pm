@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, ListFilter, RotateCcw, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListFilter, RotateCcw, Search } from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type Column<T> = {
   key: string;
@@ -110,7 +114,7 @@ export function DataTable<T>({
         <div className="data-table-toolbar">
           <label className="data-table-search">
             <Search size={18} aria-hidden="true" />
-            <input type="search" placeholder={searchPlaceholder} value={activeSearch} onChange={(event) => updateSearch(event.target.value)} aria-label="Cari dalam tabel" />
+            <Input type="search" placeholder={searchPlaceholder} value={activeSearch} onChange={(event) => updateSearch(event.target.value)} aria-label="Cari dalam tabel" />
           </label>
           {toolbarActions}
         </div>
@@ -124,103 +128,102 @@ export function DataTable<T>({
               {hasActiveFilters && <span className="filter-count">{activeFilters.filter((filter) => (filterValues[String(filter.field)] ?? ALL_FILTER_VALUE) !== ALL_FILTER_VALUE).length}</span>}
             </div>
             <div className="data-table-filter-controls">
-              {activeFilters.map((filter) => (
-                <label className="data-table-select-wrap" key={String(filter.field)}>
-                  <span className="sr-only">{filter.label}</span>
-                  <select
-                    value={filterValues[String(filter.field)] ?? ALL_FILTER_VALUE}
-                    onChange={(event) => {
-                      setFilterValues((current) => ({ ...current, [String(filter.field)]: event.target.value }));
+              {activeFilters.map((filter) => {
+                const filterKey = String(filter.field);
+                return (
+                  <Select
+                    key={filterKey}
+                    value={filterValues[filterKey] ?? ALL_FILTER_VALUE}
+                    onValueChange={(value) => {
+                      setFilterValues((current) => ({ ...current, [filterKey]: value ?? ALL_FILTER_VALUE }));
                       setPage(0);
                     }}
-                    aria-label={`Filter ${filter.label.toLocaleLowerCase("id-ID")}`}
                   >
-                    {normalizedOptions(filter.options).map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown size={16} aria-hidden="true" />
-                </label>
-              ))}
+                    <SelectTrigger size="sm" aria-label={`Filter ${filter.label.toLocaleLowerCase("id-ID")}`} className="min-w-35 bg-background">
+                      <SelectValue placeholder={filter.label} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {normalizedOptions(filter.options).map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                );
+              })}
               {hasActiveFilters && (
-                <button className="table-filter-reset" type="button" onClick={resetFilters}>
+                <Button variant="ghost" size="sm" type="button" onClick={resetFilters}>
                   <RotateCcw size={14} aria-hidden="true" /> Reset
-                </button>
+                </Button>
               )}
             </div>
           </div>
         )}
         <div className="data-table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
+          <Table className="data-table">
+            <TableHeader>
+              <TableRow>
                 {columns.map((column) => (
-                  <th className={column.className} key={column.key} scope="col">
+                  <TableHead className={column.className} key={column.key} scope="col">
                     {column.header}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {pageRows.length ? (
                 pageRows.map((row, index) => (
-                  <tr key={rowKey(row, safePage * rowsPerPage + index)}>
+                  <TableRow key={rowKey(row, safePage * rowsPerPage + index)}>
                     {columns.map((column) => (
-                      <td className={column.className} key={column.key} data-label={column.header}>
+                      <TableCell className={column.className} key={column.key} data-label={column.header}>
                         {column.render(row, safePage * rowsPerPage + index)}
-                      </td>
+                      </TableCell>
                     ))}
-                  </tr>
+                  </TableRow>
                 ))
               ) : (
-                <tr>
-                  <td colSpan={columns.length} className="data-table-empty">
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="data-table-empty">
                     {activeSearch || activeFilters ? "Tidak ada hasil yang cocok." : emptyMessage}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
         {!hidePagination && (
           <div className="data-table-footer">
-            <label className="data-table-page-size">
+            <div className="data-table-page-size">
               <span>Baris per halaman</span>
-              <span className="data-table-select-wrap">
-                <select value={rowsPerPage} onChange={(event) => setRowsPerPage(Number(event.target.value))} aria-label="Jumlah baris per halaman">
+              <Select value={String(rowsPerPage)} onValueChange={(value) => value && setRowsPerPage(Number(value))}>
+                <SelectTrigger size="sm" aria-label="Jumlah baris per halaman" className="min-w-16 bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
                   {[...new Set([...rowsPerPageOptions, rowsPerPage])]
                     .sort((a, b) => a - b)
                     .map((size) => (
-                      <option key={size} value={size}>
+                      <SelectItem key={size} value={String(size)}>
                         {size}
-                      </option>
+                      </SelectItem>
                     ))}
-                </select>
-                <ChevronDown size={15} aria-hidden="true" />
-              </span>
-            </label>
+                </SelectContent>
+              </Select>
+            </div>
             <span className="data-table-count">
               {startItem}–{endItem} dari {filteredRows.length}
             </span>
             <div className="data-table-pagination">
-              <button className="icon-btn pagination-arrow" type="button" disabled={safePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))} aria-label="Halaman sebelumnya" title="Halaman sebelumnya">
-                <ChevronLeft size={18} aria-hidden="true" />
-              </button>
+              <Button variant="outline" size="icon-sm" type="button" disabled={safePage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))} aria-label="Halaman sebelumnya" title="Halaman sebelumnya">
+                <ChevronLeft size={16} aria-hidden="true" />
+              </Button>
               <span aria-live="polite">
                 {safePage + 1} / {pageCount}
               </span>
-              <button
-                className="icon-btn pagination-arrow"
-                type="button"
-                disabled={safePage + 1 >= pageCount}
-                onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}
-                aria-label="Halaman berikutnya"
-                title="Halaman berikutnya"
-              >
-                <ChevronRight size={18} aria-hidden="true" />
-              </button>
+              <Button variant="outline" size="icon-sm" type="button" disabled={safePage + 1 >= pageCount} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} aria-label="Halaman berikutnya" title="Halaman berikutnya">
+                <ChevronRight size={16} aria-hidden="true" />
+              </Button>
             </div>
           </div>
         )}

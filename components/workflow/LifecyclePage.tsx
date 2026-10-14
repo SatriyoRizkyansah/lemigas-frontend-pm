@@ -9,6 +9,7 @@ import { use_mutation } from "@/lib/api/use_mutation";
 import { apiQueryKeys } from "@/lib/api/query-keys";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { Button } from "@/components/ui/Button";
 
 const stages = [
   { key: "perencanaan", label: "Perencanaan" },
@@ -64,15 +65,18 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
           <h1 className="page-title">Siklus Pengadaan</h1>
           <p>Rincian tahap transaksi komoditas.</p>
         </div>
-        <button className="icon-btn" type="button" aria-label="Muat ulang" onClick={() => void query.refetch()} disabled={query.isFetching}>
+        <Button variant="outline" size="icon" type="button" aria-label="Muat ulang" onClick={() => void query.refetch()} disabled={query.isFetching}>
           <RefreshCw size={18} />
-        </button>
+        </Button>
       </div>
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
         <div className="dashboard-error" role="alert">
-          {getApiErrorMessage(query.error)} <button onClick={() => void query.refetch()}>Coba lagi</button>
+          {getApiErrorMessage(query.error)}{" "}
+          <Button variant="link" size="sm" type="button" onClick={() => void query.refetch()}>
+            Coba lagi
+          </Button>
         </div>
       ) : (
         <>
@@ -100,9 +104,9 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                 <p>{currentStage === stageKey ? "Tahap aktif" : "Pilih tahap untuk melihat catatan."}</p>
               </div>
               {currentStage === stageKey && stageKey !== "selesai" && (
-                <button type="button" className="btn btn-blue" disabled={updateStage.isPending} onClick={() => updateStage.mutate({ tahap: stageKey, status: "selesai" })}>
+                <Button type="button" disabled={updateStage.isPending} onClick={() => updateStage.mutate({ tahap: stageKey, status: "selesai" })}>
                   Tandai tahap selesai
-                </button>
+                </Button>
               )}
             </div>
             {stageRecords.length ? (

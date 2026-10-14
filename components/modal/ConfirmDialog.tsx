@@ -1,6 +1,7 @@
 "use client";
 
 import { Modal } from "./Modal";
+import { Button } from "@/components/ui/Button";
 
 export function ConfirmDialog({
   open,
@@ -28,12 +29,12 @@ export function ConfirmDialog({
       title={title}
       footer={
         <>
-          <button className="btn btn-dark" type="button" onClick={onClose} disabled={busy}>
+          <Button variant="outline" type="button" onClick={onClose} disabled={busy}>
             {cancelLabel}
-          </button>
-          <button className="btn btn-blue" type="button" onClick={onConfirm} disabled={busy}>
+          </Button>
+          <Button variant="destructive" type="button" onClick={onConfirm} disabled={busy}>
             {busy ? "Memproses…" : confirmLabel}
-          </button>
+          </Button>
         </>
       }
     >

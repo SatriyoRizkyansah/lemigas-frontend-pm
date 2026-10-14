@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { Activity, Archive, Bell, Boxes, ClipboardList, FileText, FolderOpen, Gauge, Package, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Store, Users } from "lucide-react";
 import Skyline from "./Skyline";
 import { userFromIdentity, SESSION_COOKIE } from "@/lib/auth";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/legacy-button";
 import { useEffect, useState } from "react";
 
 const allSections = [
@@ -59,7 +59,7 @@ function allowedSections(role: string) {
 type Props = { collapsed: boolean; open: boolean; onToggle: () => void };
 
 export default function Sidebar({ collapsed, open, onToggle }: Props) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const [role, setRole] = useState("user");
   useEffect(() => {
     const value = document.cookie

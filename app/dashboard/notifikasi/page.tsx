@@ -10,7 +10,7 @@ import { DataTable } from "@/components/table/DataTable";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { dateText, entityText, unwrapEntityList } from "@/components/procurement/EntityListPage";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/legacy-button";
 
 export default function NotifikasiPage() {
   const query = use_query<any[], Error, Record<string, never>>({

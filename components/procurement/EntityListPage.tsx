@@ -8,6 +8,7 @@ import { use_query } from "@/lib/api/use_query";
 import { DataTable } from "@/components/table/DataTable";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { Button } from "@/components/ui/Button";
 
 type Row = { id: string; [key: string]: any };
 type Column = { key: string; header: string; render: (row: Row) => ReactNode };
@@ -58,9 +59,9 @@ export default function EntityListPage({ title, description, tag, method, queryA
       ) : query.isError ? (
         <div className="dashboard-error" role="alert">
           {getApiErrorMessage(query.error)}{" "}
-          <button type="button" onClick={() => void query.refetch()}>
+          <Button type="button" variant="link" size="sm" onClick={() => void query.refetch()}>
             Coba lagi
-          </button>
+          </Button>
         </div>
       ) : (
         <DataTable
@@ -73,9 +74,9 @@ export default function EntityListPage({ title, description, tag, method, queryA
           searchPlaceholder={`Cari ${title.toLowerCase()}…`}
           emptyMessage={`Belum ada ${title.toLowerCase()}.`}
           toolbarActions={
-            <button type="button" className="icon-btn" aria-label="Muat ulang" onClick={() => void query.refetch()} disabled={query.isFetching}>
+            <Button type="button" variant="outline" size="icon" aria-label="Muat ulang" onClick={() => void query.refetch()} disabled={query.isFetching}>
               <RefreshCw size={18} className={query.isFetching ? "spin" : undefined} />
-            </button>
+            </Button>
           }
         />
       )}

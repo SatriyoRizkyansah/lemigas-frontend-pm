@@ -12,6 +12,8 @@ import { Modal } from "@/components/modal/Modal";
 import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/input";
 
 type Entity = { id: string; nama: string; [key: string]: unknown };
 type Field = { name: string; label: string; type?: string; required?: boolean };
@@ -134,9 +136,10 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
       header: "Aksi",
       render: (row: Entity) => (
         <div className="data-actions">
-          <button
+          <Button
             type="button"
-            className="btn btn-dark"
+            variant="outline"
+            size="sm"
             onClick={() => {
               setSelected(row);
               setForm(Object.fromEntries(cfg.fields.map((field) => [field.name, String(row[field.name] ?? "")])));
@@ -144,10 +147,10 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
             }}
           >
             Ubah
-          </button>
-          <button type="button" className="btn btn-dark" onClick={() => setRemoving(row)}>
+          </Button>
+          <Button type="button" variant="destructive" size="sm" onClick={() => setRemoving(row)}>
             Hapus
-          </button>
+          </Button>
         </div>
       ),
     },
@@ -171,9 +174,9 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
           <h1 className="page-title">{cfg.title}</h1>
           <p>{cfg.description}</p>
         </div>
-        <button className="btn btn-blue" type="button" onClick={beginCreate}>
+        <Button type="button" onClick={beginCreate}>
           <Plus size={18} /> Tambah
-        </button>
+        </Button>
       </div>
 
       {query.isPending ? (
@@ -181,9 +184,9 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
       ) : query.isError ? (
         <div className="dashboard-error" role="alert">
           {getApiErrorMessage(query.error)}{" "}
-          <button type="button" onClick={() => void query.refetch()}>
+          <Button type="button" variant="link" size="sm" onClick={() => void query.refetch()}>
             Coba lagi
-          </button>
+          </Button>
         </div>
       ) : (
         <DataTable
@@ -195,9 +198,9 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
           searchPlaceholder={`Cari ${cfg.title.toLowerCase()}…`}
           emptyMessage={`Belum ada data ${cfg.title.toLowerCase()}.`}
           toolbarActions={
-            <button className="icon-btn" type="button" aria-label="Muat ulang" onClick={() => void query.refetch()} disabled={query.isFetching}>
+            <Button variant="outline" size="icon" type="button" aria-label="Muat ulang" onClick={() => void query.refetch()} disabled={query.isFetching}>
               <RefreshCw size={18} className={query.isFetching ? "spin" : undefined} />
-            </button>
+            </Button>
           }
         />
       )}
@@ -212,12 +215,12 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
         title={selected ? `Ubah ${cfg.title}` : `Tambah ${cfg.title}`}
         footer={
           <>
-            <button type="button" className="btn btn-dark" onClick={() => setOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Batal
-            </button>
-            <button type="submit" form="master-form" className="btn btn-blue" disabled={busy}>
+            </Button>
+            <Button type="submit" form="master-form" disabled={busy}>
               {busy ? "Menyimpan…" : "Simpan"}
-            </button>
+            </Button>
           </>
         }
       >
@@ -225,7 +228,7 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
           {cfg.fields.map((field) => (
             <label className="field" key={field.name}>
               <span>{field.label}</span>
-              <input name={field.name} type={field.type ?? "text"} required={field.required} value={form[field.name] ?? ""} onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))} />
+              <Input name={field.name} type={field.type ?? "text"} required={field.required} value={form[field.name] ?? ""} onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))} />
             </label>
           ))}
         </form>
