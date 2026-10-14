@@ -53,13 +53,7 @@ export default function Topbar({ user, onMenu }: { user: User; onMenu: () => voi
 
       <form className="search" role="search" onSubmit={onSearch}>
         <Search size={18} aria-hidden="true" />
-        <input
-          type="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Cari aplikasi, menu, atau fitur…"
-          aria-label="Cari aplikasi, menu, atau fitur"
-        />
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari aplikasi, menu, atau fitur…" aria-label="Cari aplikasi, menu, atau fitur" />
       </form>
 
       <div className="topbar-actions">
@@ -71,13 +65,7 @@ export default function Topbar({ user, onMenu }: { user: User; onMenu: () => voi
         </Link>
 
         <div className="user-menu" ref={menuRef}>
-          <button
-            type="button"
-            className="user-btn"
-            onClick={() => setMenu((m) => !m)}
-            aria-haspopup="menu"
-            aria-expanded={menu}
-          >
+          <button type="button" className="user-btn" onClick={() => setMenu((m) => !m)} aria-haspopup="menu" aria-expanded={menu}>
             <span className="avatar">{user.initials}</span>
             <span className="user-name">{user.name}</span>
             <ChevronDown size={16} aria-hidden="true" />

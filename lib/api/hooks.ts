@@ -22,7 +22,7 @@ export type CurrentUser = {
   unitKerja?: string;
 };
 
-function setBrowserToken() {
+export function setBrowserToken() {
   const cookie =
     typeof document === "undefined"
       ? undefined
@@ -34,7 +34,7 @@ function setBrowserToken() {
   browserApi.setSecurityData(readSession(cookie)?.token ?? null);
 }
 
-async function apiData<T>(request: Promise<{ data: T }>): Promise<T> {
+export async function apiData<T>(request: Promise<{ data: T }>): Promise<T> {
   return (await request).data;
 }
 
