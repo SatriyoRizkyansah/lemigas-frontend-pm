@@ -24,7 +24,13 @@ function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
 }
 
 function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) {
-  return <DialogPrimitive.Backdrop data-slot="dialog-overlay" className={cn("fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out motion-reduce:transition-none data-[starting-style]:opacity-0 data-[ending-style]:opacity-0", className)} {...props} />;
+  return (
+    <DialogPrimitive.Backdrop
+      data-slot="dialog-overlay"
+      className={cn("fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out motion-reduce:transition-none data-[starting-style]:opacity-0 data-[ending-style]:opacity-0", className)}
+      {...props}
+    />
+  );
 }
 
 function DialogContent({
