@@ -50,6 +50,28 @@ export interface UpdateVendorDto {
   status?: "aktif" | "nonaktif";
 }
 
+export interface CreateVendorAccountDto {
+  vendorId?: string;
+  namaPerusahaan?: string;
+  email: string;
+  password: string;
+  namaPengguna: string;
+}
+
+export interface SubmitVendorProfileDto {
+  alamat?: string;
+  telepon?: string;
+  email?: string;
+  npwp?: string;
+  contactPerson?: string;
+}
+
+export interface ReviewVendorOnboardingDto {
+  status: "approved" | "rejected" | "requires_revision";
+  rejectionReason?: string;
+  revision?: object;
+}
+
 export interface CreateKategoriDto {
   /**
    * Kode kategori (unik)
@@ -143,16 +165,6 @@ export interface UpdatePengadaanDto {
     | "penunjukan_langsung"
     | "e_procurement";
   prioritas?: "rendah" | "sedang" | "tinggi" | "darurat";
-  status?:
-    | "draft"
-    | "diajukan"
-    | "dalam_review"
-    | "disetujui"
-    | "ditolak"
-    | "revisi"
-    | "sedang_proses"
-    | "selesai"
-    | "dibatalkan";
   /** Tanggal pengajuan (YYYY-MM-DD) */
   tanggalPengajuan?: string;
   /** Tanggal deadline (YYYY-MM-DD) */
@@ -202,7 +214,7 @@ export interface CreateRfqDto {
 }
 
 export interface CreatePenawaranDto {
-  vendorId: string;
+  vendorId?: string;
   nomorRfq?: string;
   hargaAcuan?: string;
   diferensialHarga?: number;
@@ -986,6 +998,196 @@ export class Api<
         ...params,
       }),
   };
+  vendorOnboarding = {
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerCreateAccount
+     * @summary Admin membuat akun vendor (Admin)
+     * @request POST:/api/vendor-onboarding/accounts
+     * @secure
+     */
+    vendorOnboardingControllerCreateAccount: (
+      data: CreateVendorAccountDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding/accounts`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerList
+     * @summary Daftar onboarding vendor (Admin, Verifikator)
+     * @request GET:/api/vendor-onboarding
+     * @secure
+     */
+    vendorOnboardingControllerList: (
+      query: {
+        status: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerMyRfqs
+     * @summary Daftar RFQ untuk akun vendor (Vendor)
+     * @request GET:/api/vendor-onboarding/me/rfqs
+     * @secure
+     */
+    vendorOnboardingControllerMyRfqs: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding/me/rfqs`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerMine
+     * @summary Status onboarding akun vendor (Vendor)
+     * @request GET:/api/vendor-onboarding/me
+     * @secure
+     */
+    vendorOnboardingControllerMine: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding/me`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerUpdateProfile
+     * @summary Lengkapi profil vendor (Vendor)
+     * @request PUT:/api/vendor-onboarding/me/profile
+     * @secure
+     */
+    vendorOnboardingControllerUpdateProfile: (
+      data: SubmitVendorProfileDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding/me/profile`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerAddDocument
+     * @summary Tambahkan dokumen legalitas vendor (Vendor)
+     * @request POST:/api/vendor-onboarding/me/documents
+     * @secure
+     */
+    vendorOnboardingControllerAddDocument: (
+      data: {
+        /** @format binary */
+        file: File;
+        jenis: string;
+        /** @format date-time */
+        expiresAt?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding/me/documents`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerDownloadDocument
+     * @summary Unduh dokumen onboarding vendor (Admin, Verifikator, Vendor)
+     * @request GET:/api/vendor-onboarding/documents/{id}/file
+     * @secure
+     */
+    vendorOnboardingControllerDownloadDocument: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding/documents/${id}/file`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerSubmit
+     * @summary Ajukan onboarding untuk direview (Vendor)
+     * @request POST:/api/vendor-onboarding/me/submit
+     * @secure
+     */
+    vendorOnboardingControllerSubmit: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding/me/submit`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerReview
+     * @summary Review onboarding vendor (Admin, Verifikator)
+     * @request PUT:/api/vendor-onboarding/{id}/review
+     * @secure
+     */
+    vendorOnboardingControllerReview: (
+      id: string,
+      data: ReviewVendorOnboardingDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding/${id}/review`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+  };
   kategoriPengadaan = {
     /**
      * No description
@@ -1406,7 +1608,7 @@ export class Api<
      *
      * @tags Siklus Transaksi Komoditas
      * @name TransaksiControllerCreatePenawaran
-     * @summary Catat penawaran vendor (Admin, Operator)
+     * @summary Catat penawaran vendor (Admin, Operator, Vendor)
      * @request POST:/api/pengadaan/{pengadaanId}/penawaran
      * @secure
      */
