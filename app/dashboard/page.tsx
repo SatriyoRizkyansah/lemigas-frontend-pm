@@ -1,6 +1,7 @@
 "use client";
 
 import { Activity, ClipboardList, PackageCheck, RefreshCw, Truck, Wallet } from "lucide-react";
+import Link from "next/link";
 import { useDashboardStats } from "@/lib/api/hooks";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { StatusBadge } from "@/components/common/StatusBadge";
@@ -12,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const numberFormat = new Intl.NumberFormat("id-ID");
+const formatCurrency = (currency: string, value: number) => `${currency} ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(value)}`;
 const stageLabels: Record<string, string> = {
   perencanaan: "Perencanaan",
   sourcing: "Sourcing / RFQ",
@@ -40,7 +42,7 @@ function formatPeriod(value: string) {
   return new Intl.DateTimeFormat("id-ID", { month: "short", year: "2-digit" }).format(new Date(`${value}-01T00:00:00`));
 }
 
-function TrendChart({ data }: { data: Array<{ periode: string; jumlah: number }> }) {
+function TrendChart({ data }: { data: Array<{ periode: string; jumlah: number; nilai_estimasi: string }> }) {
   const max = Math.max(1, ...data.map((item) => item.jumlah));
   const points = data.map((item, index) => ({ ...item, x: data.length < 2 ? 50 : 8 + (index / (data.length - 1)) * 84, y: 76 - (item.jumlah / max) * 62 }));
   const line = points.map((point) => `${point.x},${point.y}`).join(" ");
@@ -69,6 +71,13 @@ function TrendChart({ data }: { data: Array<{ periode: string; jumlah: number }>
           <span key={item.periode}>{numberFormat.format(item.jumlah)}</span>
         ))}
       </div>
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
+        {data.map((item) => (
+          <span key={item.periode} className="truncate" title={`Nilai estimasi ${numberFormat.format(Number(item.nilai_estimasi))}`}>
+            {formatPeriod(item.periode)}: {numberFormat.format(Number(item.nilai_estimasi))}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -83,7 +92,6 @@ export default function DashboardPage() {
       totals[item.mata_uang] = (totals[item.mata_uang] ?? 0) + Number(item.nilai);
       return totals;
     }, {}) ?? {};
-  const formatCurrency = (currency: string, value: number) => `${currency} ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(value)}`;
   const invoiceValueLabel =
     Object.entries(invoiceValues)
       .map(([currency, value]) => formatCurrency(currency, value))
@@ -126,11 +134,13 @@ export default function DashboardPage() {
             </AlertDescription>
           </Alert>
         ) : stats ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <SummaryCard label="Total pengadaan" value={stats.pengadaan.total} detail={`${numberFormat.format(stats.pengadaan.bulan_ini)} dibuat bulan ini`} icon={ClipboardList} />
             <SummaryCard label="Menunggu approval" value={stats.approval_pending} detail={`${numberFormat.format(stats.pengadaan.dalam_review)} pengadaan dalam review`} icon={Activity} />
             <SummaryCard label="Pengiriman" value={shipmentTotal} detail="Total kargo tercatat" icon={Truck} />
             <SummaryCard label="Tagihan" value={invoiceTotal} detail={`Nilai tercatat: ${invoiceValueLabel}`} icon={Wallet} />
+            <SummaryCard label="Vendor aktif" value={stats.master.vendor_aktif} detail="Penyedia siap digunakan" icon={PackageCheck} />
+            <SummaryCard label="Barang terdaftar" value={stats.master.total_barang} detail={`${numberFormat.format(stats.master.user_aktif)} pengguna aktif`} icon={ClipboardList} />
           </div>
         ) : null}
       </section>
@@ -148,8 +158,9 @@ export default function DashboardPage() {
                   <div key={stage.tahap} className="space-y-1.5">
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="font-medium">{stageLabels[stage.tahap] ?? stage.tahap}</span>
-                      <span className="text-muted-foreground">
-                        {numberFormat.format(stage.total)} total · {numberFormat.format(stage.aktif)} aktif · {numberFormat.format(stage.selesai)} selesai
+                      <span className="text-right text-muted-foreground">
+                        {numberFormat.format(stage.total)} total · {numberFormat.format(stage.aktif)} aktif · {numberFormat.format(stage.menunggu_persetujuan)} menunggu · {numberFormat.format(stage.revisi)} revisi ·{" "}
+                        {numberFormat.format(stage.ditolak)} ditolak · {numberFormat.format(stage.selesai)} selesai
                       </span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -168,7 +179,13 @@ export default function DashboardPage() {
             </Card>
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-2" aria-label="Status delivery dan settlement">
+          <section className="grid gap-4 xl:grid-cols-2" aria-label="Status pengadaan, delivery, dan settlement">
+            <BreakdownCard
+              title="Status pengadaan"
+              description="Jumlah pengadaan pada setiap status proses."
+              icon={ClipboardList}
+              items={stats.pengadaan_status.map((item) => ({ label: item.status.replaceAll("_", " "), status: item.status, total: item.total }))}
+            />
             <BreakdownCard
               title="Delivery & kargo"
               description="Status pengiriman kargo pada seluruh transaksi."
@@ -206,8 +223,22 @@ export default function DashboardPage() {
                     <TableBody>
                       {stats.recent_pengadaan.map((item) => (
                         <TableRow key={item.id}>
-                          <TableCell>{item.nomorSurat || "—"}</TableCell>
-                          <TableCell className="font-medium">{item.judul}</TableCell>
+                          <TableCell>
+                            <Link
+                              className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                              href={`/dashboard/pengadaan/${encodeURIComponent(item.id)}/siklus`}
+                            >
+                              {item.nomorSurat || "Lihat pengadaan"}
+                            </Link>
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            <Link
+                              className="underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                              href={`/dashboard/pengadaan/${encodeURIComponent(item.id)}/siklus`}
+                            >
+                              {item.judul}
+                            </Link>
+                          </TableCell>
                           <TableCell>{item.diajukanOlehUser?.nama || "—"}</TableCell>
                           <TableCell>
                             <StatusBadge status={statusKind(item.status)}>{item.status.replaceAll("_", " ")}</StatusBadge>

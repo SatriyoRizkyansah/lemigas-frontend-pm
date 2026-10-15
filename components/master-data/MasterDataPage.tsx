@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { browserApi } from "@/lib/api/browser-client";
-import { apiData, setBrowserToken } from "@/lib/api/hooks";
+import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
 import { use_query } from "@/lib/api/use_query";
 import { use_mutation } from "@/lib/api/use_mutation";
 import { apiQueryKeys } from "@/lib/api/query-keys";
@@ -16,11 +16,13 @@ import { Button } from "@/components/ui/Button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-type Entity = { id: string; nama: string; [key: string]: unknown };
-type Field = { name: string; label: string; type?: string; required?: boolean };
+type Entity = { id: string; nama: string; [key: string]: any };
+type Field = { name: string; label: string; type?: string; required?: boolean; options?: Array<{ label: string; value: string }> };
+type ListPayload = { items: Entity[]; total: number; totalPages: number };
 type Config = { title: string; description: string; tag: string; method: string; createMethod: string; updateMethod: string; deleteMethod: string; fields: Field[] };
 
 const config: Record<string, Config> = {
@@ -39,6 +41,14 @@ const config: Record<string, Config> = {
       { name: "email", label: "Email", type: "email" },
       { name: "npwp", label: "NPWP" },
       { name: "contactPerson", label: "Contact person" },
+      {
+        name: "status",
+        label: "Status",
+        options: [
+          { label: "Aktif", value: "aktif" },
+          { label: "Nonaktif", value: "nonaktif" },
+        ],
+      },
     ],
   },
   kategori: {
@@ -72,22 +82,56 @@ const config: Record<string, Config> = {
   },
 };
 
-function unwrapList(value: unknown): Entity[] {
-  let payload = value as any;
-  for (let i = 0; i < 3 && payload && typeof payload === "object" && "data" in payload; i += 1) payload = payload.data;
+function unwrapList(value: unknown): ListPayload {
+  let payload: any = value;
+  let pagination: any;
+  for (let i = 0; i < 3 && payload && typeof payload === "object"; i += 1) {
+    pagination ??= payload.pagination;
+    if (!("data" in payload)) break;
+    payload = payload.data;
+  }
   const list = Array.isArray(payload) ? payload : (payload?.items ?? payload?.data ?? []);
-  return Array.isArray(list) ? list : [];
+  const items = Array.isArray(list) ? (list as Entity[]) : [];
+  return {
+    items,
+    total: Number(pagination?.total_datas ?? items.length),
+    totalPages: Number(pagination?.total_pages ?? (items.length ? 1 : 0)),
+  };
 }
 
 export default function MasterDataPage({ kind }: { kind: keyof typeof config }) {
   const cfg = config[kind];
+  const currentUser = useCurrentUser();
+  const role = currentUser.data?.role.toLowerCase();
+  const canEdit = kind === "kategori" ? role === "admin" : role === "admin" || role === "operator";
+  const canDelete = role === "admin";
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Entity | null>(null);
   const [removing, setRemoving] = useState<Entity | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
-  const params = useMemo(() => ({ query: search || undefined, limit: 100, page: 1 }), [search]);
-  const query = use_query<Entity[], Error, typeof params>({
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [filters, setFilters] = useState<Record<string, string>>({ status: "__all", kategoriId: "__all" });
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  useEffect(() => setPage(1), [debouncedSearch, filters, limit]);
+
+  const params = useMemo(
+    () => ({
+      query: debouncedSearch || undefined,
+      limit,
+      page,
+      ...(kind === "vendor" && filters.status !== "__all" ? { status: filters.status } : {}),
+      ...(kind === "barang" && filters.kategoriId !== "__all" ? { kategoriId: filters.kategoriId } : {}),
+    }),
+    [kind, debouncedSearch, limit, page, filters],
+  );
+  const query = use_query<ListPayload, Error, typeof params>({
     tag: cfg.tag,
     method: cfg.method,
     params,
@@ -96,6 +140,21 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
       const group = cfg.tag === "kategori" ? browserApi.kategoriPengadaan : browserApi[cfg.tag as "vendor" | "barang"];
       const fn = (group as any)[cfg.method];
       return unwrapList(await apiData(fn(request, { format: "json" }) as Promise<{ data: unknown }>));
+    },
+  });
+  const categoryQuery = use_query<ListPayload, Error, { limit: number; page: number }>({
+    tag: "kategori",
+    method: "kategoriGetControllerFindAll",
+    params: { limit: 100, page: 1 },
+    enabled: kind === "barang",
+    queryFn: async (request) => {
+      setBrowserToken();
+      const firstPage = unwrapList(await apiData(browserApi.kategoriPengadaan.kategoriGetControllerFindAll(request, { format: "json" }) as Promise<{ data: unknown }>));
+      if (firstPage.totalPages <= 1) return firstPage;
+      const remainingPages = await Promise.all(
+        Array.from({ length: firstPage.totalPages - 1 }, (_, index) => apiData(browserApi.kategoriPengadaan.kategoriGetControllerFindAll({ ...request, page: index + 2 }, { format: "json" }) as Promise<{ data: unknown }>)),
+      );
+      return { ...firstPage, items: [...firstPage.items, ...remainingPages.flatMap((pageData) => unwrapList(pageData).items)] };
     },
   });
   const invalidate = [apiQueryKeys.resource(cfg.tag)];
@@ -132,9 +191,15 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
     },
     onSuccess: () => setRemoving(null),
   });
-  const rows = query.data ?? [];
+  const rows = query.data?.items ?? [];
+  const categories = categoryQuery.data?.items ?? [];
   const columns = [
-    ...cfg.fields.slice(0, 4).map((field) => ({ key: field.name, header: field.label, render: (row: Entity) => String(row[field.name] ?? "—") })),
+    ...cfg.fields.slice(0, kind === "vendor" ? cfg.fields.length : 4).map((field) => ({
+      key: field.name,
+      header: field.label,
+      render: (row: Entity) => (field.name === "kategoriId" ? String(row.kategori?.nama ?? "—") : field.name === "status" ? (row.status === "aktif" ? "Aktif" : "Nonaktif") : String(row[field.name] ?? "—")),
+    })),
+    ...(kind === "kategori" ? [{ key: "jumlahBarang", header: "Jumlah barang", render: (row: Entity) => String(row._count?.barang ?? 0) }] : []),
     {
       key: "actions",
       header: "Aksi",
@@ -142,44 +207,50 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
       render: (row: Entity) => (
         <TooltipProvider>
           <div className="flex w-max flex-nowrap items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger
-                type="button"
-                aria-label={`Ubah ${row.nama}`}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                onClick={() => {
-                  setSelected(row);
-                  setForm(Object.fromEntries(cfg.fields.map((field) => [field.name, String(row[field.name] ?? "")])));
-                  setOpen(true);
-                }}
-              >
-                <Pencil className="h-4 w-4" aria-hidden="true" />
-              </TooltipTrigger>
-              <TooltipContent>Ubah</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                type="button"
-                aria-label={`Hapus ${row.nama}`}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-destructive/20 bg-destructive/10 text-destructive transition-colors hover:bg-destructive/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
-                onClick={() => setRemoving(row)}
-              >
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </TooltipTrigger>
-              <TooltipContent>Hapus</TooltipContent>
-            </Tooltip>
+            {canEdit && (
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  aria-label={`Ubah ${row.nama}`}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  onClick={() => {
+                    setSelected(row);
+                    setForm(Object.fromEntries(cfg.fields.map((field) => [field.name, String(row[field.name] ?? "")])));
+                    setOpen(true);
+                  }}
+                >
+                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                </TooltipTrigger>
+                <TooltipContent>Ubah</TooltipContent>
+              </Tooltip>
+            )}
+            {canDelete && (
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  aria-label={`Hapus ${row.nama}`}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-destructive/20 bg-destructive/10 text-destructive transition-colors hover:bg-destructive/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
+                  onClick={() => setRemoving(row)}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                </TooltipTrigger>
+                <TooltipContent>Hapus</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         </TooltipProvider>
       ),
     },
   ];
   function beginCreate() {
+    if (!canEdit) return;
     setSelected(null);
     setForm({});
     setOpen(true);
   }
   function save(event: React.FormEvent) {
     event.preventDefault();
+    if (!canEdit || cfg.fields.some((field) => field.required && !form[field.name]?.trim())) return;
     const body = Object.fromEntries(cfg.fields.filter((field) => form[field.name] !== "").map((field) => [field.name, field.type === "number" ? Number(form[field.name]) : form[field.name]]));
     if (selected) update.mutate({ id: selected.id, body });
     else create.mutate(body);
@@ -191,9 +262,11 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
         title={cfg.title}
         description={cfg.description}
         actions={
-          <Button type="button" onClick={beginCreate} className="bg-foreground text-background hover:bg-foreground/90">
-            <Plus size={18} /> Tambah
-          </Button>
+          canEdit ? (
+            <Button type="button" onClick={beginCreate} className="bg-foreground text-background hover:bg-foreground/90">
+              <Plus size={18} /> Tambah
+            </Button>
+          ) : null
         }
       />
 
@@ -209,7 +282,42 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
           </AlertDescription>
         </Alert>
       ) : (
-        <DataTable columns={columns} rows={rows} rowKey={(row) => row.id} searchValue={search} onSearchChange={setSearch} searchPlaceholder={`Cari ${cfg.title.toLowerCase()}…`} emptyMessage={`Belum ada data ${cfg.title.toLowerCase()}.`} />
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(row) => row.id}
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder={`Cari ${cfg.title.toLowerCase()}…`}
+          emptyMessage={`Belum ada data ${cfg.title.toLowerCase()}.`}
+          remoteSearch
+          filters={
+            kind === "vendor"
+              ? [
+                  {
+                    field: "status",
+                    label: "Status vendor",
+                    options: [
+                      { label: "Aktif", value: "aktif" },
+                      { label: "Nonaktif", value: "nonaktif" },
+                    ],
+                  },
+                ]
+              : kind === "barang"
+                ? [{ field: "kategoriId", label: "Kategori", options: categories.map((category) => ({ label: `${category.kode} — ${category.nama}`, value: category.id })) }]
+                : []
+          }
+          filterValues={kind === "vendor" || kind === "barang" ? filters : undefined}
+          onFilterChange={kind === "vendor" || kind === "barang" ? (field, value) => setFilters((current) => ({ ...current, [field]: value })) : undefined}
+          pagination={{
+            page,
+            pageSize: limit,
+            total: query.data?.total ?? 0,
+            totalPages: query.data?.totalPages ?? 0,
+            onPageChange: setPage,
+            onPageSizeChange: setLimit,
+          }}
+        />
       )}
       {create.isError || update.isError || remove.isError ? (
         <Alert variant="destructive">
@@ -217,7 +325,7 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
         </Alert>
       ) : null}
       <Modal
-        open={open}
+        open={open && canEdit}
         onClose={() => setOpen(false)}
         title={selected ? `Ubah ${cfg.title}` : `Tambah ${cfg.title}`}
         footer={
@@ -235,20 +343,48 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
           {cfg.fields.map((field) => (
             <div className="grid gap-2" key={field.name}>
               <Label htmlFor={`master-${field.name}`}>{field.label}</Label>
-              <Input
-                id={`master-${field.name}`}
-                name={field.name}
-                type={field.type ?? "text"}
-                required={field.required}
-                value={form[field.name] ?? ""}
-                onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))}
-              />
+              {field.name === "kategoriId" ? (
+                <Select value={form.kategoriId ?? ""} onValueChange={(value) => value && setForm((current) => ({ ...current, kategoriId: value }))}>
+                  <SelectTrigger id="master-kategoriId" aria-label="Kategori barang">
+                    <SelectValue placeholder={categoryQuery.isPending ? "Memuat kategori…" : "Pilih kategori"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((category) => (
+                      <SelectItem key={category.id} value={category.id}>
+                        {category.kode} — {category.nama}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : field.options ? (
+                <Select value={form[field.name] ?? field.options[0]?.value ?? ""} onValueChange={(value) => value && setForm((current) => ({ ...current, [field.name]: value }))}>
+                  <SelectTrigger id={`master-${field.name}`} aria-label={field.label}>
+                    <SelectValue placeholder={`Pilih ${field.label.toLowerCase()}`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {field.options.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id={`master-${field.name}`}
+                  name={field.name}
+                  type={field.type ?? "text"}
+                  required={field.required}
+                  value={form[field.name] ?? ""}
+                  onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))}
+                />
+              )}
             </div>
           ))}
         </form>
       </Modal>
       <ConfirmDialog
-        open={Boolean(removing)}
+        open={Boolean(removing) && canDelete}
         onClose={() => setRemoving(null)}
         onConfirm={() => removing && remove.mutate(removing.id)}
         title={`Hapus ${cfg.title.toLowerCase()}?`}

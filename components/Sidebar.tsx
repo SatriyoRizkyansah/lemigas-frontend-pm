@@ -17,6 +17,7 @@ const allSections = [
     title: "Data Master",
     items: [
       { href: "/dashboard/vendor", label: "Vendor", icon: Store },
+      { href: "/dashboard/vendor-onboarding", label: "Onboarding Vendor", icon: ShieldCheck },
       { href: "/dashboard/kategori", label: "Kategori", icon: Archive },
       { href: "/dashboard/barang", label: "Barang", icon: Boxes },
     ],
@@ -42,14 +43,20 @@ const allSections = [
 function allowedSections(role: string) {
   const normalized = role.toLowerCase();
   if (normalized.includes("admin")) return allSections;
-  if (normalized.includes("operator")) return allSections.filter((section) => section.title !== "Sistem");
-  if (normalized.includes("verifikator")) return [allSections[0], { ...allSections[2], items: allSections[2].items.filter((item) => ["Rencana Transaksi", "Pengadaan", "Approval"].includes(item.label)) }];
+  if (normalized.includes("operator")) return allSections.map((section) => ({ ...section, items: section.items.filter((item) => item.label !== "Onboarding Vendor") })).filter((section) => section.title !== "Sistem");
+  if (normalized.includes("verifikator"))
+    return [
+      allSections[0],
+      { ...allSections[2], items: allSections[2].items.filter((item) => ["Rencana Transaksi", "Pengadaan", "Approval"].includes(item.label)) },
+      { ...allSections[1], items: allSections[1].items.filter((item) => item.label === "Onboarding Vendor") },
+    ];
   if (normalized.includes("pimpinan"))
     return [
       allSections[0],
       { ...allSections[2], items: allSections[2].items.filter((item) => ["Rencana Transaksi", "Approval"].includes(item.label)) },
       { ...allSections[3], items: allSections[3].items.filter((item) => item.label === "Audit Log") },
     ];
+  if (normalized.includes("vendor")) return [{ title: "Portal Vendor", items: [{ href: "/dashboard/vendor-portal", label: "Onboarding & Penawaran", icon: Store }] }];
   return [allSections[0], { ...allSections[2], items: allSections[2].items.filter((item) => ["Rencana Transaksi", "Pengadaan", "Dokumen"].includes(item.label)) }];
 }
 
