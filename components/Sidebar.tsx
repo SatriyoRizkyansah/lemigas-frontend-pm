@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Archive, Bell, Boxes, ClipboardList, FileText, FolderOpen, Gauge, Package, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Store, Users } from "lucide-react";
+import { Activity, Archive, Boxes, ClipboardList, FolderOpen, Gauge, Package, PanelLeftClose, PanelLeftOpen, ShieldCheck, Store, Users } from "lucide-react";
 import Skyline from "./Skyline";
 import { userFromIdentity, SESSION_COOKIE } from "@/lib/auth";
 import { Button } from "@/components/ui/legacy-button";
@@ -11,10 +11,7 @@ import { useEffect, useState } from "react";
 const allSections = [
   {
     title: "Overview",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: Gauge, exact: true },
-      { href: "/dashboard/notifikasi", label: "Notifikasi", icon: Bell },
-    ],
+    items: [{ href: "/dashboard", label: "Dashboard", icon: Gauge, exact: true }],
   },
   {
     title: "Data Master",
@@ -79,8 +76,8 @@ export default function Sidebar({ collapsed, open, onToggle }: Props) {
             <section key={section.title}>
               <p className="sidebar-title">{section.title}</p>
               <ul className="nav">
-                {section.items.map(({ href, label, icon: Icon, exact }) => {
-                  const active = exact ? pathname === href : pathname.startsWith(href);
+                {section.items.map(({ href, label, icon: Icon, ...item }) => {
+                  const active = "exact" in item && item.exact ? pathname === href : pathname.startsWith(href);
                   return (
                     <li key={href}>
                       <Link href={href} className="nav-link" aria-current={active ? "page" : undefined} title={collapsed ? label : undefined}>

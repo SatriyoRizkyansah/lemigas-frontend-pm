@@ -94,6 +94,11 @@ export type DashboardStats = {
     master: { vendor_aktif: number; total_barang: number; user_aktif: number };
     approval_pending: number;
     recent_pengadaan: Array<{ id: string; nomorSurat: string | null; judul: string; status: string; metode: string; prioritas: string; createdAt: string; diajukanOlehUser?: { nama: string } | null }>;
+    pengadaan_status: Array<{ status: string; total: number }>;
+    tahapan: Array<{ tahap: string; total: number; aktif: number; menunggu_persetujuan: number; selesai: number; revisi: number; ditolak: number }>;
+    pengiriman: Array<{ status: string; total: number }>;
+    tagihan: Array<{ status: string; mata_uang: string; total: number; nilai: string }>;
+    trend_bulanan: Array<{ periode: string; jumlah: number; nilai_estimasi: string }>;
   };
 };
 

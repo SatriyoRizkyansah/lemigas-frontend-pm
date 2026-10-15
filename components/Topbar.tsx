@@ -3,21 +3,53 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, ChevronDown, LayoutGrid, LogOut, Menu, Search, User as UserIcon } from "lucide-react";
+import { Bell, CheckCheck, ChevronDown, LayoutGrid, LogOut, Menu, Search, User as UserIcon } from "lucide-react";
 import Logo from "./Logo";
 import { clearSession, type User } from "@/lib/auth";
+import { browserApi } from "@/lib/api/browser-client";
+import { apiData, setBrowserToken } from "@/lib/api/hooks";
+import { use_query } from "@/lib/api/use_query";
+import { use_mutation } from "@/lib/api/use_mutation";
+import { apiQueryKeys } from "@/lib/api/query-keys";
+import { dateText, entityText, unwrapEntityList } from "@/components/procurement/EntityListPage";
 
 export default function Topbar({ user, onMenu }: { user: User; onMenu: () => void }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [menu, setMenu] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const notificationsRef = useRef<HTMLDivElement>(null);
+  const notifications = use_query<any[], Error, Record<string, never>>({
+    tag: "notifikasi",
+    method: "notifikasiGetControllerFindAll",
+    params: {},
+    queryFn: async () => {
+      setBrowserToken();
+      return unwrapEntityList(await apiData(browserApi.notifikasi.notifikasiGetControllerFindAll({ limit: 5, page: 1 }, { format: "json" }) as Promise<{ data: unknown }>));
+    },
+  });
+  const markAllRead = use_mutation<unknown, Error, void>({
+    tag: "notifikasi",
+    method: "notifikasiPutControllerMarkAllAsRead",
+    invalidateKeys: [apiQueryKeys.resource("notifikasi")],
+    mutationFn: async () => {
+      setBrowserToken();
+      return apiData(browserApi.notifikasi.notifikasiPutControllerMarkAllAsRead({ format: "json" }) as Promise<{ data: unknown }>);
+    },
+  });
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenu(false);
+      if (notificationsRef.current && !notificationsRef.current.contains(e.target as Node)) setNotificationsOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenu(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenu(false);
+        setNotificationsOpen(false);
+      }
+    };
     document.addEventListener("mousedown", onClick);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -57,9 +89,45 @@ export default function Topbar({ user, onMenu }: { user: User; onMenu: () => voi
       </form>
 
       <div className="topbar-actions">
-        <button type="button" className="icon-btn plain has-dot" aria-label="Notifikasi">
-          <Bell size={20} />
-        </button>
+        <div className="notification-menu" ref={notificationsRef}>
+          <button
+            type="button"
+            className={`icon-btn plain${notifications.data?.some((item) => !item.dibaca) ? " has-dot" : ""}`}
+            aria-label="Notifikasi"
+            aria-haspopup="dialog"
+            aria-expanded={notificationsOpen}
+            onClick={() => setNotificationsOpen((open) => !open)}
+          >
+            <Bell size={20} />
+          </button>
+          {notificationsOpen ? (
+            <div className="dropdown notification-dropdown" role="dialog" aria-label="Notifikasi terbaru">
+              <div className="dropdown-head notification-head">
+                <strong>Notifikasi</strong>
+                <button type="button" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending || !notifications.data?.some((item) => !item.dibaca)}>
+                  <CheckCheck size={15} /> Tandai semua dibaca
+                </button>
+              </div>
+              {notifications.isPending ? (
+                <p className="notification-empty">Memuat notifikasi…</p>
+              ) : notifications.isError ? (
+                <p className="notification-empty">Notifikasi gagal dimuat.</p>
+              ) : notifications.data?.length ? (
+                <ul className="notification-list">
+                  {notifications.data.slice(0, 5).map((item) => (
+                    <li key={item.id} className={item.dibaca ? "" : "unread"}>
+                      <strong>{entityText(item.judul ?? item.title ?? item.pesan)}</strong>
+                      <span>{entityText(item.pesan ?? item.message ?? item.deskripsi)}</span>
+                      <time>{dateText(item.createdAt)}</time>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="notification-empty">Belum ada notifikasi.</p>
+              )}
+            </div>
+          ) : null}
+        </div>
         <Link href="/dashboard/aplikasi" className="icon-btn plain hide-sm" aria-label="Semua aplikasi">
           <LayoutGrid size={20} />
         </Link>

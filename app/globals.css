@@ -421,6 +421,66 @@ button {
 .dropdown button {
   color: var(--danger);
 }
+.notification-menu {
+  position: relative;
+}
+.notification-dropdown {
+  right: -8px;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 88px));
+  overflow-y: auto;
+  z-index: 60;
+}
+.notification-head {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.notification-head button {
+  display: inline-flex;
+  width: auto;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.notification-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.notification-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  font-size: 0.82rem;
+}
+.notification-list li.unread {
+  background: var(--bg);
+}
+.notification-list li strong,
+.notification-list li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.notification-list li span,
+.notification-list li time,
+.notification-empty {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.notification-list li time {
+  font-size: 0.72rem;
+}
+.notification-empty {
+  margin: 0;
+  padding: 16px 12px;
+}
 
 /* Layout: sidebar + main */
 .layout {
