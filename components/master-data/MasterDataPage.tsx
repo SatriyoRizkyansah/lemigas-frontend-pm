@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken } from "@/lib/api/hooks";
 import { use_query } from "@/lib/api/use_query";
@@ -17,6 +17,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/common/PageHeader";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Entity = { id: string; nama: string; [key: string]: unknown };
 type Field = { name: string; label: string; type?: string; required?: boolean };
@@ -137,24 +138,38 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
     {
       key: "actions",
       header: "Aksi",
+      className: "w-24 whitespace-nowrap",
       render: (row: Entity) => (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setSelected(row);
-              setForm(Object.fromEntries(cfg.fields.map((field) => [field.name, String(row[field.name] ?? "")])));
-              setOpen(true);
-            }}
-          >
-            Ubah
-          </Button>
-          <Button type="button" variant="destructive" size="sm" onClick={() => setRemoving(row)}>
-            Hapus
-          </Button>
-        </div>
+        <TooltipProvider>
+          <div className="flex w-max flex-nowrap items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger
+                type="button"
+                aria-label={`Ubah ${row.nama}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                onClick={() => {
+                  setSelected(row);
+                  setForm(Object.fromEntries(cfg.fields.map((field) => [field.name, String(row[field.name] ?? "")])));
+                  setOpen(true);
+                }}
+              >
+                <Pencil className="h-4 w-4" aria-hidden="true" />
+              </TooltipTrigger>
+              <TooltipContent>Ubah</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                type="button"
+                aria-label={`Hapus ${row.nama}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-destructive/20 bg-destructive/10 text-destructive transition-colors hover:bg-destructive/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
+                onClick={() => setRemoving(row)}
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </TooltipTrigger>
+              <TooltipContent>Hapus</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
       ),
     },
   ];
@@ -176,7 +191,7 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
         title={cfg.title}
         description={cfg.description}
         actions={
-          <Button type="button" onClick={beginCreate}>
+          <Button type="button" onClick={beginCreate} className="bg-foreground text-background hover:bg-foreground/90">
             <Plus size={18} /> Tambah
           </Button>
         }
@@ -194,20 +209,7 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
           </AlertDescription>
         </Alert>
       ) : (
-        <DataTable
-          columns={columns}
-          rows={rows}
-          rowKey={(row) => row.id}
-          searchValue={search}
-          onSearchChange={setSearch}
-          searchPlaceholder={`Cari ${cfg.title.toLowerCase()}…`}
-          emptyMessage={`Belum ada data ${cfg.title.toLowerCase()}.`}
-          toolbarActions={
-            <Button variant="outline" size="icon" type="button" aria-label="Muat ulang" onClick={() => void query.refetch()} disabled={query.isFetching}>
-              <RefreshCw size={18} className={query.isFetching ? "spin" : undefined} />
-            </Button>
-          }
-        />
+        <DataTable columns={columns} rows={rows} rowKey={(row) => row.id} searchValue={search} onSearchChange={setSearch} searchPlaceholder={`Cari ${cfg.title.toLowerCase()}…`} emptyMessage={`Belum ada data ${cfg.title.toLowerCase()}.`} />
       )}
       {create.isError || update.isError || remove.isError ? (
         <Alert variant="destructive">
@@ -223,7 +225,7 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Batal
             </Button>
-            <Button type="submit" form="master-form" disabled={busy}>
+            <Button type="submit" form="master-form" disabled={busy} className="bg-foreground text-background hover:bg-foreground/90">
               {busy ? "Menyimpan…" : "Simpan"}
             </Button>
           </>

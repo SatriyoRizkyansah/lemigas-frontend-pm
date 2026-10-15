@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { RefreshCw } from "lucide-react";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken } from "@/lib/api/hooks";
 import { use_query } from "@/lib/api/use_query";
@@ -70,11 +69,6 @@ export default function EntityListPage({ title, description, tag, method, queryA
           onSearchChange={setSearch}
           searchPlaceholder={`Cari ${title.toLowerCase()}…`}
           emptyMessage={`Belum ada ${title.toLowerCase()}.`}
-          toolbarActions={
-            <Button type="button" variant="outline" size="icon" aria-label="Muat ulang" onClick={() => void query.refetch()} disabled={query.isFetching}>
-              <RefreshCw size={18} className={query.isFetching ? "spin" : undefined} />
-            </Button>
-          }
         />
       )}
     </section>

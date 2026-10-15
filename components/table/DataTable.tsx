@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, ListFilter, RotateCcw, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DataTableFilters, type TableFilter as ReusableTableFilter } from "@/components/table/DataTableFilters";
+import { DataTableToolbar } from "@/components/table/DataTableToolbar";
 
 type Column<T> = {
   key: string;
@@ -19,6 +20,7 @@ type FilterOption = { label: string; value: string };
 type TableFilter<T> = { field: keyof T | string; label: string; options: FilterOption[] };
 type DataTableProps<T> = {
   columns: Column<T>[];
+  title?: string;
   rows: T[];
   rowKey: (row: T, index: number) => string | number;
   pageSize?: number;
@@ -42,6 +44,7 @@ const ALL_FILTER_VALUE = "__all";
 /** Reusable client-side table with legacy FE search, filter and pagination layout. */
 export function DataTable<T>({
   columns,
+  title,
   rows,
   rowKey,
   pageSize: initialPageSize = 10,
@@ -66,8 +69,6 @@ export function DataTable<T>({
   const activeFilters = filters.length ? filters : legacyFilter;
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() => Object.fromEntries(activeFilters.map((filter) => [String(filter.field), filter.field === filterField ? defaultFilterValue : ALL_FILTER_VALUE])));
   const activeSearch = searchValue ?? localSearch;
-  const showFilter = activeFilters.length > 0;
-  const normalizedOptions = (options: FilterOption[]) => (options.some((option) => option.value === ALL_FILTER_VALUE) ? options : [{ label: "Semua", value: ALL_FILTER_VALUE }, ...options]);
   const hasActiveFilters = activeFilters.some((filter) => (filterValues[String(filter.field)] ?? ALL_FILTER_VALUE) !== ALL_FILTER_VALUE);
 
   useEffect(() => setPage(0), [activeSearch, filterValues, rowsPerPage]);
@@ -109,59 +110,20 @@ export function DataTable<T>({
   }
 
   return (
-    <section className="space-y-3" aria-label="Data">
-      {!hideSearch && (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <label className="relative block w-full sm:max-w-sm">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <Input className="pl-9" type="search" placeholder={searchPlaceholder} value={activeSearch} onChange={(event) => updateSearch(event.target.value)} aria-label="Cari dalam tabel" />
-          </label>
-          {toolbarActions ? <div className="flex shrink-0 items-center gap-2">{toolbarActions}</div> : null}
-        </div>
-      )}
+    <section className="space-y-5" aria-label="Data">
+      {!hideSearch ? <DataTableToolbar title={title} searchValue={activeSearch} searchPlaceholder={searchPlaceholder} onSearchChange={updateSearch} actions={toolbarActions} /> : null}
+      {activeFilters.length > 0 ? (
+        <DataTableFilters
+          filters={activeFilters.map((filter) => ({ ...filter, field: String(filter.field) })) as ReusableTableFilter[]}
+          values={filterValues}
+          onChange={(field, value) => {
+            setFilterValues((current) => ({ ...current, [field]: value }));
+            setPage(0);
+          }}
+          onReset={resetFilters}
+        />
+      ) : null}
       <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
-        {showFilter && (
-          <div className="flex flex-col gap-3 border-b border-border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <ListFilter size={16} aria-hidden="true" />
-              <span>Filter</span>
-              {hasActiveFilters ? (
-                <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">{activeFilters.filter((filter) => (filterValues[String(filter.field)] ?? ALL_FILTER_VALUE) !== ALL_FILTER_VALUE).length}</span>
-              ) : null}
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              {activeFilters.map((filter) => {
-                const filterKey = String(filter.field);
-                return (
-                  <Select
-                    key={filterKey}
-                    value={filterValues[filterKey] ?? ALL_FILTER_VALUE}
-                    onValueChange={(value) => {
-                      setFilterValues((current) => ({ ...current, [filterKey]: value ?? ALL_FILTER_VALUE }));
-                      setPage(0);
-                    }}
-                  >
-                    <SelectTrigger size="sm" aria-label={`Filter ${filter.label.toLocaleLowerCase("id-ID")}`} className="w-full min-w-40 bg-background sm:w-auto">
-                      <SelectValue placeholder={filter.label} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {normalizedOptions(filter.options).map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                );
-              })}
-              {hasActiveFilters ? (
-                <Button variant="ghost" size="sm" type="button" onClick={resetFilters}>
-                  <RotateCcw size={14} aria-hidden="true" /> Reset
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        )}
         <div className="w-full overflow-x-auto">
           <Table className="min-w-[45rem]">
             <TableHeader>
