@@ -54,7 +54,7 @@
   --ui-destructive: 0 72% 51%;
   --ui-border: 220 18% 91%;
   --ui-input: 220 18% 91%;
-  --ui-ring: 221 83% 53%;
+  --ui-ring: 222 18% 12%;
   --radius: 0.625rem;
 }
 
@@ -110,7 +110,7 @@ button {
 }
 
 :focus-visible {
-  outline: 3px solid var(--blue);
+  outline: 2px solid hsl(var(--ui-ring) / 0.28);
   outline-offset: 2px;
 }
 
