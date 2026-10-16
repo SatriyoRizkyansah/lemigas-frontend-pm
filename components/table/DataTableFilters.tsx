@@ -17,7 +17,7 @@ export function DataTableFilters({ filters, values, onChange, onReset }: { filte
   };
 
   return (
-    <div className="rounded-xl border border-border bg-muted/40 p-4 sm:p-5">
+    <div className="rounded-xl border border-border bg-muted/40 p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-base font-bold uppercase tracking-wide text-foreground">
           <ListFilter className="h-4 w-4" aria-hidden="true" />
@@ -28,7 +28,7 @@ export function DataTableFilters({ filters, values, onChange, onReset }: { filte
           <RotateCcw className="h-4 w-4" aria-hidden="true" /> Reset Filters
         </Button>
       </div>
-      <div className="grid min-w-0 gap-3 sm:grid-cols-2 [&>*]:min-w-0">
+      <div className={`grid min-w-0 gap-3 [&>*]:min-w-0 ${filters.length > 1 ? "sm:grid-cols-2" : ""}`}>
         {filters.map((filter) => {
           const options = optionsWithAll(filter.options);
           const selectedValue = values[filter.field] ?? ALL_FILTER_VALUE;
