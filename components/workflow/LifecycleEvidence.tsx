@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/table/DataTable";
+import { LoadingState } from "@/components/loading/LoadingState";
 import { Modal } from "@/components/modal/Modal";
 import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
 import { apiQueryKeys } from "@/lib/api/query-keys";
@@ -202,31 +203,35 @@ export function LifecycleEvidence({ pengadaanId, detail }: { pengadaanId: string
           <AlertDescription>{getApiErrorMessage(mutation.error)}</AlertDescription>
         </Alert>
       ) : null}
-      <DataTable
-        rows={evidence.data ?? []}
-        rowKey={(row) => row.id}
-        emptyMessage={evidence.isPending ? "Memuat bukti…" : "Belum ada bukti per record."}
-        columns={[
-          { key: "jenisRecord", header: "Record", render: (row) => targetLabels[row.jenisRecord] ?? row.jenisRecord },
-          {
-            key: "recordId",
-            header: "Record terkait",
-            render: (row) => targets.find((target) => target.type === row.jenisRecord && target.id === row.recordId)?.name ?? `${targetLabels[row.jenisRecord] ?? row.jenisRecord} ${row.recordId}`,
-          },
-          { key: "dokumen", header: "Dokumen", render: (row) => linkDocument(row.dokumen) },
-          {
-            key: "actions",
-            header: "Aksi",
-            filterable: false,
-            render: (row) =>
-              canMutate ? (
-                <Button variant="destructive" size="sm" disabled={mutation.isPending} onClick={() => setUnlink(row)}>
-                  Lepas
-                </Button>
-              ) : null,
-          },
-        ]}
-      />
+      {evidence.isPending ? (
+        <LoadingState label="Loading..." />
+      ) : (
+        <DataTable
+          rows={evidence.data ?? []}
+          rowKey={(row) => row.id}
+          emptyMessage="Belum ada bukti per record."
+          columns={[
+            { key: "jenisRecord", header: "Record", render: (row) => targetLabels[row.jenisRecord] ?? row.jenisRecord },
+            {
+              key: "recordId",
+              header: "Record terkait",
+              render: (row) => targets.find((target) => target.type === row.jenisRecord && target.id === row.recordId)?.name ?? `${targetLabels[row.jenisRecord] ?? row.jenisRecord} ${row.recordId}`,
+            },
+            { key: "dokumen", header: "Dokumen", render: (row) => linkDocument(row.dokumen) },
+            {
+              key: "actions",
+              header: "Aksi",
+              filterable: false,
+              render: (row) =>
+                canMutate ? (
+                  <Button variant="destructive" size="sm" disabled={mutation.isPending} onClick={() => setUnlink(row)}>
+                    Lepas
+                  </Button>
+                ) : null,
+            },
+          ]}
+        />
+      )}
       <Modal
         open={open}
         onClose={close}

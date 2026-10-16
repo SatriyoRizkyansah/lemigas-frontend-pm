@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/table/DataTable";
+import { LoadingState } from "@/components/loading/LoadingState";
 import { Modal } from "@/components/modal/Modal";
 import { useCurrentUser, apiData, setBrowserToken } from "@/lib/api/hooks";
 import { use_query } from "@/lib/api/use_query";
@@ -93,11 +94,7 @@ export function LifecycleInsights({ pengadaanId, detail }: { pengadaanId: string
         <h3 className="text-sm font-semibold">Histori dan rekonsiliasi lifecycle</h3>
         <p className="mt-1 text-xs text-muted-foreground">Nilai tetap dikelompokkan per mata uang; selisih kuantitas ditampilkan per pengiriman.</p>
       </div>
-      {history.isPending ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          Memuat histori lifecycle…
-        </p>
-      ) : null}
+      {history.isPending ? <LoadingState label="Loading..." /> : null}
       {history.isError ? (
         <Alert variant="destructive">
           <AlertDescription>

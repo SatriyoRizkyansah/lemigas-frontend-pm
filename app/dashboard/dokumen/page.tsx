@@ -10,6 +10,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { downloadDocument } from "@/lib/api/download";
 import { dateText, entityText } from "@/components/procurement/EntityListPage";
 import { LifecycleDocuments } from "@/components/workflow/LifecycleDocuments";
+import { LoadingState } from "@/components/loading/LoadingState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { DataTable } from "@/components/table/DataTable";
 import { Modal } from "@/components/modal/Modal";
@@ -209,7 +210,7 @@ export default function DokumenPage() {
           </Button>
         }
       />
-      {user.isPending ? <p role="status">Memuat peran…</p> : null}
+      {user.isPending ? <LoadingState label="Loading..." /> : null}
       {user.isError ? retryError(getApiErrorMessage(user.error), user.refetch) : null}
       {error ? (
         <Alert variant="destructive" role="alert">
@@ -270,7 +271,7 @@ export default function DokumenPage() {
       <Button type="button" variant="outline" disabled={!authenticated || documents.isFetching || busy} onClick={() => void refresh()}>
         Muat ulang
       </Button>
-      {documents.isPending && authenticated ? <p role="status">Memuat dokumen…</p> : null}
+      {documents.isPending && authenticated ? <LoadingState label="Loading..." /> : null}
       {documents.isError ? retryError(getApiErrorMessage(documents.error), documents.refetch) : null}
       {authenticated && !documents.isPending && !documents.isError ? (
         <DataTable<Entity>

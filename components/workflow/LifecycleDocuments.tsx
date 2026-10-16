@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Modal } from "@/components/modal/Modal";
 import { DataTable } from "@/components/table/DataTable";
+import { LoadingState } from "@/components/loading/LoadingState";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
 import { use_query } from "@/lib/api/use_query";
@@ -258,16 +259,20 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
       />
       <h3 className="font-semibold">Dokumen pengadaan</h3>
       <p className="text-sm text-muted-foreground">Semua dokumen pengadaan; hubungan tahap ditentukan persyaratan di atas.</p>
-      <DataTable
-        rows={linkedDocuments}
-        rowKey={(row) => String(row.id)}
-        emptyMessage={documents.isError ? "Daftar dokumen gagal dimuat." : documents.isPending ? "Memuat dokumen…" : "Belum ada dokumen pengadaan."}
-        columns={[
-          { key: "nama", header: "Nama", render: (row) => link(row) },
-          { key: "status", header: "Status", render: (row) => String(row.status ?? "—") },
-          { key: "ukuran", header: "Ukuran", render: (row) => (typeof row.ukuran === "number" ? `${(row.ukuran / 1024).toFixed(1)} KB` : "—") },
-        ]}
-      />
+      {documents.isPending ? (
+        <LoadingState label="Loading..." />
+      ) : (
+        <DataTable
+          rows={linkedDocuments}
+          rowKey={(row) => String(row.id)}
+          emptyMessage={documents.isError ? "Daftar dokumen gagal dimuat." : "Belum ada dokumen pengadaan."}
+          columns={[
+            { key: "nama", header: "Nama", render: (row) => link(row) },
+            { key: "status", header: "Status", render: (row) => String(row.status ?? "—") },
+            { key: "ukuran", header: "Ukuran", render: (row) => (typeof row.ukuran === "number" ? `${(row.ukuran / 1024).toFixed(1)} KB` : "—") },
+          ]}
+        />
+      )}
       <Modal
         open={!!action}
         onClose={close}

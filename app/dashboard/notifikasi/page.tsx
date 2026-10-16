@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CheckCheck } from "lucide-react";
 import { DataTable } from "@/components/table/DataTable";
+import { LoadingState } from "@/components/loading/LoadingState";
 import { Button } from "@/components/ui/Button";
 import { dateText } from "@/components/procurement/EntityListPage";
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, type Notification } from "./notifications";
@@ -46,7 +47,7 @@ export default function NotifikasiPage() {
         </p>
       ) : null}
       {notifications.isPending ? (
-        <p role="status">Memuat notifikasi…</p>
+        <LoadingState label="Loading..." />
       ) : notifications.isError ? (
         <div role="alert" className="space-y-3">
           <p>Notifikasi gagal dimuat.</p>

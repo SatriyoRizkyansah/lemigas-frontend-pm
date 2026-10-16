@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTableFilters, type TableFilter as ReusableTableFilter } from "@/components/table/DataTableFilters";
 import { DataTableToolbar } from "@/components/table/DataTableToolbar";
+import { EmptyData } from "@/components/loading/EmptyData";
 
 type Column<T> = {
   key: string;
@@ -165,8 +166,8 @@ export function DataTable<T>({
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={columns.length} className="h-28 text-center text-muted-foreground">
-                    {activeSearch || hasActiveFilters ? "Tidak ada hasil yang cocok." : emptyMessage}
+                  <TableCell colSpan={columns.length} className="p-4">
+                    <EmptyData label={activeSearch || hasActiveFilters ? "Tidak ada hasil yang cocok." : emptyMessage} className="min-h-44 border-0 shadow-none" />
                   </TableCell>
                 </TableRow>
               )}

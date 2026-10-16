@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, FileText, RefreshCw, XCircle } from "lucide-react";
 import { readSession, SESSION_COOKIE } from "@/lib/auth";
+import { LoadingState } from "@/components/loading/LoadingState";
+import { EmptyData } from "@/components/loading/EmptyData";
 
 type Onboarding = {
   id: string;
@@ -115,9 +117,9 @@ export default function VendorOnboardingPage() {
         </div>
       )}
       {loading ? (
-        <p className="py-10 text-center text-muted-foreground">Memuat data…</p>
+        <LoadingState label="Loading..." />
       ) : items.length === 0 ? (
-        <div className="rounded-xl border bg-card p-10 text-center text-muted-foreground">Tidak ada onboarding dengan status ini.</div>
+        <EmptyData label="Tidak ada onboarding dengan status ini." />
       ) : (
         <div className="space-y-4">
           {items.map((item) => (
