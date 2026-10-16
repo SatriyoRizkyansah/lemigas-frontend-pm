@@ -91,6 +91,7 @@ function Context({ title, value }: { title: string; value: unknown }) {
 
 export default function ApprovalPage() {
   const [jenis, setJenis] = useState<Jenis>("pengadaan");
+  const [mySubmissions, setMySubmissions] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -101,13 +102,17 @@ export default function ApprovalPage() {
   const client = useQueryClient();
   const user = useCurrentUser();
   const role = user.data?.role?.toUpperCase() ?? "";
-  const query = use_query<Inbox, Error, { jenis: Jenis; page: number; limit: number; query: string }>({
+  const query = use_query<Inbox, Error, { jenis: Jenis; my: boolean; page: number; limit: number; query: string }>({
     tag: "approval",
-    method: jenis === "pengadaan" ? "approvalGetControllerFindAll" : "approvalGetControllerFindMemorandum",
-    params: { jenis, page, limit, query: search.trim() },
-    queryFn: async ({ jenis: kind, ...params }) => {
+    method: mySubmissions ? "approvalGetControllerFindMyPengadaan" : jenis === "pengadaan" ? "approvalGetControllerFindAll" : "approvalGetControllerFindMemorandum",
+    params: { jenis, my: mySubmissions, page, limit, query: search.trim() },
+    queryFn: async ({ jenis: kind, my, ...params }) => {
       setBrowserToken();
-      const request = kind === "pengadaan" ? browserApi.approval.approvalGetControllerFindAll(params, { format: "json" }) : browserApi.approval.approvalGetControllerFindMemorandum(params, { format: "json" });
+      const request = my
+        ? browserApi.approval.approvalGetControllerFindMyPengadaan(params, { format: "json" })
+        : kind === "pengadaan"
+          ? browserApi.approval.approvalGetControllerFindAll(params, { format: "json" })
+          : browserApi.approval.approvalGetControllerFindMemorandum(params, { format: "json" });
       return inboxPayload(await apiData(request as Promise<{ data: unknown }>));
     },
   });
@@ -158,6 +163,7 @@ export default function ApprovalPage() {
   const activeStep = selected && history.data ? nextStep(history.data, selected.jenis) : undefined;
   const allowed = Boolean(
     selected &&
+    !mySubmissions &&
     activeStep?.pengadaanId === selected.row.id &&
     workflowWaiting(selected.row, selected.jenis) &&
     (selected.jenis !== "memorandum" || activeStep?.memorandumId === selected.row.memorandum?.id) &&
@@ -216,7 +222,7 @@ export default function ApprovalPage() {
       header: "Aksi",
       render: (row: Procurement) => (
         <Button type="button" size="sm" variant="outline" disabled={decide.isPending} onClick={() => open(row)}>
-          Detail / keputusan
+          {mySubmissions ? "Detail / riwayat" : "Detail / keputusan"}
         </Button>
       ),
     },
@@ -225,30 +231,60 @@ export default function ApprovalPage() {
     <section className="space-y-5 py-1">
       <PageHeader
         title="Approval"
-        description="Inbox pengadaan dan memorandum menunggu persetujuan. Keputusan mengikuti role dan urutan langkah."
+        description="Inbox pengadaan dan memorandum menunggu persetujuan, serta status pengajuan saya. Keputusan mengikuti role dan urutan langkah."
         actions={
           <Button type="button" variant="outline" disabled={query.isFetching || decide.isPending} onClick={() => void query.refetch()}>
             Muat ulang
           </Button>
         }
       />
-      <div className="flex gap-2" aria-label="Jenis approval">
-        {(["pengadaan", "memorandum"] as const).map((kind) => (
-          <Button
-            key={kind}
-            type="button"
-            variant={jenis === kind ? "default" : "outline"}
-            aria-pressed={jenis === kind}
-            disabled={decide.isPending}
-            onClick={() => {
-              setJenis(kind);
-              setPage(1);
-            }}
-          >
-            {kind === "pengadaan" ? "Pengadaan" : "Memorandum"}
-          </Button>
-        ))}
+      <div className="flex gap-2" aria-label="Daftar approval">
+        <Button
+          type="button"
+          variant={!mySubmissions ? "default" : "outline"}
+          aria-pressed={!mySubmissions}
+          disabled={decide.isPending}
+          onClick={() => {
+            setMySubmissions(false);
+            setPage(1);
+          }}
+        >
+          Menunggu persetujuan
+        </Button>
+        <Button
+          type="button"
+          variant={mySubmissions ? "default" : "outline"}
+          aria-pressed={mySubmissions}
+          disabled={decide.isPending}
+          onClick={() => {
+            setMySubmissions(true);
+            setJenis("pengadaan");
+            setPage(1);
+          }}
+        >
+          Pengajuan saya
+        </Button>
       </div>
+      {mySubmissions && <p className="text-sm text-muted-foreground">Semua status pengadaan yang Anda ajukan. Detail dan riwayat hanya baca; daftar ini tidak menyediakan keputusan approval.</p>}
+      {!mySubmissions && (
+        <div className="flex gap-2" aria-label="Jenis approval">
+          {(["pengadaan", "memorandum"] as const).map((kind) => (
+            <Button
+              key={kind}
+              type="button"
+              variant={jenis === kind ? "default" : "outline"}
+              aria-pressed={jenis === kind}
+              disabled={decide.isPending}
+              onClick={() => {
+                setJenis(kind);
+                setPage(1);
+              }}
+            >
+              {kind === "pengadaan" ? "Pengadaan" : "Memorandum"}
+            </Button>
+          ))}
+        </div>
+      )}
       {success && (
         <Alert role="status">
           <AlertDescription>{success}</AlertDescription>
@@ -266,11 +302,11 @@ export default function ApprovalPage() {
         })
       ) : (
         <DataTable
-          key={jenis}
+          key={`${mySubmissions ? "my" : "pending"}:${jenis}`}
           columns={columns}
           rows={query.data?.data ?? []}
           rowKey={(row) => `${jenis}:${row.id}`}
-          emptyMessage="Tidak ada approval menunggu."
+          emptyMessage={mySubmissions ? "Belum ada pengajuan Anda." : "Tidak ada approval menunggu."}
           searchValue={search}
           onSearchChange={(value) => {
             setSearch(value);
@@ -304,12 +340,16 @@ export default function ApprovalPage() {
             <Button type="button" variant="outline" disabled={decide.isPending} onClick={() => setSelected(null)}>
               Tutup
             </Button>
-            <Button type="button" disabled={!allowed || decide.isPending} onClick={() => void submit("disetujui")}>
-              {decide.isPending ? "Memproses…" : "Setujui langkah"}
-            </Button>
-            <Button type="button" variant="destructive" disabled={!allowed || decide.isPending || !catatan.trim()} onClick={() => void submit("ditolak")}>
-              Tolak langkah
-            </Button>
+            {!mySubmissions && (
+              <>
+                <Button type="button" disabled={!allowed || decide.isPending} onClick={() => void submit("disetujui")}>
+                  {decide.isPending ? "Memproses…" : "Setujui langkah"}
+                </Button>
+                <Button type="button" variant="destructive" disabled={!allowed || decide.isPending || !catatan.trim()} onClick={() => void submit("ditolak")}>
+                  Tolak langkah
+                </Button>
+              </>
+            )}
           </>
         }
       >
@@ -323,7 +363,7 @@ export default function ApprovalPage() {
                 Buka siklus pengadaan
               </Link>
             </div>
-            <Context title="Item pengadaan" value={selected.row.items} />
+            {!mySubmissions && <Context title="Item pengadaan" value={selected.row.items} />}
             {selected.jenis === "memorandum" && <Context title="Memorandum keputusan" value={selected.row.memorandum} />}
             {context.isPending ? (
               <LoadingState />
@@ -370,12 +410,14 @@ export default function ApprovalPage() {
             <p>
               Role Anda: {role || "Memuat…"}. {activeStep ? `Langkah aktif: ${activeStep.namaLangkah}. Membutuhkan ${activeStep.urutan >= 3 ? "PIMPINAN" : "VERIFIKATOR"} atau ADMIN.` : "Tidak ada langkah aktif."}
             </p>
-            {!allowed && <p>Keputusan terkunci: periksa role, urutan, status workflow, dan pemuatan konteks/riwayat. Status akun tetap diverifikasi server.</p>}
-            <div className="space-y-2">
-              <Label htmlFor="approval-comment">Catatan keputusan (wajib untuk penolakan)</Label>
-              <Input id="approval-comment" value={catatan} disabled={decide.isPending} onChange={(event) => setCatatan(event.target.value)} aria-describedby="approval-comment-help" />
-              <p id="approval-comment-help">Penolakan tidak menerima catatan kosong atau hanya spasi.</p>
-            </div>
+            {mySubmissions ? <p>Pengajuan saya: detail dan riwayat hanya baca.</p> : !allowed && <p>Keputusan terkunci: periksa role, urutan, status workflow, dan pemuatan konteks/riwayat. Status akun tetap diverifikasi server.</p>}
+            {!mySubmissions && (
+              <div className="space-y-2">
+                <Label htmlFor="approval-comment">Catatan keputusan (wajib untuk penolakan)</Label>
+                <Input id="approval-comment" value={catatan} disabled={decide.isPending} onChange={(event) => setCatatan(event.target.value)} aria-describedby="approval-comment-help" />
+                <p id="approval-comment-help">Penolakan tidak menerima catatan kosong atau hanya spasi.</p>
+              </div>
+            )}
             {decide.isError && (
               <Alert variant="destructive">
                 <AlertDescription>{getApiErrorMessage(decide.error)}</AlertDescription>

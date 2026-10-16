@@ -16,16 +16,39 @@ type Plan = {
   modelPelaksanaan: string;
   jenisKargo: string;
   satuan: string;
-  volumeMin?: number;
-  volumeMax?: number;
+  volumeMin?: number | string | null;
+  volumeMax?: number | string | null;
   titikSerah: string;
-  penerimaPasokan?: string;
-  estimasiMulai?: string;
-  estimasiSelesai?: string;
-  approvalSteps?: { id: string; urutan: number; namaLangkah: string; status: string; catatan?: string }[];
+  penerimaPasokan?: string | null;
+  estimasiMulai?: string | null;
+  estimasiSelesai?: string | null;
+  jenisTransaksi?: string;
+  metodeSeleksi?: string;
+  deskripsi?: string | null;
+  dasarPemilihan?: string | null;
+  strategiPengiriman?: string | null;
+  strategiPembiayaan?: string | null;
+  spesifikasiMutu?: unknown;
+  kesiapanPenerima?: unknown;
+  analisisPasar?: unknown;
+  createdAt?: string;
+  updatedAt?: string;
+  disetujuiPada?: string | null;
+  approvalSteps?: { id: string; urutan: number; namaLangkah: string; status: string; penanggungJawab?: string | null; tanggalKeputusan?: string | null; catatan?: string | null; createdAt?: string }[];
   pengadaan?: { id: string; nomorSurat: string } | null;
 };
 const unwrap = (value: any) => value?.data?.data ?? value?.data ?? value;
+const displayValue = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return "Data tidak dapat ditampilkan";
+    }
+  }
+  return String(value);
+};
 
 export default function RencanaTransaksiPage() {
   const [rows, setRows] = useState<Plan[]>([]);
@@ -33,6 +56,8 @@ export default function RencanaTransaksiPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [detail, setDetail] = useState<Plan | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [rejectStepId, setRejectStepId] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     try {
       setBrowserToken();
@@ -48,21 +73,22 @@ export default function RencanaTransaksiPage() {
   }, [refresh]);
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
     setBusy(true);
     setError("");
     setNotice("");
-    const f = new FormData(event.currentTarget);
-    const json = (key: string) => {
-      const v = String(f.get(key) ?? "").trim();
-      if (!v) return undefined;
-      try {
-        return JSON.parse(v);
-      } catch {
-        throw new Error(`${key} harus berformat JSON valid`);
-      }
-    };
-    const number = (key: string) => (String(f.get(key) ?? "") ? Number(f.get(key)) : undefined);
     try {
+      const f = new FormData(form);
+      const json = (key: string) => {
+        const v = String(f.get(key) ?? "").trim();
+        if (!v) return undefined;
+        try {
+          return JSON.parse(v);
+        } catch {
+          throw new Error(`${key} harus berformat JSON valid`);
+        }
+      };
+      const number = (key: string) => (String(f.get(key) ?? "") ? Number(f.get(key)) : undefined);
       setBrowserToken();
       await browserApi.ePlanningTransaksi.perencanaanControllerCreate(
         {
@@ -89,7 +115,7 @@ export default function RencanaTransaksiPage() {
         { format: "json" },
       );
       setNotice("Rencana berhasil dibuat sebagai draft.");
-      event.currentTarget.reset();
+      form.reset();
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal membuat rencana");
@@ -104,6 +130,7 @@ export default function RencanaTransaksiPage() {
     try {
       setBrowserToken();
       if (action === "detail") {
+        setDetailLoading(true);
         const result = await apiData(browserApi.ePlanningTransaksi.perencanaanControllerDetail(plan.id, { format: "json" }) as Promise<{ data: unknown }>);
         setDetail(unwrap(result));
       } else if (action === "submit") {
@@ -119,10 +146,10 @@ export default function RencanaTransaksiPage() {
       setError(e instanceof Error ? e.message : "Aksi gagal");
     } finally {
       setBusy(false);
+      setDetailLoading(false);
     }
   }
-  async function decide(plan: Plan, stepId: string, decision: "disetujui" | "ditolak") {
-    const catatan = decision === "ditolak" ? (window.prompt("Catatan revisi:") ?? "") : "";
+  async function decide(plan: Plan, stepId: string, decision: "disetujui" | "ditolak", catatan = "") {
     setBusy(true);
     setError("");
     try {
@@ -242,7 +269,9 @@ export default function RencanaTransaksiPage() {
             <textarea name="strategiPembiayaan" className={input} />
           </label>
           <div className="md:col-span-2">
-            <Button disabled={busy}>Simpan draft</Button>
+            <Button type="submit" disabled={busy}>
+              Simpan draft
+            </Button>
           </div>
         </form>
       </details>
@@ -309,39 +338,189 @@ export default function RencanaTransaksiPage() {
           </tbody>
         </table>
       </div>
+      {detailLoading && (
+        <p role="status" aria-live="polite" className="rounded-xl border p-4">
+          Memuat detail rencana…
+        </p>
+      )}
       {detail && (
-        <section className="space-y-3 rounded-xl border bg-card p-5">
-          <div className="flex justify-between">
-            <h2 className="text-lg font-semibold">
-              {detail.nomor} — {detail.judul}
-            </h2>
-            <button onClick={() => setDetail(null)} aria-label="Tutup">
+        <section aria-labelledby="plan-detail-heading" className="space-y-5 rounded-xl border bg-card p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 id="plan-detail-heading" className="text-lg font-semibold">
+                {detail.nomor} — {detail.judul}
+              </h2>
+              <p className="text-sm text-muted-foreground">Detail rencana dan alur persetujuan</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setDetail(null);
+                setRejectStepId(null);
+              }}
+              aria-label="Tutup detail rencana"
+            >
               Tutup
-            </button>
+            </Button>
           </div>
-          <p>
-            {detail.jenisKargo}, {detail.volumeMin ?? "—"}–{detail.volumeMax ?? "—"} {detail.satuan}, titik serah {detail.titikSerah}. Penerima: {detail.penerimaPasokan ?? "—"}.
-          </p>
-          <h3 className="font-medium">Riwayat approval</h3>
-          <ol className="space-y-2">
-            {(detail.approvalSteps ?? []).map((step) => (
-              <li key={step.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-muted/50 p-3">
-                <span>
-                  {step.urutan}. {step.namaLangkah} — {entityText(step.status)} {step.catatan && `(${step.catatan})`}
-                </span>
-                {step.status === "menunggu" && (
-                  <span className="space-x-2">
-                    <Button size="sm" onClick={() => void decide(detail, step.id, "disetujui")}>
-                      Setujui
-                    </Button>
-                    <Button size="sm" variant="destructive" onClick={() => void decide(detail, step.id, "ditolak")}>
-                      Minta revisi
-                    </Button>
-                  </span>
-                )}
-              </li>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {(
+              [
+                [
+                  "Identifikasi dan status",
+                  [
+                    ["Nomor", detail.nomor],
+                    ["Judul", detail.judul],
+                    ["Status", entityText(detail.status)],
+                    ["Dibuat", detail.createdAt ? dateText(detail.createdAt) : undefined],
+                    ["Diperbarui", detail.updatedAt ? dateText(detail.updatedAt) : undefined],
+                    ["Disetujui pada", detail.disetujuiPada ? dateText(detail.disetujuiPada) : undefined],
+                  ],
+                ],
+                [
+                  "Model, transaksi, metode",
+                  [
+                    ["Model pelaksanaan", detail.modelPelaksanaan],
+                    ["Jenis transaksi", detail.jenisTransaksi],
+                    ["Metode seleksi", detail.metodeSeleksi ? entityText(detail.metodeSeleksi) : undefined],
+                  ],
+                ],
+                [
+                  "Kargo dan volume",
+                  [
+                    ["Jenis kargo", detail.jenisKargo],
+                    ["Volume minimum", detail.volumeMin],
+                    ["Volume maksimum", detail.volumeMax],
+                    ["Satuan", detail.satuan],
+                  ],
+                ],
+                [
+                  "Serah terima",
+                  [
+                    ["Titik serah", detail.titikSerah],
+                    ["Penerima pasokan", detail.penerimaPasokan],
+                  ],
+                ],
+                [
+                  "Jadwal estimasi",
+                  [
+                    ["Mulai", detail.estimasiMulai ? dateText(detail.estimasiMulai) : undefined],
+                    ["Selesai", detail.estimasiSelesai ? dateText(detail.estimasiSelesai) : undefined],
+                  ],
+                ],
+                [
+                  "Dasar dan strategi",
+                  [
+                    ["Dasar pemilihan", detail.dasarPemilihan],
+                    ["Strategi pengiriman", detail.strategiPengiriman],
+                    ["Strategi pembiayaan", detail.strategiPembiayaan],
+                  ],
+                ],
+              ] as [string, [string, unknown][]][]
+            ).map(([title, fields]) => (
+              <article key={title} className="rounded-lg border p-4">
+                <h3 className="mb-3 font-semibold">{title}</h3>
+                <dl className="space-y-2">
+                  {fields.map(([name, value]) => (
+                    <div key={name}>
+                      <dt className="text-xs text-muted-foreground">{name}</dt>
+                      <dd className="break-words text-sm">{displayValue(value)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </article>
             ))}
-          </ol>
+            {(
+              [
+                ["Deskripsi", detail.deskripsi],
+                ["Spesifikasi mutu", detail.spesifikasiMutu],
+                ["Kesiapan penerima", detail.kesiapanPenerima],
+                ["Analisis pasar", detail.analisisPasar],
+              ] as [string, unknown][]
+            ).map(([title, value]) => (
+              <article key={title} className="rounded-lg border p-4">
+                <h3 className="mb-2 font-semibold">{title}</h3>
+                {typeof value === "object" && value !== null ? (
+                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-3 text-xs" aria-label={`${title} dalam format JSON`}>
+                    {displayValue(value)}
+                  </pre>
+                ) : (
+                  <p className="whitespace-pre-wrap break-words text-sm">{displayValue(value)}</p>
+                )}
+              </article>
+            ))}
+          </div>
+          <div>
+            <h3 className="mb-3 font-semibold">Riwayat approval</h3>
+            {(detail.approvalSteps ?? []).length === 0 ? (
+              <p className="rounded border border-dashed p-4 text-sm text-muted-foreground">Belum ada langkah approval.</p>
+            ) : (
+              <ol className="space-y-3">
+                {(detail.approvalSteps ?? []).map((step, index, steps) => {
+                  const current = step.status === "menunggu" && !steps.slice(0, index).some((prior) => prior.status === "menunggu");
+                  return (
+                    <li key={step.id} className="rounded-lg border p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h4 className="font-medium">
+                            {step.urutan}. {step.namaLangkah}
+                          </h4>
+                          <p className="mt-1 text-sm">
+                            Status: {entityText(step.status)}
+                            {current ? " · Tahap aktif" : ""}
+                          </p>
+                          <p className="text-sm text-muted-foreground">Approver ID: {step.penanggungJawab ?? "Belum ditetapkan"}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Dibuat: {step.createdAt ? dateText(step.createdAt) : "—"} · Keputusan: {step.tanggalKeputusan ? dateText(step.tanggalKeputusan) : "—"}
+                          </p>
+                          {step.catatan && <p className="mt-2 whitespace-pre-wrap text-sm">Catatan: {step.catatan}</p>}
+                        </div>
+                        {current && (
+                          <div className="flex gap-2">
+                            <Button size="sm" disabled={busy} onClick={() => void decide(detail, step.id, "disetujui")}>
+                              Setujui
+                            </Button>
+                            <Button size="sm" variant="destructive" disabled={busy} onClick={() => setRejectStepId(step.id)}>
+                              Minta revisi
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                      {rejectStepId === step.id && (
+                        <form
+                          className="mt-4 space-y-2 border-t pt-3"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            const note = String(new FormData(event.currentTarget).get("catatan") ?? "").trim();
+                            if (!note) {
+                              setError("Catatan revisi wajib diisi.");
+                              return;
+                            }
+                            setRejectStepId(null);
+                            void decide(detail, step.id, "ditolak", note);
+                          }}
+                        >
+                          <label className={label} htmlFor={`reject-note-${step.id}`}>
+                            Catatan revisi wajib diisi
+                            <textarea id={`reject-note-${step.id}`} name="catatan" required minLength={1} rows={3} className={input} />
+                          </label>
+                          <div className="flex gap-2">
+                            <Button type="submit" variant="destructive" disabled={busy}>
+                              Kirim permintaan revisi
+                            </Button>
+                            <Button type="button" variant="outline" disabled={busy} onClick={() => setRejectStepId(null)}>
+                              Batal
+                            </Button>
+                          </div>
+                        </form>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </div>
         </section>
       )}
     </main>

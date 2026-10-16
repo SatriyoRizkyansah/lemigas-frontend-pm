@@ -95,7 +95,14 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const mutation = use_mutation<unknown, Error, { operation: Operation; body: Entity }>({
     tag: "siklusTransaksiKomoditas",
     method: "lifecycleBusinessOperation",
-    invalidateKeys: [apiQueryKeys.resource("siklusTransaksiKomoditas"), apiQueryKeys.resource("pengadaan"), apiQueryKeys.resource("approval"), apiQueryKeys.resource("dashboard")],
+    invalidateKeys: [
+      apiQueryKeys.resource("siklusTransaksiKomoditas"),
+      apiQueryKeys.resource("lifecycleHistory"),
+      apiQueryKeys.resource("lifecycleEvidence"),
+      apiQueryKeys.resource("pengadaan"),
+      apiQueryKeys.resource("approval"),
+      apiQueryKeys.resource("dashboard"),
+    ],
     mutationFn: async ({ operation, body }) => {
       setBrowserToken();
       return apiData(operation.run(pengadaanId, body) as Promise<{ data: unknown }>);
@@ -111,8 +118,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     const seed = object(operation.seed ? detail[operation.seed] : null);
     for (const field of operation.fields) {
       const value = seed[field.name];
-      if (value == null) continue;
-      initial[field.name] = field.kind === "json" ? JSON.stringify(value, null, 2) : field.kind === "date" ? String(value).slice(0, 10) : String(value);
+      const seedValue = field.payloadPath ? field.payloadPath.split(".").reduce<unknown>((current, key) => (current && typeof current === "object" ? (current as Entity)[key] : undefined), seed) : value;
+      if (seedValue == null) continue;
+      initial[field.name] = field.kind === "json" ? JSON.stringify(seedValue, null, 2) : field.kind === "date" ? String(seedValue).slice(0, 10) : String(seedValue);
     }
     setValues(initial);
     setSelected(operation);
@@ -204,9 +212,12 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           ) : null}
           {!fields.length ? <p>Konfirmasi {selected?.title.toLowerCase()} untuk pengadaan ini.</p> : null}
           <fieldset disabled={locked || !permitted} className="space-y-4">
+            {selected?.key === "rfq" ? <p className="text-sm text-muted-foreground">Lengkapi kebutuhan RFQ. Informasi yang diisi akan dikirim kepada vendor terpilih.</p> : null}
+            {selected?.key === "penawaran" ? <p className="text-sm text-muted-foreground">Masukkan rincian penawaran vendor pada kolom terpisah, bukan sebagai JSON.</p> : null}
             {fields.map((field) => {
               const fieldId = `${id}-${field.name}`;
               const isSelect = !!field.relation || !!field.options || field.kind === "boolean";
+              const isLongText = field.payloadPath !== undefined;
               return (
                 <div key={field.name} className="space-y-1.5">
                   <Label htmlFor={fieldId}>
@@ -227,15 +238,15 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                         ))}
                       </SelectContent>
                     </Select>
-                  ) : field.kind === "json" ? (
+                  ) : field.kind === "json" || isLongText ? (
                     <textarea
                       id={fieldId}
                       value={values[field.name] ?? ""}
                       onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
                       required={field.required}
-                      rows={4}
-                      placeholder='{"key": "value"}'
-                      className="w-full rounded-md border border-input bg-background p-2 font-mono text-sm"
+                      rows={isLongText ? 3 : 4}
+                      placeholder={isLongText ? `${field.label}…` : '{"key": "value"}'}
+                      className={`w-full rounded-md border border-input bg-background p-2 text-sm ${field.kind === "json" ? "font-mono" : ""}`}
                     />
                   ) : (
                     <Input

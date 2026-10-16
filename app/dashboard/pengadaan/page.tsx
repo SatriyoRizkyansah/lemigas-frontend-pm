@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken } from "@/lib/api/hooks";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { entityText, dateText } from "@/components/procurement/EntityListPage";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/common/StatusBadge";
@@ -49,13 +50,13 @@ export default function PengadaanPage() {
   const refresh = useCallback(async () => {
     setBrowserToken();
     try {
-      const result: any = await browserApi.pengadaan.pengadaanGetControllerFindAll({ page, limit: 20, status: filter || undefined, format: "json" } as any);
+      const result: any = await browserApi.pengadaan.pengadaanGetControllerFindAll({ page, limit: 20, status: (filter || undefined) as any }, { format: "json" });
       const body = result?.data ?? result;
       const data = body?.data ?? body;
       setRows(Array.isArray(data) ? data : (data?.items ?? []));
       setTotalPages(Number(body?.pagination?.total_pages ?? 1));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memuat pengadaan");
+      setError(getApiErrorMessage(e));
     }
   }, [filter, page]);
   useEffect(() => {
@@ -63,7 +64,7 @@ export default function PengadaanPage() {
   }, [refresh]);
   useEffect(() => {
     setBrowserToken();
-    void Promise.all([browserApi.barang.barangGetControllerFindAll({ page: 1, limit: 100, format: "json" } as any), browserApi.vendor.vendorGetControllerFindAll({ page: 1, limit: 100, format: "json" } as any)])
+    void Promise.all([browserApi.barang.barangGetControllerFindAll({ page: 1, limit: 100 }, { format: "json" }), browserApi.vendor.vendorGetControllerFindAll({ page: 1, limit: 100 }, { format: "json" })])
       .then(([b, v]: any[]) => {
         const bd = unwrap(b),
           vd = unwrap(v);
@@ -107,7 +108,7 @@ export default function PengadaanPage() {
       setCreateItemCount(1);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal membuat pengadaan");
+      setError(getApiErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -120,7 +121,7 @@ export default function PengadaanPage() {
       setDetail(row);
       setEditItemCount(Math.max(1, row.items?.length ?? 0));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Detail gagal dimuat");
+      setError(getApiErrorMessage(e));
     }
   }
   async function remove(row: Proc) {
@@ -132,7 +133,7 @@ export default function PengadaanPage() {
       setNotice("Pengadaan dihapus.");
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Pengadaan gagal dihapus");
+      setError(getApiErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -171,7 +172,7 @@ export default function PengadaanPage() {
       await open(row.id);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal memperbarui draft");
+      setError(getApiErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -185,7 +186,7 @@ export default function PengadaanPage() {
       setNotice("Pengadaan diajukan untuk approval.");
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Pengajuan approval gagal");
+      setError(getApiErrorMessage(e));
     } finally {
       setBusy(false);
     }

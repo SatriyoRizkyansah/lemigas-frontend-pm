@@ -3,41 +3,29 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { browserApi } from "@/lib/api/browser-client";
 import { Bell, CheckCheck, ChevronDown, LayoutGrid, LogOut, Menu, Search, User as UserIcon } from "lucide-react";
 import Logo from "./Logo";
 import { clearSession, type User } from "@/lib/auth";
-import { browserApi } from "@/lib/api/browser-client";
-import { apiData, setBrowserToken } from "@/lib/api/hooks";
-import { use_query } from "@/lib/api/use_query";
-import { use_mutation } from "@/lib/api/use_mutation";
-import { apiQueryKeys } from "@/lib/api/query-keys";
-import { dateText, entityText, unwrapEntityList } from "@/components/procurement/EntityListPage";
+import { Button } from "@/components/ui/Button";
+import { dateText } from "@/components/procurement/EntityListPage";
+import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead } from "@/app/dashboard/notifikasi/notifications";
 
 export default function Topbar({ user, onMenu }: { user: User; onMenu: () => void }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const logoutLock = useRef(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [q, setQ] = useState("");
   const [menu, setMenu] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
-  const notifications = use_query<any[], Error, Record<string, never>>({
-    tag: "notifikasi",
-    method: "notifikasiGetControllerFindAll",
-    params: {},
-    queryFn: async () => {
-      setBrowserToken();
-      return unwrapEntityList(await apiData(browserApi.notifikasi.notifikasiGetControllerFindAll({ limit: 5, page: 1 }, { format: "json" }) as Promise<{ data: unknown }>));
-    },
-  });
-  const markAllRead = use_mutation<unknown, Error, void>({
-    tag: "notifikasi",
-    method: "notifikasiPutControllerMarkAllAsRead",
-    invalidateKeys: [apiQueryKeys.resource("notifikasi")],
-    mutationFn: async () => {
-      setBrowserToken();
-      return apiData(browserApi.notifikasi.notifikasiPutControllerMarkAllAsRead({ format: "json" }) as Promise<{ data: unknown }>);
-    },
-  });
+  const notifications = useNotifications(1, 5);
+  const markRead = useMarkNotificationRead();
+  const markAllRead = useMarkAllNotificationsRead();
+  const readPending = markRead.isPending || markAllRead.isPending;
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -64,9 +52,18 @@ export default function Topbar({ user, onMenu }: { user: User; onMenu: () => voi
     router.push(term ? `/dashboard?q=${encodeURIComponent(term)}` : "/dashboard");
   }
 
-  function logout() {
-    clearSession();
-    router.replace("/login");
+  async function logout() {
+    if (logoutLock.current) return;
+    logoutLock.current = true;
+    setLoggingOut(true);
+    try {
+      await queryClient.cancelQueries();
+    } finally {
+      queryClient.clear();
+      browserApi.setSecurityData(null);
+      clearSession();
+      router.replace("/login");
+    }
   }
 
   return (
@@ -92,7 +89,7 @@ export default function Topbar({ user, onMenu }: { user: User; onMenu: () => voi
         <div className="notification-menu" ref={notificationsRef}>
           <button
             type="button"
-            className={`icon-btn plain${notifications.data?.some((item) => !item.dibaca) ? " has-dot" : ""}`}
+            className={`icon-btn plain${notifications.data?.unread_count ? " has-dot" : ""}`}
             aria-label="Notifikasi"
             aria-haspopup="dialog"
             aria-expanded={notificationsOpen}
@@ -104,27 +101,59 @@ export default function Topbar({ user, onMenu }: { user: User; onMenu: () => voi
             <div className="dropdown notification-dropdown" role="dialog" aria-label="Notifikasi terbaru">
               <div className="dropdown-head notification-head">
                 <strong>Notifikasi</strong>
-                <button type="button" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending || !notifications.data?.some((item) => !item.dibaca)}>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  type="button"
+                  onClick={() => {
+                    markRead.reset();
+                    markAllRead.mutate();
+                  }}
+                  disabled={readPending || !notifications.data?.unread_count}
+                >
                   <CheckCheck size={15} /> Tandai semua dibaca
-                </button>
+                </Button>
               </div>
               {notifications.isPending ? (
                 <p className="notification-empty">Memuat notifikasi…</p>
               ) : notifications.isError ? (
                 <p className="notification-empty">Notifikasi gagal dimuat.</p>
-              ) : notifications.data?.length ? (
+              ) : notifications.data?.data.length ? (
                 <ul className="notification-list">
-                  {notifications.data.slice(0, 5).map((item) => (
-                    <li key={item.id} className={item.dibaca ? "" : "unread"}>
-                      <strong>{entityText(item.judul ?? item.title ?? item.pesan)}</strong>
-                      <span>{entityText(item.pesan ?? item.message ?? item.deskripsi)}</span>
-                      <time>{dateText(item.createdAt)}</time>
+                  {notifications.data.data.slice(0, 5).map((item) => (
+                    <li key={item.id} className={item.sudahDibaca ? "" : "unread"}>
+                      <strong>{item.pengadaan?.judul ?? "Notifikasi"}</strong>
+                      <span>{item.pesan}</span>
+                      <time dateTime={item.tanggalKirim}>{dateText(item.tanggalKirim)}</time>
+                      {!item.sudahDibaca ? (
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          type="button"
+                          disabled={readPending}
+                          aria-label={`Tandai dibaca: ${item.pesan}`}
+                          onClick={() => {
+                            markAllRead.reset();
+                            markRead.mutate(item.id);
+                          }}
+                        >
+                          {markRead.isPending && markRead.variables === item.id ? "Menandai…" : "Tandai dibaca"}
+                        </Button>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
               ) : (
                 <p className="notification-empty">Belum ada notifikasi.</p>
               )}
+              {markRead.isError || markAllRead.isError ? (
+                <p className="notification-empty" role="alert">
+                  Gagal menandai notifikasi. Silakan coba lagi.
+                </p>
+              ) : null}
+              <Link href="/dashboard/notifikasi" onClick={() => setNotificationsOpen(false)}>
+                Lihat semua notifikasi
+              </Link>
             </div>
           ) : null}
         </div>
@@ -148,8 +177,8 @@ export default function Topbar({ user, onMenu }: { user: User; onMenu: () => voi
               <Link href="/dashboard/profil" role="menuitem" onClick={() => setMenu(false)}>
                 <UserIcon size={18} /> Profil
               </Link>
-              <button type="button" role="menuitem" onClick={logout}>
-                <LogOut size={18} /> Keluar
+              <button type="button" role="menuitem" disabled={loggingOut} onClick={() => void logout()}>
+                <LogOut size={18} /> {loggingOut ? "Keluar…" : "Keluar"}
               </button>
             </div>
           )}

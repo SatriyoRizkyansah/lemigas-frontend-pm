@@ -13,6 +13,17 @@ type Portal = {
   vendor: { id: string; nama: string; alamat?: string | null; telepon?: string | null; email?: string | null; npwp?: string | null; contactPerson?: string | null; vendorDocuments: VendorDoc[] };
 };
 type Rfq = { id: string; nomor: string; batasRespons?: string | null; pengadaan: { id: string; nomorSurat: string; judul: string; status: string } };
+type Negotiation = {
+  id: string;
+  putaran: number;
+  batasNegosiasi?: string | number | null;
+  hargaAcuan?: string | null;
+  totalBiayaPerolehan?: string | number | null;
+  hasil?: string | null;
+  tanggapanVendor?: string | null;
+  catatanVendor?: string | null;
+  penawaran: { mataUang: string; nomorRfq?: string | null; pengadaan: { id: string; nomorSurat: string; judul: string } };
+};
 const API = process.env.NEXT_PUBLIC_LEMIGAS_API_URL ?? "http://localhost:3001";
 function token() {
   const raw = document.cookie
@@ -32,6 +43,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export default function VendorPortalPage() {
   const [profile, setProfile] = useState<Portal | null>(null);
   const [rfqs, setRfqs] = useState<Rfq[]>([]);
+  const [negotiations, setNegotiations] = useState<Negotiation[]>([]);
   const [jenis, setJenis] = useState("NIB");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState("");
@@ -43,8 +55,12 @@ export default function VendorPortalPage() {
       const result = await request<{ data: Portal }>("/api/vendor-onboarding/me");
       setProfile(result.data);
       if (result.data.status === "approved") {
-        const list = await request<{ data: Rfq[] }>("/api/vendor-onboarding/me/rfqs");
+        const [list, negotiationList] = await Promise.all([request<{ data: Rfq[] }>("/api/vendor-onboarding/me/rfqs"), request<{ data: Negotiation[] }>("/api/vendor-onboarding/me/negotiations")]);
         setRfqs(list.data ?? []);
+        setNegotiations(negotiationList.data ?? []);
+      } else {
+        setRfqs([]);
+        setNegotiations([]);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal memuat portal");
@@ -124,6 +140,24 @@ export default function VendorPortalPage() {
       setError(e instanceof Error ? e.message : "Unduh gagal");
     }
   }
+  async function respondNegotiation(item: Negotiation, tanggapan: "diterima" | "ditolak") {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await request(`/api/vendor-onboarding/me/negotiations/${item.id}/respond`, {
+        method: "POST",
+        body: JSON.stringify({ tanggapan }),
+      });
+      setNotice(`Negosiasi putaran ${item.putaran} ${tanggapan}.`);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Tanggapan negosiasi gagal disimpan");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitQuote(event: FormEvent<HTMLFormElement>, rfq: Rfq) {
     event.preventDefault();
     setBusy(true);
@@ -273,6 +307,57 @@ export default function VendorPortalPage() {
           {profile.status === "approved" && (
             <section className="space-y-4">
               <div>
+                <h2 className="text-2xl font-semibold">Tanggapan negosiasi</h2>
+                <p className="text-sm text-muted-foreground">Terima atau tolak hasil putaran negosiasi yang dikirim tim pengadaan.</p>
+              </div>
+              {negotiations.length === 0 ? (
+                <div className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">Belum ada negosiasi untuk ditanggapi.</div>
+              ) : (
+                negotiations.map((item) => (
+                  <article key={item.id} className="space-y-3 rounded-xl border bg-card p-5">
+                    <div>
+                      <h3 className="font-semibold">{item.penawaran.pengadaan.judul}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {item.penawaran.pengadaan.nomorSurat} · RFQ {item.penawaran.nomorRfq ?? "-"} · Putaran {item.putaran}
+                      </p>
+                    </div>
+                    <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                      <div>
+                        <dt className="text-muted-foreground">Batas negosiasi</dt>
+                        <dd>
+                          {item.batasNegosiasi ?? "-"} {item.penawaran.mataUang}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">Total biaya perolehan</dt>
+                        <dd>
+                          {item.totalBiayaPerolehan ?? "-"} {item.penawaran.mataUang}
+                        </dd>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <dt className="text-muted-foreground">Hasil/catatan</dt>
+                        <dd>{item.hasil || "Tidak ada catatan"}</dd>
+                      </div>
+                    </dl>
+                    {item.tanggapanVendor ? (
+                      <p className="text-sm">
+                        Tanggapan Anda: <strong className="capitalize">{item.tanggapanVendor}</strong>
+                        {item.catatanVendor ? ` · ${item.catatanVendor}` : ""}
+                      </p>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button type="button" disabled={busy} onClick={() => void respondNegotiation(item, "diterima")} className="rounded-md bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50">
+                          Terima
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => void respondNegotiation(item, "ditolak")} className="rounded-md border px-4 py-2 disabled:opacity-50">
+                          Tolak
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                ))
+              )}
+              <div className="border-t pt-4">
                 <h2 className="text-2xl font-semibold">RFQ tersedia</h2>
                 <p className="text-sm text-muted-foreground">Hanya RFQ yang diterbitkan untuk perusahaan Anda yang tampil.</p>
               </div>

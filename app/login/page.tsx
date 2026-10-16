@@ -1,7 +1,9 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { browserApi } from "@/lib/api/browser-client";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import Logo from "@/components/Logo";
 import Skyline from "@/components/Skyline";
@@ -16,16 +18,20 @@ import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const loginLock = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const [identity, setIdentity] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const loginMutation = useLoginMutation();
-  const loading = loginMutation.isPending;
+  const loading = submitting || loginMutation.isPending;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (loginLock.current) return;
     setError("");
 
     if (!identity.trim() || !password) {
@@ -33,15 +39,23 @@ export default function LoginPage() {
       return;
     }
 
+    loginLock.current = true;
+    setSubmitting(true);
     try {
       const response = await loginMutation.mutateAsync({ data: { email: identity.trim(), password } });
       const access = response.akses?.[0];
       if (!access?.token) throw new Error("Respons login tidak memuat token akses.");
+      await queryClient.cancelQueries();
+      queryClient.clear();
+      browserApi.setSecurityData(null);
       setSession(access.token, { name: response.nama, email: identity.trim(), role: access.akses }, remember);
+      browserApi.setSecurityData(access.token);
       router.replace("/dashboard");
       router.refresh();
     } catch (err) {
       setError(getApiErrorMessage(err));
+      loginLock.current = false;
+      setSubmitting(false);
     }
   }
 

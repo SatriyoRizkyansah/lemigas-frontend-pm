@@ -13,6 +13,7 @@ import { use_query } from "@/lib/api/use_query";
 import { use_mutation } from "@/lib/api/use_mutation";
 import { apiQueryKeys } from "@/lib/api/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { downloadDocument } from "@/lib/api/download";
 import type { PenuhiDokumenTahapDto } from "@/lib/api/generated/api-generated";
 
 export type LifecycleDocumentsProps = { pengadaanId: string; stage: string; active: boolean; detail: any };
@@ -32,20 +33,6 @@ function unwrap(value: unknown): unknown {
 }
 function records(value: unknown): Entity[] {
   return Array.isArray(value) ? value.map(object) : [];
-}
-
-/** Only local Multer paths; never render arbitrary URLs, traversal, or external links. */
-function documentUrl(document: Entity): string | null {
-  if (document.tipePenyimpanan !== "upload_lokal" || typeof document.filePath !== "string") return null;
-  const match = /^uploads\/dokumen\/([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)$/.exec(document.filePath.replaceAll("\\", "/"));
-  if (!match || match[1] === "." || match[1] === "..") return null;
-  try {
-    const base = new URL(browserApi.baseUrl);
-    if (!["http:", "https:"].includes(base.protocol) || base.username || base.password) return null;
-    return new URL(`/uploads/dokumen/${encodeURIComponent(match[1])}`, base).href;
-  } catch {
-    return null;
-  }
 }
 
 /** Parent owns lifecycle loading/errors and supplies current GET siklus detail. */
@@ -75,6 +62,8 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
   const [number, setNumber] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [downloadId, setDownloadId] = useState<string | null>(null);
+  const [downloadFailure, setDownloadFailure] = useState<{ id: string; name: string; message: string } | null>(null);
   const documents = use_query<Entity[], Error, string>({
     tag: "dokumen",
     method: "dokumenGetControllerFindByPengadaan",
@@ -96,7 +85,7 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
   const mutation = use_mutation<unknown, Error, { mode: "upload"; body: UploadBody } | { mode: "fulfill"; body: PenuhiDokumenTahapDto }>({
     tag: "dokumen",
     method: "lifecycleDocuments",
-    invalidateKeys: [apiQueryKeys.resource("siklusTransaksiKomoditas"), apiQueryKeys.resource("dokumen"), apiQueryKeys.resource("pengadaan")],
+    invalidateKeys: [apiQueryKeys.resource("siklusTransaksiKomoditas"), apiQueryKeys.resource("lifecycleHistory"), apiQueryKeys.resource("lifecycleEvidence"), apiQueryKeys.resource("dokumen"), apiQueryKeys.resource("pengadaan")],
     mutationFn: async (variables) => {
       setBrowserToken();
       return variables.mode === "upload"
@@ -167,15 +156,26 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
       submitting.current = false;
     }
   }
+  async function download(id: string, name: string) {
+    setDownloadFailure(null);
+    setDownloadId(id);
+    try {
+      await downloadDocument(id, name);
+    } catch (cause) {
+      setDownloadFailure({ id, name, message: getApiErrorMessage(cause) });
+    } finally {
+      setDownloadId(null);
+    }
+  }
   function link(document: Entity | undefined) {
     if (!document) return "Dokumen belum tersedia";
-    const url = documentUrl(document);
-    return url ? (
-      <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary underline">
-        {String(document.nama ?? "Buka dokumen")}
-      </a>
-    ) : (
-      <span>{String(document.nama ?? "Dokumen")} (tautan lokal tidak tersedia)</span>
+    if (document.tipePenyimpanan !== "upload_lokal" || typeof document.id !== "string") return <span>{String(document.nama ?? "Dokumen")} (unduh tidak tersedia)</span>;
+    const id = document.id;
+    const name = String(document.nama ?? "dokumen");
+    return (
+      <Button type="button" variant="link" disabled={downloadId === id} onClick={() => void download(id, name)}>
+        {downloadId === id ? "Mengunduh…" : name}
+      </Button>
     );
   }
   const selectClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
@@ -205,6 +205,16 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
             {getApiErrorMessage(documents.error)}{" "}
             <Button type="button" variant="link" disabled={documents.isFetching || locked} onClick={() => void documents.refetch()}>
               Coba lagi
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {downloadFailure ? (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {downloadFailure.message}{" "}
+            <Button variant="link" disabled={Boolean(downloadId)} onClick={() => void download(downloadFailure.id, downloadFailure.name)}>
+              Coba unduh lagi
             </Button>
           </AlertDescription>
         </Alert>

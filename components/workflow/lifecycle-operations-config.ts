@@ -1,5 +1,5 @@
 import { browserApi } from "@/lib/api/browser-client";
-import type { RequestParams, UpdateStatusTahapDto } from "@/lib/api/generated/api-generated";
+import { ContentType, type RequestParams, type UpdateStatusTahapDto } from "@/lib/api/generated/api-generated";
 
 export type Entity = Record<string, unknown>;
 export type Field = {
@@ -12,6 +12,7 @@ export type Field = {
   maxLength?: number;
   options?: readonly string[];
   relation?: string;
+  payloadPath?: string;
 };
 export type Operation = {
   key: string;
@@ -32,12 +33,34 @@ const statuses: UpdateStatusTahapDto["status"][] = ["draft", "menunggu_persetuju
 const text = (name: string, label: string, required = false, maxLength?: number): Field => ({ name, label, required, maxLength });
 const num = (name: string, label: string, min?: number, required = false, integer = false): Field => ({ name, label, kind: "number", min, required, integer });
 const json = (name: string, label: string, required = false): Field => ({ name, label, kind: "json", required });
+const detailText = (name: string, label: string, payloadPath: string, required = false): Field => ({ name, label, payloadPath, required });
 const date = (name: string, label: string, required = false): Field => ({ name, label, kind: "date", required });
 const select = (name: string, label: string, options: readonly string[], required = true): Field => ({ name, label, options, required });
 const rel = (name: string, label: string, relation: string, required = false): Field => ({ name, label, relation, required });
 const vendor = (required = false, name = "vendorId") => rel(name, "Vendor", "vendor", required);
 const currency = text("mataUang", "Mata uang (IDR, USD, dll.)", false, 10);
 const nomor = text("nomor", "Nomor", true, 100);
+const shipmentStatuses = ["direncanakan", "dimuat", "dalam_perjalanan", "tiba", "dibongkar", "diserahkan", "bermasalah"];
+const invoiceStatuses = ["draft", "diverifikasi", "diterbitkan", "dibayar_sebagian", "lunas", "ditolak", "dibatalkan"];
+// New routes intentionally use public transport until generated client is refreshed.
+function operationalUpdate(key: string, title: string, stage: string, relation: string, fields: Field[], roles = AO, suffix = "/status"): Operation {
+  return {
+    key,
+    title,
+    stages: [stage],
+    roles,
+    fields: [rel("entityId", "Catatan", relation, true), ...fields],
+    run: (id, { entityId, ...body }) =>
+      browserApi.request<unknown, unknown>({
+        path: `/api/pengadaan/${encodeURIComponent(id)}/${relation}/${encodeURIComponent(String(entityId))}${suffix}`,
+        method: "PUT",
+        body,
+        type: ContentType.Json,
+        format: "json",
+        secure: true,
+      }),
+  };
+}
 
 // Generated endpoint supplies DTO type. Runtime schema below validates every body before this boundary.
 function create<T extends object>(key: string, title: string, stage: string, endpoint: (id: string, body: T, params?: RequestParams) => Promise<unknown>, fields: Field[], roles = AO, seed?: string): Operation {
@@ -100,7 +123,18 @@ export const lifecycleOperations: Operation[] = [
     AO,
     "strategi",
   ),
-  create("rfq", "Terbitkan RFQ", "sourcing", api.transaksiControllerCreateRfq, [vendor(true), nomor, date("batasRespons", "Batas respons"), json("ketentuan", "Ketentuan")]),
+  create("rfq", "Terbitkan RFQ", "sourcing", api.transaksiControllerCreateRfq, [
+    vendor(true),
+    nomor,
+    date("batasRespons", "Batas respons"),
+    detailText("spesifikasi", "Spesifikasi kebutuhan", "spesifikasi"),
+    detailText("volume", "Volume yang diminta", "volume"),
+    detailText("satuan", "Satuan", "satuan"),
+    detailText("titikSerah", "Titik serah", "titikSerah"),
+    detailText("syaratPenyerahan", "Syarat penyerahan", "syaratPenyerahan"),
+    detailText("syaratPembayaran", "Syarat pembayaran", "syaratPembayaran"),
+    detailText("dokumenDiminta", "Dokumen yang diminta", "dokumenDiminta"),
+  ]),
   create(
     "penawaran",
     "Catat penawaran",
@@ -116,7 +150,14 @@ export const lifecycleOperations: Operation[] = [
       date("berlakuSampai", "Berlaku sampai"),
       text("ketentuanPengangkutan", "Ketentuan pengangkutan"),
       text("syaratPembayaran", "Syarat pembayaran"),
-      json("detail", "Detail penawaran"),
+      detailText("spesifikasi", "Spesifikasi produk", "spesifikasi"),
+      detailText("volume", "Volume yang ditawarkan", "volume"),
+      detailText("satuan", "Satuan", "satuan"),
+      detailText("asalProduk", "Asal produk", "asalProduk"),
+      detailText("pelabuhanMuat", "Pelabuhan muat", "pelabuhanMuat"),
+      detailText("waktuPengiriman", "Waktu pengiriman", "waktuPengiriman"),
+      detailText("masaBerlakuPenawaran", "Masa berlaku penawaran", "masaBerlaku"),
+      detailText("catatan", "Catatan tambahan", "catatan"),
     ],
     [...AO, "vendor"],
   ),
@@ -146,12 +187,15 @@ export const lifecycleOperations: Operation[] = [
       api.transaksiControllerCreateMemorandum,
       [
         select("metodeSeleksi", "Metode seleksi", methods),
-        json("hasilEvaluasi", "Hasil evaluasi", true),
-        json("analisisHarga", "Analisis harga", true),
+        detailText("hasilEvaluasiRingkasan", "Ringkasan hasil evaluasi", "hasilEvaluasi.ringkasan", true),
+        detailText("hasilEvaluasiTeknis", "Evaluasi teknis", "hasilEvaluasi.teknis"),
+        detailText("hasilEvaluasiAdministratif", "Evaluasi administratif", "hasilEvaluasi.administratif"),
+        detailText("analisisHargaRingkasan", "Ringkasan analisis harga", "analisisHarga.ringkasan", true),
+        detailText("analisisHargaPembanding", "Harga pembanding dan dasar perhitungan", "analisisHarga.pembanding"),
         text("rekomendasi", "Rekomendasi", true),
         vendor(false, "rekomendasiVendorId"),
-        json("analisisRisiko", "Analisis risiko"),
-        json("kesiapanPembiayaan", "Kesiapan pembiayaan"),
+        detailText("analisisRisikoRingkasan", "Risiko dan mitigasi", "analisisRisiko.ringkasan"),
+        detailText("kesiapanPembiayaanRingkasan", "Kesiapan pembiayaan", "kesiapanPembiayaan.ringkasan"),
       ],
       AO,
       "memorandum",
@@ -180,6 +224,8 @@ export const lifecycleOperations: Operation[] = [
     text("pengalihanRisiko", "Pengalihan risiko"),
     text("forceMajeure", "Force majeure"),
     text("hukumBerlaku", "Hukum berlaku", false, 100),
+    date("mulaiBerlaku", "Mulai berlaku"),
+    date("berakhirPada", "Berakhir pada"),
   ]),
   create("adendum", "Buat adendum", "kontrak", api.transaksiControllerCreateAdendum, [rel("kontrakId", "Kontrak", "kontrak", true), nomor, text("alasan", "Alasan", true), json("perubahan", "Perubahan", true)]),
   entityStatus("status-kontrak", "Ubah status kontrak", "kontrak", "kontrak", ["aktif", "selesai"], api.transaksiControllerUpdateStatusKontrak, [...AO, "pimpinan"]),
@@ -191,8 +237,28 @@ export const lifecycleOperations: Operation[] = [
     text("pelabuhanBongkar", "Pelabuhan bongkar"),
     date("etd", "ETD"),
     date("eta", "ETA"),
-    num("volumeKontrak", "Volume kontrak"),
+    num("volumeKontrak", "Volume kontrak", 0),
   ]),
+  operationalUpdate(
+    "update-pengiriman",
+    "Perbarui pengiriman",
+    "delivery",
+    "pengiriman",
+    [
+      rel("kontrakId", "Kontrak", "kontrak"),
+      text("namaKapal", "Nama kapal", false, 150),
+      text("nomorBillOfLading", "Nomor bill of lading", false, 100),
+      text("pelabuhanMuat", "Pelabuhan muat", false, 150),
+      text("pelabuhanBongkar", "Pelabuhan bongkar", false, 150),
+      date("etd", "ETD"),
+      date("eta", "ETA"),
+      num("volumeKontrak", "Volume kontrak", 0),
+      num("volumeAktual", "Volume aktual", 0),
+    ],
+    AO,
+    "",
+  ),
+  operationalUpdate("status-pengiriman", "Ubah status pengiriman", "delivery", "pengiriman", [select("status", "Status", shipmentStatuses), num("volumeAktual", "Volume aktual", 0)]),
   create(
     "pemeriksaan",
     "Catat pemeriksaan",
@@ -261,6 +327,8 @@ export const lifecycleOperations: Operation[] = [
     [nomor, num("nilai", "Nilai", 0, true), rel("tagihanId", "Tagihan", "tagihan"), currency, text("rekeningTujuan", "Rekening tujuan", false, 100)],
     [...AO, "pimpinan"],
   ),
+  operationalUpdate("status-tagihan", "Ubah status / tanggal tagihan", "settlement", "tagihan", [select("status", "Status", invoiceStatuses), date("jatuhTempo", "Jatuh tempo"), date("diterbitkanPada", "Diterbitkan pada")]),
+  operationalUpdate("status-pembayaran", "Ubah status / tanggal pembayaran", "settlement", "pembayaran", [select("status", "Status", statuses), date("dibayarPada", "Dibayar pada (status selesai)")], [...AO, "pimpinan"]),
   create(
     "rekonsiliasi",
     "Simpan rekonsiliasi",
@@ -317,7 +385,14 @@ export function operationPayload(fields: Field[], values: Record<string, string>
     if (field.maxLength && value.length > field.maxLength) throw new Error(`${field.label}: maksimal ${field.maxLength} karakter.`);
     if (field.relation && !options(field).some((item) => item.value === value)) throw new Error(`${field.label}: pilih relasi yang tersedia.`);
     if (field.options && !field.options.includes(value)) throw new Error(`${field.label}: pilihan tidak valid.`);
-    if (field.kind === "number") {
+    if (field.payloadPath) {
+      const target = field.payloadPath.split(".").reduce<Entity>((node, key) => {
+        const child = node[key];
+        if (!child || typeof child !== "object" || Array.isArray(child)) node[key] = {};
+        return node[key] as Entity;
+      }, body);
+      target[field.payloadPath.split(".").at(-1)!] = value;
+    } else if (field.kind === "number") {
       const number = Number(value);
       if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) || !Number.isFinite(number) || (field.integer && !Number.isInteger(number)) || (field.min !== undefined && number < field.min))
         throw new Error(`${field.label}: angka harus valid${field.integer ? ", bulat" : ""}${field.min !== undefined ? `, minimum ${field.min}` : ""}.`);
@@ -343,9 +418,12 @@ export function operationPayload(fields: Field[], values: Record<string, string>
     ["estimasiMulai", "estimasiSelesai"],
     ["periodeMulai", "periodeSelesai"],
     ["etd", "eta"],
+    ["mulaiBerlaku", "berakhirPada"],
   ]) {
     if (body[start] && body[end] && String(body[start]) > String(body[end])) throw new Error("Tanggal selesai tidak boleh sebelum tanggal mulai.");
   }
   if (typeof body.volumeMin === "number" && typeof body.volumeMax === "number" && body.volumeMin > body.volumeMax) throw new Error("Volume maksimum tidak boleh kurang dari volume minimum.");
+  if (body.dibayarPada && body.status !== "selesai") throw new Error("Tanggal bayar hanya untuk pembayaran selesai.");
+  if (body.diterbitkanPada && !["diterbitkan", "dibayar_sebagian", "lunas"].includes(String(body.status))) throw new Error("Tanggal terbit memerlukan status diterbitkan, dibayar sebagian, atau lunas.");
   return body;
 }
