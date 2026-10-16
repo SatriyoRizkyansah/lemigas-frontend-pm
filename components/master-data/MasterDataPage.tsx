@@ -99,7 +99,7 @@ function unwrapList(value: unknown): ListPayload {
   };
 }
 
-export default function MasterDataPage({ kind }: { kind: keyof typeof config }) {
+export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md" }: { kind: keyof typeof config; formColumns?: 1 | 2; modalSize?: "sm" | "md" }) {
   const cfg = config[kind];
   const currentUser = useCurrentUser();
   const role = currentUser.data?.role.toLowerCase();
@@ -110,6 +110,7 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
   const [selected, setSelected] = useState<Entity | null>(null);
   const [removing, setRemoving] = useState<Entity | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
+  const [createVendorAccount, setCreateVendorAccount] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [filters, setFilters] = useState<Record<string, string>>({ status: "__all", kategoriId: "__all" });
@@ -215,6 +216,7 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
                   className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                   onClick={() => {
                     setSelected(row);
+                    setCreateVendorAccount(false);
                     setForm(Object.fromEntries(cfg.fields.map((field) => [field.name, String(row[field.name] ?? "")])));
                     setOpen(true);
                   }}
@@ -245,13 +247,20 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
   function beginCreate() {
     if (!canEdit) return;
     setSelected(null);
+    setCreateVendorAccount(false);
     setForm({});
     setOpen(true);
   }
   function save(event: React.FormEvent) {
     event.preventDefault();
     if (!canEdit || cfg.fields.some((field) => field.required && !form[field.name]?.trim())) return;
+    if (kind === "vendor" && createVendorAccount && (!form.akunNama?.trim() || !form.akunEmail?.trim() || (form.akunPassword?.length ?? 0) < 6)) return;
     const body = Object.fromEntries(cfg.fields.filter((field) => form[field.name] !== "").map((field) => [field.name, field.type === "number" ? Number(form[field.name]) : form[field.name]]));
+    if (!selected && kind === "vendor" && createVendorAccount) {
+      body.akunNama = form.akunNama.trim();
+      body.akunEmail = form.akunEmail.trim();
+      body.akunPassword = form.akunPassword;
+    }
     if (selected) update.mutate({ id: selected.id, body });
     else create.mutate(body);
   }
@@ -328,20 +337,26 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
         open={open && canEdit}
         onClose={() => setOpen(false)}
         title={selected ? `Ubah ${cfg.title}` : `Tambah ${cfg.title}`}
+        size={modalSize}
         footer={
           <>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Batal
             </Button>
-            <Button type="submit" form="master-form" disabled={busy} className="bg-foreground text-background hover:bg-foreground/90">
+            <Button
+              type="submit"
+              form="master-form"
+              disabled={busy || (kind === "vendor" && createVendorAccount && (!form.akunNama?.trim() || !form.akunEmail?.trim() || (form.akunPassword?.length ?? 0) < 6))}
+              className="bg-foreground text-background hover:bg-foreground/90"
+            >
               {busy ? "Menyimpan…" : "Simpan"}
             </Button>
           </>
         }
       >
-        <form id="master-form" className="grid gap-4" onSubmit={save}>
-          {cfg.fields.map((field) => (
-            <div className="grid gap-2" key={field.name}>
+        <form id="master-form" className={`grid gap-4 ${formColumns === 2 ? "sm:grid-cols-2" : "grid-cols-1"}`} onSubmit={save}>
+          {cfg.fields.map((field, index) => (
+            <div className={`grid gap-2 ${formColumns === 2 && cfg.fields.length % 2 === 1 && index === cfg.fields.length - 1 ? "sm:col-span-2" : ""}`} key={field.name}>
               <Label htmlFor={`master-${field.name}`}>{field.label}</Label>
               {field.name === "kategoriId" ? (
                 <Select value={form.kategoriId ?? ""} onValueChange={(value) => value && setForm((current) => ({ ...current, kategoriId: value }))}>
@@ -381,6 +396,36 @@ export default function MasterDataPage({ kind }: { kind: keyof typeof config }) 
               )}
             </div>
           ))}
+          {kind === "vendor" && !selected ? (
+            <div className="grid gap-3 rounded-md border p-3 sm:col-span-2">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input type="checkbox" checked={createVendorAccount} onChange={(event) => setCreateVendorAccount(event.target.checked)} />
+                Buat akun login vendor juga
+              </label>
+              {createVendorAccount ? (
+                <div className="grid gap-4 border-t pt-3">
+                  {[
+                    { name: "akunNama", label: "Nama pengguna", type: "text" },
+                    { name: "akunEmail", label: "Email login", type: "email" },
+                    { name: "akunPassword", label: "Password login (minimal 6 karakter)", type: "password" },
+                  ].map((field) => (
+                    <div className="grid gap-2" key={field.name}>
+                      <Label htmlFor={`master-${field.name}`}>{field.label}</Label>
+                      <Input
+                        id={`master-${field.name}`}
+                        type={field.type}
+                        required
+                        value={form[field.name] ?? ""}
+                        minLength={field.name === "akunPassword" ? 6 : undefined}
+                        onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))}
+                      />
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground">Akun dibuat dengan role Vendor dan langsung ditautkan ke vendor ini.</p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </form>
       </Modal>
       <ConfirmDialog

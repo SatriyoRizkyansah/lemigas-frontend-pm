@@ -32,6 +32,12 @@ export interface CreateVendorDto {
   contactPerson?: string;
   /** @default "aktif" */
   status?: "aktif" | "nonaktif";
+  /** Nama akun login vendor */
+  akunNama?: string;
+  /** Email akun login vendor */
+  akunEmail?: string;
+  /** Password akun login vendor */
+  akunPassword?: string;
 }
 
 export interface UpdateVendorDto {
@@ -137,11 +143,7 @@ export interface CreatePengadaanDto {
   /** Deskripsi pengadaan */
   deskripsi?: string;
   /** Metode pengadaan */
-  metode:
-    | "tender"
-    | "pengadaan_langsung"
-    | "penunjukan_langsung"
-    | "e_procurement";
+  metode: "tender" | "pengadaan_langsung" | "penunjukan_langsung" | "e_procurement";
   /** @default "sedang" */
   prioritas?: "rendah" | "sedang" | "tinggi" | "darurat";
   /** Tanggal pengajuan (YYYY-MM-DD) */
@@ -159,11 +161,7 @@ export interface UpdatePengadaanDto {
   judul?: string;
   /** Deskripsi pengadaan */
   deskripsi?: string;
-  metode?:
-    | "tender"
-    | "pengadaan_langsung"
-    | "penunjukan_langsung"
-    | "e_procurement";
+  metode?: "tender" | "pengadaan_langsung" | "penunjukan_langsung" | "e_procurement";
   prioritas?: "rendah" | "sedang" | "tinggi" | "darurat";
   /** Tanggal pengajuan (YYYY-MM-DD) */
   tanggalPengajuan?: string;
@@ -176,9 +174,7 @@ export interface UpdatePengadaanDto {
 }
 
 export interface CreatePerencanaanDto {
-  modelPelaksanaan:
-    | "pengelolaan_manajemen_impor"
-    | "pelaksanaan_impor_langsung";
+  modelPelaksanaan: "pengelolaan_manajemen_impor" | "pelaksanaan_impor_langsung";
   jenisKargo: string;
   satuan: string;
   titikSerah: string;
@@ -195,11 +191,7 @@ export interface CreatePerencanaanDto {
 export interface CreateStrategiDto {
   /** spot, berjangka, atau bentuk strategi lain */
   jenisTransaksi: string;
-  metodeSeleksi:
-    | "tender"
-    | "pengadaan_langsung"
-    | "penunjukan_langsung"
-    | "e_procurement";
+  metodeSeleksi: "tender" | "pengadaan_langsung" | "penunjukan_langsung" | "e_procurement";
   analisisPasar?: object;
   dasarPemilihan?: string;
   strategiPengiriman?: string;
@@ -228,51 +220,11 @@ export interface CreatePenawaranDto {
 
 export interface CreateVerifikasiDto {
   vendorId: string;
-  legalitas:
-    | "draft"
-    | "menunggu_persetujuan"
-    | "aktif"
-    | "selesai"
-    | "revisi"
-    | "ditolak"
-    | "gagal"
-    | "dibatalkan";
-  kewenangan:
-    | "draft"
-    | "menunggu_persetujuan"
-    | "aktif"
-    | "selesai"
-    | "revisi"
-    | "ditolak"
-    | "gagal"
-    | "dibatalkan";
-  rekening:
-    | "draft"
-    | "menunggu_persetujuan"
-    | "aktif"
-    | "selesai"
-    | "revisi"
-    | "ditolak"
-    | "gagal"
-    | "dibatalkan";
-  kepatuhan:
-    | "draft"
-    | "menunggu_persetujuan"
-    | "aktif"
-    | "selesai"
-    | "revisi"
-    | "ditolak"
-    | "gagal"
-    | "dibatalkan";
-  hasil:
-    | "draft"
-    | "menunggu_persetujuan"
-    | "aktif"
-    | "selesai"
-    | "revisi"
-    | "ditolak"
-    | "gagal"
-    | "dibatalkan";
+  legalitas: "draft" | "menunggu_persetujuan" | "aktif" | "selesai" | "revisi" | "ditolak" | "gagal" | "dibatalkan";
+  kewenangan: "draft" | "menunggu_persetujuan" | "aktif" | "selesai" | "revisi" | "ditolak" | "gagal" | "dibatalkan";
+  rekening: "draft" | "menunggu_persetujuan" | "aktif" | "selesai" | "revisi" | "ditolak" | "gagal" | "dibatalkan";
+  kepatuhan: "draft" | "menunggu_persetujuan" | "aktif" | "selesai" | "revisi" | "ditolak" | "gagal" | "dibatalkan";
+  hasil: "draft" | "menunggu_persetujuan" | "aktif" | "selesai" | "revisi" | "ditolak" | "gagal" | "dibatalkan";
   catatan?: string;
 }
 
@@ -289,11 +241,7 @@ export interface CreateNegosiasiDto {
 }
 
 export interface CreateMemorandumDto {
-  metodeSeleksi:
-    | "tender"
-    | "pengadaan_langsung"
-    | "penunjukan_langsung"
-    | "e_procurement";
+  metodeSeleksi: "tender" | "pengadaan_langsung" | "penunjukan_langsung" | "e_procurement";
   hasilEvaluasi: object;
   analisisHarga: object;
   rekomendasi: string;
@@ -319,15 +267,7 @@ export interface CreateKontrakDto {
 }
 
 export interface UpdateStatusTahapDto {
-  status:
-    | "draft"
-    | "menunggu_persetujuan"
-    | "aktif"
-    | "selesai"
-    | "revisi"
-    | "ditolak"
-    | "gagal"
-    | "dibatalkan";
+  status: "draft" | "menunggu_persetujuan" | "aktif" | "selesai" | "revisi" | "ditolak" | "gagal" | "dibatalkan";
 }
 
 export interface CreateAdendumDto {
@@ -433,17 +373,7 @@ export interface CreateKlaimDto {
 }
 
 export interface PenuhiDokumenTahapDto {
-  tahap:
-    | "perencanaan"
-    | "sourcing"
-    | "evaluasi_negosiasi"
-    | "approval"
-    | "kontrak"
-    | "delivery"
-    | "settlement"
-    | "selesai"
-    | "gagal"
-    | "dibatalkan";
+  tahap: "perencanaan" | "sourcing" | "evaluasi_negosiasi" | "approval" | "kontrak" | "delivery" | "settlement" | "selesai" | "gagal" | "dibatalkan";
   jenisDokumen: string;
   dokumenId: string;
   catatan?: string;
@@ -460,26 +390,8 @@ export interface CreateLaporanTransaksiDto {
 }
 
 export interface UpdateTahapDto {
-  status:
-    | "draft"
-    | "menunggu_persetujuan"
-    | "aktif"
-    | "selesai"
-    | "revisi"
-    | "ditolak"
-    | "gagal"
-    | "dibatalkan";
-  tahap:
-    | "perencanaan"
-    | "sourcing"
-    | "evaluasi_negosiasi"
-    | "approval"
-    | "kontrak"
-    | "delivery"
-    | "settlement"
-    | "selesai"
-    | "gagal"
-    | "dibatalkan";
+  status: "draft" | "menunggu_persetujuan" | "aktif" | "selesai" | "revisi" | "ditolak" | "gagal" | "dibatalkan";
+  tahap: "perencanaan" | "sourcing" | "evaluasi_negosiasi" | "approval" | "kontrak" | "delivery" | "settlement" | "selesai" | "gagal" | "dibatalkan";
   catatan?: string;
 }
 
@@ -501,6 +413,8 @@ export interface CreateUserDto {
   roleId: string;
   /** Unit kerja */
   unitKerja?: string;
+  /** UUID vendor untuk akun role VENDOR */
+  vendorId?: string;
   /** @default "aktif" */
   status?: "aktif" | "nonaktif";
 }
@@ -516,23 +430,19 @@ export interface UpdateUserDto {
   roleId?: string;
   /** Unit kerja */
   unitKerja?: string;
+  /** UUID vendor untuk akun role VENDOR */
+  vendorId?: string;
   status?: "aktif" | "nonaktif";
 }
 
 export interface CreateRencanaTransaksiDto {
   judul: string;
-  modelPelaksanaan:
-    | "pengelolaan_manajemen_impor"
-    | "pelaksanaan_impor_langsung";
+  modelPelaksanaan: "pengelolaan_manajemen_impor" | "pelaksanaan_impor_langsung";
   jenisKargo: string;
   satuan: string;
   titikSerah: string;
   jenisTransaksi: string;
-  metodeSeleksi:
-    | "tender"
-    | "pengadaan_langsung"
-    | "penunjukan_langsung"
-    | "e_procurement";
+  metodeSeleksi: "tender" | "pengadaan_langsung" | "penunjukan_langsung" | "e_procurement";
   deskripsi?: string;
   spesifikasiMutu?: object;
   volumeMin?: number;
@@ -579,22 +489,16 @@ export interface FullRequestParams extends Omit<RequestInit, "body"> {
   cancelToken?: CancelToken;
 }
 
-export type RequestParams = Omit<
-  FullRequestParams,
-  "body" | "method" | "query" | "path"
->;
+export type RequestParams = Omit<FullRequestParams, "body" | "method" | "query" | "path">;
 
 export interface ApiConfig<SecurityDataType = unknown> {
   baseUrl?: string;
   baseApiParams?: Omit<RequestParams, "baseUrl" | "cancelToken" | "signal">;
-  securityWorker?: (
-    securityData: SecurityDataType | null,
-  ) => Promise<RequestParams | void> | RequestParams | void;
+  securityWorker?: (securityData: SecurityDataType | null) => Promise<RequestParams | void> | RequestParams | void;
   customFetch?: typeof fetch;
 }
 
-export interface HttpResponse<D extends unknown, E extends unknown = unknown>
-  extends Response {
+export interface HttpResponse<D extends unknown, E extends unknown = unknown> extends Response {
   data: D;
   error: E;
 }
@@ -614,8 +518,7 @@ export class HttpClient<SecurityDataType = unknown> {
   private securityData: SecurityDataType | null = null;
   private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
   private abortControllers = new Map<CancelToken, AbortController>();
-  private customFetch = (...fetchParams: Parameters<typeof fetch>) =>
-    fetch(...fetchParams);
+  private customFetch = (...fetchParams: Parameters<typeof fetch>) => fetch(...fetchParams);
 
   private baseApiParams: RequestParams = {
     credentials: "same-origin",
@@ -648,16 +551,8 @@ export class HttpClient<SecurityDataType = unknown> {
 
   protected toQueryString(rawQuery?: QueryParamsType): string {
     const query = rawQuery || {};
-    const keys = Object.keys(query).filter(
-      (key) => "undefined" !== typeof query[key],
-    );
-    return keys
-      .map((key) =>
-        Array.isArray(query[key])
-          ? this.addArrayQueryParam(query, key)
-          : this.addQueryParam(query, key),
-      )
-      .join("&");
+    const keys = Object.keys(query).filter((key) => "undefined" !== typeof query[key]);
+    return keys.map((key) => (Array.isArray(query[key]) ? this.addArrayQueryParam(query, key) : this.addQueryParam(query, key))).join("&");
   }
 
   protected addQueryParams(rawQuery?: QueryParamsType): string {
@@ -666,18 +561,9 @@ export class HttpClient<SecurityDataType = unknown> {
   }
 
   private contentFormatters: Record<ContentType, (input: any) => any> = {
-    [ContentType.Json]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string")
-        ? JSON.stringify(input)
-        : input,
-    [ContentType.JsonApi]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string")
-        ? JSON.stringify(input)
-        : input,
-    [ContentType.Text]: (input: any) =>
-      input !== null && typeof input !== "string"
-        ? JSON.stringify(input)
-        : input,
+    [ContentType.Json]: (input: any) => (input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input),
+    [ContentType.JsonApi]: (input: any) => (input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input),
+    [ContentType.Text]: (input: any) => (input !== null && typeof input !== "string" ? JSON.stringify(input) : input),
     [ContentType.FormData]: (input: any) => {
       if (input instanceof FormData) {
         return input;
@@ -685,24 +571,14 @@ export class HttpClient<SecurityDataType = unknown> {
 
       return Object.keys(input || {}).reduce((formData, key) => {
         const property = input[key];
-        formData.append(
-          key,
-          property instanceof Blob
-            ? property
-            : typeof property === "object" && property !== null
-              ? JSON.stringify(property)
-              : `${property}`,
-        );
+        formData.append(key, property instanceof Blob ? property : typeof property === "object" && property !== null ? JSON.stringify(property) : `${property}`);
         return formData;
       }, new FormData());
     },
     [ContentType.UrlEncoded]: (input: any) => this.toQueryString(input),
   };
 
-  protected mergeRequestParams(
-    params1: RequestParams,
-    params2?: RequestParams,
-  ): RequestParams {
+  protected mergeRequestParams(params1: RequestParams, params2?: RequestParams): RequestParams {
     return {
       ...this.baseApiParams,
       ...params1,
@@ -715,9 +591,7 @@ export class HttpClient<SecurityDataType = unknown> {
     };
   }
 
-  protected createAbortSignal = (
-    cancelToken: CancelToken,
-  ): AbortSignal | undefined => {
+  protected createAbortSignal = (cancelToken: CancelToken): AbortSignal | undefined => {
     if (this.abortControllers.has(cancelToken)) {
       const abortController = this.abortControllers.get(cancelToken);
       if (abortController) {
@@ -740,47 +614,22 @@ export class HttpClient<SecurityDataType = unknown> {
     }
   };
 
-  public request = async <T = any, E = any>({
-    body,
-    secure,
-    path,
-    type,
-    query,
-    format,
-    baseUrl,
-    cancelToken,
-    ...params
-  }: FullRequestParams): Promise<HttpResponse<T, E>> => {
-    const secureParams =
-      ((typeof secure === "boolean" ? secure : this.baseApiParams.secure) &&
-        this.securityWorker &&
-        (await this.securityWorker(this.securityData))) ||
-      {};
+  public request = async <T = any, E = any>({ body, secure, path, type, query, format, baseUrl, cancelToken, ...params }: FullRequestParams): Promise<HttpResponse<T, E>> => {
+    const secureParams = ((typeof secure === "boolean" ? secure : this.baseApiParams.secure) && this.securityWorker && (await this.securityWorker(this.securityData))) || {};
     const requestParams = this.mergeRequestParams(params, secureParams);
     const queryString = query && this.toQueryString(query);
     const payloadFormatter = this.contentFormatters[type || ContentType.Json];
     const responseFormat = format || requestParams.format;
 
-    return this.customFetch(
-      `${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`,
-      {
-        ...requestParams,
-        headers: {
-          ...(requestParams.headers || {}),
-          ...(type && type !== ContentType.FormData
-            ? { "Content-Type": type }
-            : {}),
-        },
-        signal:
-          (cancelToken
-            ? this.createAbortSignal(cancelToken)
-            : requestParams.signal) || null,
-        body:
-          typeof body === "undefined" || body === null
-            ? null
-            : payloadFormatter(body),
+    return this.customFetch(`${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`, {
+      ...requestParams,
+      headers: {
+        ...(requestParams.headers || {}),
+        ...(type && type !== ContentType.FormData ? { "Content-Type": type } : {}),
       },
-    ).then(async (response) => {
+      signal: (cancelToken ? this.createAbortSignal(cancelToken) : requestParams.signal) || null,
+      body: typeof body === "undefined" || body === null ? null : payloadFormatter(body),
+    }).then(async (response) => {
       const r = response as HttpResponse<T, E>;
       r.data = null as unknown as T;
       r.error = null as unknown as E;
@@ -819,9 +668,7 @@ export class HttpClient<SecurityDataType = unknown> {
  *
  * Dokumentasi API untuk aplikasi Pengadaan Minyak LEMIGAS
  */
-export class Api<
-  SecurityDataType extends unknown,
-> extends HttpClient<SecurityDataType> {
+export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   app = {
     /**
      * No description
@@ -928,10 +775,7 @@ export class Api<
      * @request POST:/api/vendor
      * @secure
      */
-    vendorPostControllerCreate: (
-      data: CreateVendorDto,
-      params: RequestParams = {},
-    ) =>
+    vendorPostControllerCreate: (data: CreateVendorDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/vendor`,
         method: "POST",
@@ -967,11 +811,7 @@ export class Api<
      * @request PUT:/api/vendor/{id}
      * @secure
      */
-    vendorPutControllerUpdate: (
-      id: string,
-      data: UpdateVendorDto,
-      params: RequestParams = {},
-    ) =>
+    vendorPutControllerUpdate: (id: string, data: UpdateVendorDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/vendor/${id}`,
         method: "PUT",
@@ -1008,10 +848,7 @@ export class Api<
      * @request POST:/api/vendor-onboarding/accounts
      * @secure
      */
-    vendorOnboardingControllerCreateAccount: (
-      data: CreateVendorAccountDto,
-      params: RequestParams = {},
-    ) =>
+    vendorOnboardingControllerCreateAccount: (data: CreateVendorAccountDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/vendor-onboarding/accounts`,
         method: "POST",
@@ -1087,10 +924,7 @@ export class Api<
      * @request PUT:/api/vendor-onboarding/me/profile
      * @secure
      */
-    vendorOnboardingControllerUpdateProfile: (
-      data: SubmitVendorProfileDto,
-      params: RequestParams = {},
-    ) =>
+    vendorOnboardingControllerUpdateProfile: (data: SubmitVendorProfileDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/vendor-onboarding/me/profile`,
         method: "PUT",
@@ -1137,10 +971,7 @@ export class Api<
      * @request GET:/api/vendor-onboarding/documents/{id}/file
      * @secure
      */
-    vendorOnboardingControllerDownloadDocument: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    vendorOnboardingControllerDownloadDocument: (id: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/vendor-onboarding/documents/${id}/file`,
         method: "GET",
@@ -1174,11 +1005,7 @@ export class Api<
      * @request PUT:/api/vendor-onboarding/{id}/review
      * @secure
      */
-    vendorOnboardingControllerReview: (
-      id: string,
-      data: ReviewVendorOnboardingDto,
-      params: RequestParams = {},
-    ) =>
+    vendorOnboardingControllerReview: (id: string, data: ReviewVendorOnboardingDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/vendor-onboarding/${id}/review`,
         method: "PUT",
@@ -1226,10 +1053,7 @@ export class Api<
      * @request POST:/api/kategori
      * @secure
      */
-    kategoriPostControllerCreate: (
-      data: CreateKategoriDto,
-      params: RequestParams = {},
-    ) =>
+    kategoriPostControllerCreate: (data: CreateKategoriDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/kategori`,
         method: "POST",
@@ -1248,11 +1072,7 @@ export class Api<
      * @request PUT:/api/kategori/{id}
      * @secure
      */
-    kategoriPutControllerUpdate: (
-      id: string,
-      data: UpdateKategoriDto,
-      params: RequestParams = {},
-    ) =>
+    kategoriPutControllerUpdate: (id: string, data: UpdateKategoriDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/kategori/${id}`,
         method: "PUT",
@@ -1319,10 +1139,7 @@ export class Api<
      * @request POST:/api/barang
      * @secure
      */
-    barangPostControllerCreate: (
-      data: CreateBarangDto,
-      params: RequestParams = {},
-    ) =>
+    barangPostControllerCreate: (data: CreateBarangDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/barang`,
         method: "POST",
@@ -1358,11 +1175,7 @@ export class Api<
      * @request PUT:/api/barang/{id}
      * @secure
      */
-    barangPutControllerUpdate: (
-      id: string,
-      data: UpdateBarangDto,
-      params: RequestParams = {},
-    ) =>
+    barangPutControllerUpdate: (id: string, data: UpdateBarangDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/barang/${id}`,
         method: "PUT",
@@ -1407,21 +1220,8 @@ export class Api<
         limit?: number;
         /** @default 1 */
         page?: number;
-        status?:
-          | "draft"
-          | "diajukan"
-          | "dalam_review"
-          | "disetujui"
-          | "ditolak"
-          | "revisi"
-          | "sedang_proses"
-          | "selesai"
-          | "dibatalkan";
-        metode?:
-          | "tender"
-          | "pengadaan_langsung"
-          | "penunjukan_langsung"
-          | "e_procurement";
+        status?: "draft" | "diajukan" | "dalam_review" | "disetujui" | "ditolak" | "revisi" | "sedang_proses" | "selesai" | "dibatalkan";
+        metode?: "tender" | "pengadaan_langsung" | "penunjukan_langsung" | "e_procurement";
         prioritas?: "rendah" | "sedang" | "tinggi" | "darurat";
       },
       params: RequestParams = {},
@@ -1443,10 +1243,7 @@ export class Api<
      * @request POST:/api/pengadaan
      * @secure
      */
-    pengadaanPostControllerCreate: (
-      data: CreatePengadaanDto,
-      params: RequestParams = {},
-    ) =>
+    pengadaanPostControllerCreate: (data: CreatePengadaanDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan`,
         method: "POST",
@@ -1482,11 +1279,7 @@ export class Api<
      * @request PUT:/api/pengadaan/{id}
      * @secure
      */
-    pengadaanPutControllerUpdate: (
-      id: string,
-      data: UpdatePengadaanDto,
-      params: RequestParams = {},
-    ) =>
+    pengadaanPutControllerUpdate: (id: string, data: UpdatePengadaanDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${id}`,
         method: "PUT",
@@ -1523,10 +1316,7 @@ export class Api<
      * @request GET:/api/pengadaan/{pengadaanId}/siklus
      * @secure
      */
-    transaksiControllerDetail: (
-      pengadaanId: string,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerDetail: (pengadaanId: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/siklus`,
         method: "GET",
@@ -1543,11 +1333,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/perencanaan
      * @secure
      */
-    transaksiControllerCreatePerencanaan: (
-      pengadaanId: string,
-      data: CreatePerencanaanDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreatePerencanaan: (pengadaanId: string, data: CreatePerencanaanDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/perencanaan`,
         method: "POST",
@@ -1566,11 +1352,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/strategi
      * @secure
      */
-    transaksiControllerCreateStrategi: (
-      pengadaanId: string,
-      data: CreateStrategiDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateStrategi: (pengadaanId: string, data: CreateStrategiDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/strategi`,
         method: "POST",
@@ -1589,11 +1371,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/rfq
      * @secure
      */
-    transaksiControllerCreateRfq: (
-      pengadaanId: string,
-      data: CreateRfqDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateRfq: (pengadaanId: string, data: CreateRfqDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/rfq`,
         method: "POST",
@@ -1612,11 +1390,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/penawaran
      * @secure
      */
-    transaksiControllerCreatePenawaran: (
-      pengadaanId: string,
-      data: CreatePenawaranDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreatePenawaran: (pengadaanId: string, data: CreatePenawaranDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/penawaran`,
         method: "POST",
@@ -1635,11 +1409,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/verifikasi
      * @secure
      */
-    transaksiControllerCreateVerifikasi: (
-      pengadaanId: string,
-      data: CreateVerifikasiDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateVerifikasi: (pengadaanId: string, data: CreateVerifikasiDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/verifikasi`,
         method: "POST",
@@ -1658,11 +1428,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/negosiasi
      * @secure
      */
-    transaksiControllerCreateNegosiasi: (
-      pengadaanId: string,
-      data: CreateNegosiasiDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateNegosiasi: (pengadaanId: string, data: CreateNegosiasiDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/negosiasi`,
         method: "POST",
@@ -1681,11 +1447,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/memorandum
      * @secure
      */
-    transaksiControllerCreateMemorandum: (
-      pengadaanId: string,
-      data: CreateMemorandumDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateMemorandum: (pengadaanId: string, data: CreateMemorandumDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/memorandum`,
         method: "POST",
@@ -1704,11 +1466,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/kontrak
      * @secure
      */
-    transaksiControllerCreateKontrak: (
-      pengadaanId: string,
-      data: CreateKontrakDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateKontrak: (pengadaanId: string, data: CreateKontrakDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/kontrak`,
         method: "POST",
@@ -1727,12 +1485,7 @@ export class Api<
      * @request PUT:/api/pengadaan/{pengadaanId}/kontrak/{kontrakId}/status
      * @secure
      */
-    transaksiControllerUpdateStatusKontrak: (
-      pengadaanId: string,
-      kontrakId: string,
-      data: UpdateStatusTahapDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerUpdateStatusKontrak: (pengadaanId: string, kontrakId: string, data: UpdateStatusTahapDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/kontrak/${kontrakId}/status`,
         method: "PUT",
@@ -1751,11 +1504,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/adendum
      * @secure
      */
-    transaksiControllerCreateAdendum: (
-      pengadaanId: string,
-      data: CreateAdendumDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateAdendum: (pengadaanId: string, data: CreateAdendumDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/adendum`,
         method: "POST",
@@ -1774,11 +1523,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/dokumen-operasional
      * @secure
      */
-    transaksiControllerCreateDokumenOperasional: (
-      pengadaanId: string,
-      data: CreateDokumenOperasionalDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateDokumenOperasional: (pengadaanId: string, data: CreateDokumenOperasionalDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/dokumen-operasional`,
         method: "POST",
@@ -1797,11 +1542,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/pengiriman
      * @secure
      */
-    transaksiControllerCreatePengiriman: (
-      pengadaanId: string,
-      data: CreatePengirimanDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreatePengiriman: (pengadaanId: string, data: CreatePengirimanDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/pengiriman`,
         method: "POST",
@@ -1820,11 +1561,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/pemeriksaan
      * @secure
      */
-    transaksiControllerCreatePemeriksaan: (
-      pengadaanId: string,
-      data: CreatePemeriksaanDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreatePemeriksaan: (pengadaanId: string, data: CreatePemeriksaanDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/pemeriksaan`,
         method: "POST",
@@ -1843,11 +1580,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/penerimaan
      * @secure
      */
-    transaksiControllerCreatePenerimaan: (
-      pengadaanId: string,
-      data: CreatePenerimaanDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreatePenerimaan: (pengadaanId: string, data: CreatePenerimaanDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/penerimaan`,
         method: "POST",
@@ -1866,11 +1599,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/penyimpanan
      * @secure
      */
-    transaksiControllerCreatePenyimpanan: (
-      pengadaanId: string,
-      data: CreatePenyimpananDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreatePenyimpanan: (pengadaanId: string, data: CreatePenyimpananDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/penyimpanan`,
         method: "POST",
@@ -1889,11 +1618,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/risiko
      * @secure
      */
-    transaksiControllerCreateRisiko: (
-      pengadaanId: string,
-      data: CreateRisikoDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateRisiko: (pengadaanId: string, data: CreateRisikoDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/risiko`,
         method: "POST",
@@ -1912,11 +1637,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/tagihan
      * @secure
      */
-    transaksiControllerCreateTagihan: (
-      pengadaanId: string,
-      data: CreateTagihanDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateTagihan: (pengadaanId: string, data: CreateTagihanDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/tagihan`,
         method: "POST",
@@ -1935,11 +1656,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/pembayaran
      * @secure
      */
-    transaksiControllerCreatePembayaran: (
-      pengadaanId: string,
-      data: CreatePembayaranDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreatePembayaran: (pengadaanId: string, data: CreatePembayaranDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/pembayaran`,
         method: "POST",
@@ -1958,11 +1675,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/rekonsiliasi
      * @secure
      */
-    transaksiControllerCreateRekonsiliasi: (
-      pengadaanId: string,
-      data: CreateRekonsiliasiDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateRekonsiliasi: (pengadaanId: string, data: CreateRekonsiliasiDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/rekonsiliasi`,
         method: "POST",
@@ -1981,11 +1694,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/klaim
      * @secure
      */
-    transaksiControllerCreateKlaim: (
-      pengadaanId: string,
-      data: CreateKlaimDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateKlaim: (pengadaanId: string, data: CreateKlaimDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/klaim`,
         method: "POST",
@@ -2004,12 +1713,7 @@ export class Api<
      * @request PUT:/api/pengadaan/{pengadaanId}/klaim/{klaimId}/status
      * @secure
      */
-    transaksiControllerUpdateStatusKlaim: (
-      pengadaanId: string,
-      klaimId: string,
-      data: UpdateStatusTahapDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerUpdateStatusKlaim: (pengadaanId: string, klaimId: string, data: UpdateStatusTahapDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/klaim/${klaimId}/status`,
         method: "PUT",
@@ -2028,11 +1732,7 @@ export class Api<
      * @request PUT:/api/pengadaan/{pengadaanId}/rekonsiliasi/status
      * @secure
      */
-    transaksiControllerUpdateStatusRekonsiliasi: (
-      pengadaanId: string,
-      data: UpdateStatusTahapDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerUpdateStatusRekonsiliasi: (pengadaanId: string, data: UpdateStatusTahapDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/rekonsiliasi/status`,
         method: "PUT",
@@ -2051,11 +1751,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/persyaratan-dokumen/penuhi
      * @secure
      */
-    transaksiControllerPenuhiDokumenTahap: (
-      pengadaanId: string,
-      data: PenuhiDokumenTahapDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerPenuhiDokumenTahap: (pengadaanId: string, data: PenuhiDokumenTahapDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/persyaratan-dokumen/penuhi`,
         method: "POST",
@@ -2074,11 +1770,7 @@ export class Api<
      * @request POST:/api/pengadaan/{pengadaanId}/laporan
      * @secure
      */
-    transaksiControllerCreateLaporan: (
-      pengadaanId: string,
-      data: CreateLaporanTransaksiDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerCreateLaporan: (pengadaanId: string, data: CreateLaporanTransaksiDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/laporan`,
         method: "POST",
@@ -2097,10 +1789,7 @@ export class Api<
      * @request GET:/api/pengadaan/{pengadaanId}/laporan
      * @secure
      */
-    transaksiControllerListLaporan: (
-      pengadaanId: string,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerListLaporan: (pengadaanId: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/laporan`,
         method: "GET",
@@ -2117,11 +1806,7 @@ export class Api<
      * @request PUT:/api/pengadaan/{pengadaanId}/laporan/{laporanId}/terbitkan
      * @secure
      */
-    transaksiControllerTerbitkanLaporan: (
-      pengadaanId: string,
-      laporanId: string,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerTerbitkanLaporan: (pengadaanId: string, laporanId: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/laporan/${laporanId}/terbitkan`,
         method: "PUT",
@@ -2138,11 +1823,7 @@ export class Api<
      * @request PUT:/api/pengadaan/{pengadaanId}/tahap
      * @secure
      */
-    transaksiControllerUpdateTahap: (
-      pengadaanId: string,
-      data: UpdateTahapDto,
-      params: RequestParams = {},
-    ) =>
+    transaksiControllerUpdateTahap: (pengadaanId: string, data: UpdateTahapDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/tahap`,
         method: "PUT",
@@ -2246,10 +1927,7 @@ export class Api<
      * @request GET:/api/approval/history/{pengadaanId}
      * @secure
      */
-    approvalGetControllerGetHistory: (
-      pengadaanId: string,
-      params: RequestParams = {},
-    ) =>
+    approvalGetControllerGetHistory: (pengadaanId: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/approval/history/${pengadaanId}`,
         method: "GET",
@@ -2266,10 +1944,7 @@ export class Api<
      * @request POST:/api/approval/submit/{pengadaanId}
      * @secure
      */
-    approvalActionControllerSubmit: (
-      pengadaanId: string,
-      params: RequestParams = {},
-    ) =>
+    approvalActionControllerSubmit: (pengadaanId: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/approval/submit/${pengadaanId}`,
         method: "POST",
@@ -2286,10 +1961,7 @@ export class Api<
      * @request POST:/api/approval/memorandum/submit/{pengadaanId}
      * @secure
      */
-    approvalActionControllerSubmitMemorandum: (
-      pengadaanId: string,
-      params: RequestParams = {},
-    ) =>
+    approvalActionControllerSubmitMemorandum: (pengadaanId: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/approval/memorandum/submit/${pengadaanId}`,
         method: "POST",
@@ -2306,12 +1978,7 @@ export class Api<
      * @request POST:/api/approval/decide/{pengadaanId}/{stepId}
      * @secure
      */
-    approvalActionControllerDecide: (
-      pengadaanId: string,
-      stepId: string,
-      data: DecisionDto,
-      params: RequestParams = {},
-    ) =>
+    approvalActionControllerDecide: (pengadaanId: string, stepId: string, data: DecisionDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/approval/decide/${pengadaanId}/${stepId}`,
         method: "POST",
@@ -2393,10 +2060,7 @@ export class Api<
      * @request GET:/api/dokumen/by-pengadaan/{pengadaanId}
      * @secure
      */
-    dokumenGetControllerFindByPengadaan: (
-      pengadaanId: string,
-      params: RequestParams = {},
-    ) =>
+    dokumenGetControllerFindByPengadaan: (pengadaanId: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/dokumen/by-pengadaan/${pengadaanId}`,
         method: "GET",
@@ -2420,14 +2084,7 @@ export class Api<
         pengadaanId?: string;
         nama?: string;
         tipePenyimpanan?: "upload_lokal" | "link_eksternal";
-        tahap?:
-          | "perencanaan"
-          | "sourcing"
-          | "evaluasi_negosiasi"
-          | "approval"
-          | "kontrak"
-          | "delivery"
-          | "settlement";
+        tahap?: "perencanaan" | "sourcing" | "evaluasi_negosiasi" | "approval" | "kontrak" | "delivery" | "settlement";
         jenisDokumen?: string;
         /** @format uuid */
         pengirimanId?: string;
@@ -2485,10 +2142,7 @@ export class Api<
      * @request POST:/api/user
      * @secure
      */
-    userPostControllerCreate: (
-      data: CreateUserDto,
-      params: RequestParams = {},
-    ) =>
+    userPostControllerCreate: (data: CreateUserDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/user`,
         method: "POST",
@@ -2541,11 +2195,7 @@ export class Api<
      * @request PUT:/api/user/{id}
      * @secure
      */
-    userPutControllerUpdate: (
-      id: string,
-      data: UpdateUserDto,
-      params: RequestParams = {},
-    ) =>
+    userPutControllerUpdate: (id: string, data: UpdateUserDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/user/${id}`,
         method: "PUT",
@@ -2610,10 +2260,7 @@ export class Api<
      * @request PUT:/api/notifikasi/{id}/read
      * @secure
      */
-    notifikasiPutControllerMarkAsRead: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    notifikasiPutControllerMarkAsRead: (id: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/notifikasi/${id}/read`,
         method: "PUT",
@@ -2682,11 +2329,7 @@ export class Api<
      * @request GET:/api/audit-log/by-record/{tabel}/{recordId}
      * @secure
      */
-    auditLogGetControllerFindByRecord: (
-      tabel: string,
-      recordId: string,
-      params: RequestParams = {},
-    ) =>
+    auditLogGetControllerFindByRecord: (tabel: string, recordId: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/audit-log/by-record/${tabel}/${recordId}`,
         method: "GET",
@@ -2739,10 +2382,7 @@ export class Api<
      * @request POST:/api/rencana-transaksi
      * @secure
      */
-    perencanaanControllerCreate: (
-      data: CreateRencanaTransaksiDto,
-      params: RequestParams = {},
-    ) =>
+    perencanaanControllerCreate: (data: CreateRencanaTransaksiDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/rencana-transaksi`,
         method: "POST",
@@ -2795,12 +2435,7 @@ export class Api<
      * @request POST:/api/rencana-transaksi/{id}/approval/{stepId}
      * @secure
      */
-    perencanaanControllerDecide: (
-      id: string,
-      stepId: string,
-      data: DecisionRencanaDto,
-      params: RequestParams = {},
-    ) =>
+    perencanaanControllerDecide: (id: string, stepId: string, data: DecisionRencanaDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/rencana-transaksi/${id}/approval/${stepId}`,
         method: "POST",
@@ -2819,11 +2454,7 @@ export class Api<
      * @request POST:/api/rencana-transaksi/{id}/generate-pengadaan
      * @secure
      */
-    perencanaanControllerGeneratePengadaan: (
-      id: string,
-      data: GeneratePengadaanDto,
-      params: RequestParams = {},
-    ) =>
+    perencanaanControllerGeneratePengadaan: (id: string, data: GeneratePengadaanDto, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/rencana-transaksi/${id}/generate-pengadaan`,
         method: "POST",

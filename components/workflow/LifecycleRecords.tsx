@@ -274,6 +274,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
         open={Boolean(selected)}
         onClose={() => setSelected(null)}
         title="Detail record"
+        size="md"
         footer={
           <Button variant="outline" onClick={() => setSelected(null)}>
             Tutup

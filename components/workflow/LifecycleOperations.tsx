@@ -176,6 +176,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         open={!!selected}
         onClose={close}
         title={selected?.title ?? "Operasi transaksi"}
+        size="md"
         footer={
           <>
             <Button type="button" variant="outline" disabled={locked} onClick={close}>

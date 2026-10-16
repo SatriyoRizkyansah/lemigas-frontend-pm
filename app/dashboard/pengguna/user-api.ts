@@ -15,6 +15,8 @@ export type UserRecord = {
   email: string;
   unitKerja: string | null;
   status: "aktif" | "nonaktif";
+  vendorId?: string | null;
+  vendor?: { id: string; nama: string } | null;
   createdAt: string;
   role: UserRole;
 };

@@ -372,6 +372,7 @@ export default function DokumenPage() {
           if (!uploadLock.current) setUploadOpen(false);
         }}
         title="Unggah dokumen"
+        size="md"
         footer={
           <>
             <Button type="button" variant="outline" disabled={uploading} onClick={() => setUploadOpen(false)}>

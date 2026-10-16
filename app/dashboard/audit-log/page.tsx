@@ -202,6 +202,7 @@ function AuditView({ initial }: { initial: Filters }) {
         open={allowed && Boolean(selected)}
         onClose={() => setSelected(null)}
         title="Detail perubahan audit"
+        size="md"
         footer={
           <Button variant="outline" onClick={() => setSelected(null)}>
             Tutup

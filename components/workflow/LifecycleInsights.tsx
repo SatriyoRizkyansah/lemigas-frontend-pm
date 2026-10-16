@@ -200,6 +200,7 @@ export function LifecycleInsights({ pengadaanId, detail }: { pengadaanId: string
           if (!recovery.isPending) setRecoveryStage(null);
         }}
         title="Konfirmasi recovery historis"
+        size="md"
         footer={
           <div className="flex justify-end gap-2">
             <Button variant="outline" disabled={recovery.isPending} onClick={() => setRecoveryStage(null)}>

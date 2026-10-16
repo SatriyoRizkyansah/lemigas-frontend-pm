@@ -63,6 +63,39 @@
 *::after {
   box-sizing: border-box;
 }
+
+/* App-wide scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(14, 35, 71, 0.38) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(14, 35, 71, 0.34);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(14, 35, 71, 0.58);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   /* Keep app's visual density comfortable at Chrome's default 100% zoom. */

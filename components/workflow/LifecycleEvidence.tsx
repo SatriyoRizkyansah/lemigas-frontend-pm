@@ -130,21 +130,20 @@ export function LifecycleEvidence({ pengadaanId, detail }: { pengadaanId: string
   async function download(id: string, name: string) {
     setDownloadId(id);
     setDownloadFailure(null);
-    try { await downloadDocument(id, name); }
-    catch (cause) { setDownloadFailure({ id, name, message: getApiErrorMessage(cause) }); }
-    finally { setDownloadId(null); }
+    try {
+      await downloadDocument(id, name);
+    } catch (cause) {
+      setDownloadFailure({ id, name, message: getApiErrorMessage(cause) });
+    } finally {
+      setDownloadId(null);
+    }
   }
   function linkDocument(document: Entity | undefined) {
     if (!document) return "Dokumen tidak tersedia";
     const id = String(document.id ?? "");
     if (document.tipePenyimpanan !== "upload_lokal" || !id) return String(document.nama ?? "Dokumen");
     return (
-      <Button
-        variant="link"
-        size="sm"
-        disabled={downloadId === id}
-        onClick={() => void download(id, String(document.nama ?? "dokumen"))}
-      >
+      <Button variant="link" size="sm" disabled={downloadId === id} onClick={() => void download(id, String(document.nama ?? "dokumen"))}>
         {downloadId === id ? "Mengunduh…" : String(document.nama ?? "Dokumen")}
       </Button>
     );
@@ -168,8 +167,26 @@ export function LifecycleEvidence({ pengadaanId, detail }: { pengadaanId: string
           </Button>
         ) : null}
       </div>
-      {downloadFailure ? <Alert variant="destructive"><AlertDescription>{downloadFailure.message} <Button variant="link" size="sm" disabled={Boolean(downloadId)} onClick={() => void download(downloadFailure.id, downloadFailure.name)}>Coba unduh lagi</Button></AlertDescription></Alert> : null}
-      {documents.isError ? <Alert variant="destructive"><AlertDescription>{getApiErrorMessage(documents.error)} <Button variant="link" size="sm" onClick={() => void documents.refetch()}>Muat ulang dokumen</Button></AlertDescription></Alert> : null}
+      {downloadFailure ? (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {downloadFailure.message}{" "}
+            <Button variant="link" size="sm" disabled={Boolean(downloadId)} onClick={() => void download(downloadFailure.id, downloadFailure.name)}>
+              Coba unduh lagi
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {documents.isError ? (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {getApiErrorMessage(documents.error)}{" "}
+            <Button variant="link" size="sm" onClick={() => void documents.refetch()}>
+              Muat ulang dokumen
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {evidence.isError ? (
         <Alert variant="destructive">
           <AlertDescription>
@@ -191,7 +208,11 @@ export function LifecycleEvidence({ pengadaanId, detail }: { pengadaanId: string
         emptyMessage={evidence.isPending ? "Memuat bukti…" : "Belum ada bukti per record."}
         columns={[
           { key: "jenisRecord", header: "Record", render: (row) => targetLabels[row.jenisRecord] ?? row.jenisRecord },
-          { key: "recordId", header: "Record terkait", render: (row) => targets.find((target) => target.type === row.jenisRecord && target.id === row.recordId)?.name ?? `${targetLabels[row.jenisRecord] ?? row.jenisRecord} ${row.recordId}` },
+          {
+            key: "recordId",
+            header: "Record terkait",
+            render: (row) => targets.find((target) => target.type === row.jenisRecord && target.id === row.recordId)?.name ?? `${targetLabels[row.jenisRecord] ?? row.jenisRecord} ${row.recordId}`,
+          },
           { key: "dokumen", header: "Dokumen", render: (row) => linkDocument(row.dokumen) },
           {
             key: "actions",
@@ -210,6 +231,7 @@ export function LifecycleEvidence({ pengadaanId, detail }: { pengadaanId: string
         open={open}
         onClose={close}
         title="Tautkan bukti lifecycle"
+        size="md"
         footer={
           <div className="flex justify-end gap-2">
             <Button variant="outline" disabled={mutation.isPending} onClick={close}>
@@ -233,7 +255,16 @@ export function LifecycleEvidence({ pengadaanId, detail }: { pengadaanId: string
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
-          {documents.isError ? <Alert variant="destructive"><AlertDescription>{getApiErrorMessage(documents.error)} <Button variant="link" onClick={() => void documents.refetch()}>Coba lagi</Button></AlertDescription></Alert> : null}
+          {documents.isError ? (
+            <Alert variant="destructive">
+              <AlertDescription>
+                {getApiErrorMessage(documents.error)}{" "}
+                <Button variant="link" onClick={() => void documents.refetch()}>
+                  Coba lagi
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <label className="block space-y-1 text-sm">
             <span className="font-medium">Jenis record</span>
             <Select
@@ -287,7 +318,19 @@ export function LifecycleEvidence({ pengadaanId, detail }: { pengadaanId: string
           </label>
         </div>
       </Modal>
-      <ConfirmDialog open={Boolean(unlink)} onClose={() => { if (!mutation.isPending) setUnlink(null); }} title="Lepas bukti lifecycle" message="Lepas tautan bukti dari record ini? Dokumen tetap tersimpan." confirmLabel="Lepas tautan" busy={mutation.isPending} onConfirm={() => { if (unlink && canMutate && !mutation.isPending) mutation.mutate({ method: "DELETE", relationId: unlink.id }); }} />
+      <ConfirmDialog
+        open={Boolean(unlink)}
+        onClose={() => {
+          if (!mutation.isPending) setUnlink(null);
+        }}
+        title="Lepas bukti lifecycle"
+        message="Lepas tautan bukti dari record ini? Dokumen tetap tersimpan."
+        confirmLabel="Lepas tautan"
+        busy={mutation.isPending}
+        onConfirm={() => {
+          if (unlink && canMutate && !mutation.isPending) mutation.mutate({ method: "DELETE", relationId: unlink.id });
+        }}
+      />
     </section>
   );
 }

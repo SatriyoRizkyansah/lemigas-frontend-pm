@@ -272,6 +272,7 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
         open={!!action}
         onClose={close}
         title={action?.mode === "upload" ? "Unggah dokumen tahap" : "Penuhi persyaratan dokumen"}
+        size="md"
         footer={
           <>
             <Button type="button" variant="outline" disabled={locked} onClick={close}>

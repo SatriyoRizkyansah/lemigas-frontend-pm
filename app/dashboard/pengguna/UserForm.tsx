@@ -2,6 +2,9 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { Modal } from "@/components/modal/Modal";
+import { browserApi } from "@/lib/api/browser-client";
+import { apiData, setBrowserToken } from "@/lib/api/hooks";
+import { use_query } from "@/lib/api/use_query";
 import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/input";
@@ -10,12 +13,26 @@ import { useUserRoles, useUserWrite, userError, type UserRecord, type UserComman
 
 export default function UserForm({ user, canManage, onClose, onSaved }: { user?: UserRecord; canManage: boolean; onClose: () => void; onSaved: () => void }) {
   const roles = useUserRoles();
+  const vendors = use_query<{ data: Array<{ id: string; nama: string }> }, Error, Record<string, never>>({
+    tag: "vendor",
+    method: "vendorGetControllerFindAll",
+    params: {},
+    queryFn: async () => {
+      setBrowserToken();
+      const response = await apiData(browserApi.vendor.vendorGetControllerFindAll({ page: 1, limit: 100 }, { format: "json" }) as Promise<{ data: unknown }>);
+      let payload = response as any;
+      for (let depth = 0; depth < 3 && payload && typeof payload === "object" && "data" in payload; depth += 1) payload = payload.data;
+      return { data: Array.isArray(payload) ? payload : [] };
+    },
+  });
   const write = useUserWrite();
   const lock = useRef(false);
-  const [form, setForm] = useState({ nama: user?.nama ?? "", email: user?.email ?? "", password: "", roleId: user?.role.id ?? "", unitKerja: user?.unitKerja ?? "", status: user?.status ?? "aktif" });
+  const [form, setForm] = useState({ nama: user?.nama ?? "", email: user?.email ?? "", password: "", roleId: user?.role.id ?? "", vendorId: user?.vendorId ?? "", unitKerja: user?.unitKerja ?? "", status: user?.status ?? "aktif" });
   const [command, setCommand] = useState<UserCommand | null>(null);
   const [error, setError] = useState("");
   const validRole = roles.isSuccess && roles.data.data.some((role) => role.id === form.roleId);
+  const selectedRole = roles.data?.data.find((role) => role.id === form.roleId);
+  const isVendorRole = selectedRole?.kode.toUpperCase() === "VENDOR";
   const busy = write.isPending;
   function close() {
     if (!lock.current) onClose();
@@ -24,14 +41,15 @@ export default function UserForm({ user, canManage, onClose, onSaved }: { user?:
     event.preventDefault();
     if (!canManage || lock.current || command) return;
     setError("");
-    if (!form.nama.trim() || !form.email.trim() || !validRole || (!user && !form.password) || (form.password && form.password.length < 6)) {
-      setError("Lengkapi nama, email, role valid, dan password minimal 6 karakter.");
+    if (!form.nama.trim() || !form.email.trim() || !validRole || (isVendorRole && !form.vendorId) || (!user && !form.password) || (form.password && form.password.length < 6)) {
+      setError(isVendorRole && !form.vendorId ? "Pilih vendor untuk akun role vendor." : "Lengkapi nama, email, role valid, dan password minimal 6 karakter.");
       return;
     }
     const body = {
       nama: form.nama.trim(),
       email: form.email.trim(),
       roleId: form.roleId,
+      vendorId: isVendorRole ? form.vendorId : undefined,
       unitKerja: user ? form.unitKerja.trim() : form.unitKerja.trim() || undefined,
       status: form.status,
     };
@@ -57,12 +75,13 @@ export default function UserForm({ user, canManage, onClose, onSaved }: { user?:
         open={canManage}
         onClose={close}
         title={user ? "Ubah pengguna" : "Tambah pengguna"}
+        size="sm"
         footer={
           <>
             <Button type="button" variant="outline" disabled={busy} onClick={close}>
               Batal
             </Button>
-            <Button type="submit" form="user-form" disabled={busy || !validRole || Boolean(command)}>
+            <Button type="submit" form="user-form" disabled={busy || !validRole || (isVendorRole && !form.vendorId) || Boolean(command)}>
               {busy ? "Menyimpan…" : "Simpan"}
             </Button>
           </>
@@ -85,7 +104,14 @@ export default function UserForm({ user, canManage, onClose, onSaved }: { user?:
             </div>
             <div className="grid gap-2">
               <Label htmlFor="user-role">Peran</Label>
-              <select id="user-role" required disabled={!roles.isSuccess} className="h-9 w-full rounded-md border bg-background px-3 text-foreground" value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })}>
+              <select
+                id="user-role"
+                required
+                disabled={!roles.isSuccess}
+                className="h-9 w-full rounded-md border bg-background px-3 text-foreground"
+                value={form.roleId}
+                onChange={(e) => setForm({ ...form, roleId: e.target.value, vendorId: "" })}
+              >
                 <option value="">{roles.isPending ? "Memuat role…" : "Pilih role"}</option>
                 {roles.data?.data.map((role) => (
                   <option key={role.id} value={role.id}>
@@ -103,10 +129,41 @@ export default function UserForm({ user, canManage, onClose, onSaved }: { user?:
               ) : null}
               {roles.isSuccess && !roles.data.data.length ? <p role="alert">Backend belum menyediakan role. Penyimpanan diblokir.</p> : null}
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="user-unit">Unit kerja</Label>
-              <Input id="user-unit" maxLength={150} value={form.unitKerja} onChange={(e) => setForm({ ...form, unitKerja: e.target.value })} />
-            </div>
+            {isVendorRole ? (
+              <div className="grid gap-2">
+                <Label htmlFor="user-vendor">Vendor</Label>
+                <select
+                  id="user-vendor"
+                  required
+                  disabled={!vendors.isSuccess}
+                  className="h-9 w-full rounded-md border bg-background px-3 text-foreground"
+                  value={form.vendorId}
+                  onChange={(e) => setForm({ ...form, vendorId: e.target.value })}
+                >
+                  <option value="">{vendors.isPending ? "Memuat vendor…" : "Pilih vendor"}</option>
+                  {vendors.data?.data.map((vendor) => (
+                    <option key={vendor.id} value={vendor.id}>
+                      {vendor.nama}
+                    </option>
+                  ))}
+                </select>
+                {vendors.isError ? (
+                  <p role="alert">
+                    {userError(vendors.error)}{" "}
+                    <Button type="button" variant="link" onClick={() => void vendors.refetch()}>
+                      Muat ulang vendor
+                    </Button>
+                  </p>
+                ) : null}
+                {vendors.isSuccess && !vendors.data.data.length ? <p role="alert">Belum ada vendor. Buat vendor terlebih dahulu.</p> : null}
+              </div>
+            ) : null}
+            {!isVendorRole ? (
+              <div className="grid gap-2">
+                <Label htmlFor="user-unit">Unit kerja</Label>
+                <Input id="user-unit" maxLength={150} value={form.unitKerja} onChange={(e) => setForm({ ...form, unitKerja: e.target.value })} />
+              </div>
+            ) : null}
             <div className="grid gap-2">
               <Label htmlFor="user-status">Status</Label>
               <select id="user-status" className="h-9 w-full rounded-md border bg-background px-3 text-foreground" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as "aktif" | "nonaktif" })}>
