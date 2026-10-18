@@ -103,7 +103,6 @@ export default function PengadaanPage() {
         } as any,
         { format: "json" },
       );
-      setNotice("Draft pengadaan berhasil dibuat.");
       form.reset();
       setCreateItemCount(1);
       await refresh();
@@ -349,9 +348,6 @@ export default function PengadaanPage() {
             ))}
           </select>
         </label>
-        <Button variant="outline" onClick={() => void refresh()}>
-          Muat ulang
-        </Button>
       </div>
       <div className="overflow-x-auto rounded-xl border">
         <table className="w-full text-sm">

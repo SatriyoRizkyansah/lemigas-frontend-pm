@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FileText, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, XCircle } from "lucide-react";
 import { readSession, SESSION_COOKIE } from "@/lib/auth";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { EmptyData } from "@/components/loading/EmptyData";
+import { PageHeader } from "@/components/common/PageHeader";
+import { Button } from "@/components/ui/Button";
 
 type Onboarding = {
   id: string;
@@ -92,25 +94,26 @@ export default function VendorOnboardingPage() {
 
   return (
     <section className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wider text-primary">Verifikasi mitra</p>
-          <h1 className="mt-1 text-3xl font-bold">Onboarding Vendor</h1>
-          <p className="mt-2 text-muted-foreground">Review profil perusahaan dan dokumen legalitas sebelum vendor mengikuti sourcing.</p>
-        </div>
-        <div className="flex gap-2">
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-md border bg-background px-3 py-2">
-            <option value="submitted">Menunggu review</option>
-            <option value="in_review">Dalam review</option>
-            <option value="requires_revision">Perlu revisi</option>
-            <option value="approved">Disetujui</option>
-            <option value="rejected">Ditolak</option>
-          </select>
-          <button onClick={() => void refresh()} className="inline-flex items-center gap-2 rounded-md border px-3 py-2">
-            <RefreshCw size={16} /> Muat ulang
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title="Onboarding Vendor"
+        description="Review profil perusahaan dan dokumen legalitas sebelum vendor mengikuti sourcing."
+        actions={
+          <>
+            <select
+              aria-label="Filter status onboarding"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <option value="submitted">Menunggu review</option>
+              <option value="in_review">Dalam review</option>
+              <option value="requires_revision">Perlu revisi</option>
+              <option value="approved">Disetujui</option>
+              <option value="rejected">Ditolak</option>
+            </select>
+          </>
+        }
+      />
       {error && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
           {error}
@@ -119,7 +122,7 @@ export default function VendorOnboardingPage() {
       {loading ? (
         <LoadingState label="Loading..." />
       ) : items.length === 0 ? (
-        <EmptyData label="Tidak ada onboarding dengan status ini." />
+        <EmptyData className="min-h-72 border-border/70 bg-card/70 shadow-sm" label={status === "submitted" ? "Belum ada vendor yang menunggu review." : `Belum ada onboarding berstatus ${status.replaceAll("_", " ")}.`} />
       ) : (
         <div className="space-y-4">
           {items.map((item) => (

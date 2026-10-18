@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { ClipboardCheck, FileText, Send } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
@@ -19,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { Card, CardContent } from "@/components/ui/card";
 
 type Jenis = "pengadaan" | "memorandum";
 type Step = {
@@ -80,11 +82,61 @@ function workflowWaiting(row: Procurement, jenis: Jenis) {
 function Status({ value }: { value: string }) {
   return <StatusBadge status={value === "ditolak" ? "danger" : value === "disetujui" || value === "selesai" ? "ok" : "warn"}>{value.replaceAll("_", " ")}</StatusBadge>;
 }
+const hiddenDetailKeys = new Set(["id", "pengadaanId", "memorandumId", "barangId", "vendorId", "createdAt", "updatedAt"]);
+function readableLabel(value: string) {
+  return value
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replaceAll("_", " ")
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+function ReadableValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
+  if (value == null || value === "") return <span className="text-muted-foreground">—</span>;
+  if (typeof value === "boolean") return <span>{value ? "Ya" : "Tidak"}</span>;
+  if (typeof value === "string" || typeof value === "number") return <span className="break-words">{String(value)}</span>;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="text-muted-foreground">Belum ada data.</span>;
+    return (
+      <div className="mt-2 space-y-2">
+        {value.map((item, index) => (
+          <div key={index} className="rounded-md border bg-background p-3">
+            <ReadableValue value={item} depth={depth + 1} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).filter(([key]) => !hiddenDetailKeys.has(key));
+    if (!entries.length) return <span className="text-muted-foreground">Tidak ada informasi tambahan.</span>;
+    return (
+      <dl className={depth === 0 ? "grid gap-x-6 gap-y-3 sm:grid-cols-2" : "grid gap-2 sm:grid-cols-2"}>
+        {entries.map(([key, item]) => (
+          <div key={key} className={typeof item === "object" && item !== null ? "sm:col-span-2" : "min-w-0"}>
+            <dt className="text-xs font-medium text-muted-foreground">{readableLabel(key)}</dt>
+            <dd className="mt-0.5 text-sm text-foreground">
+              <ReadableValue value={item} depth={depth + 1} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+  return <span>{String(value)}</span>;
+}
 function Context({ title, value }: { title: string; value: unknown }) {
   return (
-    <details className="rounded border p-3">
-      <summary className="cursor-pointer font-medium">{title}</summary>
-      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs">{value == null ? "Belum ada data." : JSON.stringify(value, null, 2)}</pre>
+    <details className="group rounded-lg border bg-card" open>
+      <summary className="cursor-pointer list-none px-4 py-3 font-semibold marker:hidden [&::-webkit-details-marker]:hidden">
+        <span className="flex items-center justify-between gap-3">
+          {title}
+          <span aria-hidden="true" className="text-muted-foreground transition-transform group-open:rotate-180">
+            ⌄
+          </span>
+        </span>
+      </summary>
+      <div className="border-t px-4 py-4">
+        <ReadableValue value={value} />
+      </div>
     </details>
   );
 }
@@ -151,8 +203,7 @@ export default function ApprovalPage() {
       setBrowserToken();
       return apiData(browserApi.approval.approvalActionControllerDecide(pengadaanId, stepId, { decision, catatan: comment.trim() }, { format: "json" }) as Promise<{ data: unknown }>);
     },
-    onSuccess: (_, variables) => {
-      setSuccess(variables.decision === "disetujui" ? "Langkah approval berhasil disetujui." : "Langkah approval berhasil ditolak.");
+    onSuccess: () => {
       setSelected(null);
       setCatatan("");
     },
@@ -228,63 +279,73 @@ export default function ApprovalPage() {
     },
   ];
   return (
-    <section className="space-y-5 py-1">
-      <PageHeader
-        title="Approval"
-        description="Inbox pengadaan dan memorandum menunggu persetujuan, serta status pengajuan saya. Keputusan mengikuti role dan urutan langkah."
-        actions={
-          <Button type="button" variant="outline" disabled={query.isFetching || decide.isPending} onClick={() => void query.refetch()}>
-            Muat ulang
-          </Button>
-        }
-      />
-      <div className="flex gap-2" aria-label="Daftar approval">
-        <Button
-          type="button"
-          variant={!mySubmissions ? "default" : "outline"}
-          aria-pressed={!mySubmissions}
-          disabled={decide.isPending}
-          onClick={() => {
-            setMySubmissions(false);
-            setPage(1);
-          }}
-        >
-          Menunggu persetujuan
-        </Button>
-        <Button
-          type="button"
-          variant={mySubmissions ? "default" : "outline"}
-          aria-pressed={mySubmissions}
-          disabled={decide.isPending}
-          onClick={() => {
-            setMySubmissions(true);
-            setJenis("pengadaan");
-            setPage(1);
-          }}
-        >
-          Pengajuan saya
-        </Button>
-      </div>
-      {mySubmissions && <p className="text-sm text-muted-foreground">Semua status pengadaan yang Anda ajukan. Detail dan riwayat hanya baca; daftar ini tidak menyediakan keputusan approval.</p>}
-      {!mySubmissions && (
-        <div className="flex gap-2" aria-label="Jenis approval">
-          {(["pengadaan", "memorandum"] as const).map((kind) => (
-            <Button
-              key={kind}
-              type="button"
-              variant={jenis === kind ? "default" : "outline"}
-              aria-pressed={jenis === kind}
-              disabled={decide.isPending}
-              onClick={() => {
-                setJenis(kind);
-                setPage(1);
-              }}
-            >
-              {kind === "pengadaan" ? "Pengadaan" : "Memorandum"}
-            </Button>
-          ))}
-        </div>
-      )}
+    <section className="space-y-6 py-1">
+      <PageHeader title="Approval" description="Tinjau pengadaan dan memorandum, atau pantau status pengajuan yang Anda kirim." />
+      <Card className="overflow-hidden border-border/80 shadow-sm">
+        <CardContent className="space-y-5 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Pusat persetujuan</h2>
+              <p className="mt-1 text-xs text-muted-foreground">Pilih daftar dan jenis dokumen yang ingin ditinjau.</p>
+            </div>
+            <div className="inline-flex w-fit rounded-lg bg-muted/70 p-1" aria-label="Daftar approval">
+              <Button
+                type="button"
+                className="h-8"
+                variant={!mySubmissions ? "default" : "ghost"}
+                aria-pressed={!mySubmissions}
+                disabled={decide.isPending}
+                onClick={() => {
+                  setMySubmissions(false);
+                  setPage(1);
+                }}
+              >
+                <ClipboardCheck /> Menunggu persetujuan
+              </Button>
+              <Button
+                type="button"
+                className="h-8"
+                variant={mySubmissions ? "default" : "ghost"}
+                aria-pressed={mySubmissions}
+                disabled={decide.isPending}
+                onClick={() => {
+                  setMySubmissions(true);
+                  setJenis("pengadaan");
+                  setPage(1);
+                }}
+              >
+                <Send /> Pengajuan saya
+              </Button>
+            </div>
+          </div>
+          {!mySubmissions ? (
+            <div className="flex flex-wrap items-center justify-between gap-3" aria-label="Jenis approval">
+              <p className="text-sm font-medium text-muted-foreground">Jenis dokumen</p>
+              <div className="flex gap-2">
+                {(["pengadaan", "memorandum"] as const).map((kind) => (
+                  <Button
+                    key={kind}
+                    type="button"
+                    className="h-8"
+                    variant={jenis === kind ? "secondary" : "outline"}
+                    aria-pressed={jenis === kind}
+                    disabled={decide.isPending}
+                    onClick={() => {
+                      setJenis(kind);
+                      setPage(1);
+                    }}
+                  >
+                    {kind === "pengadaan" ? <FileText /> : <ClipboardCheck />}
+                    {kind === "pengadaan" ? "Pengadaan" : "Memorandum"}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Semua status pengadaan yang Anda ajukan. Detail dan riwayat hanya baca; daftar ini tidak menyediakan keputusan approval.</p>
+          )}
+        </CardContent>
+      </Card>
       {success && (
         <Alert role="status">
           <AlertDescription>{success}</AlertDescription>
@@ -354,7 +415,7 @@ export default function ApprovalPage() {
         }
       >
         {selected && (
-          <div className="max-h-[65vh] space-y-4 overflow-y-auto pr-1">
+          <div className="space-y-4">
             <div>
               <h2 className="font-semibold text-foreground">{selected.row.judul}</h2>
               <p>{entityText(selected.row.nomorSurat)}</p>

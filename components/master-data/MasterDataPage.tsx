@@ -8,7 +8,7 @@ import { use_query } from "@/lib/api/use_query";
 import { use_mutation } from "@/lib/api/use_mutation";
 import { apiQueryKeys } from "@/lib/api/query-keys";
 import { DataTable } from "@/components/table/DataTable";
-import { Modal } from "@/components/modal/Modal";
+import { Modal, ModalSection } from "@/components/modal/Modal";
 import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -337,6 +337,7 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
         open={open && canEdit}
         onClose={() => setOpen(false)}
         title={selected ? `Ubah ${cfg.title}` : `Tambah ${cfg.title}`}
+        description={selected ? `Perbarui informasi ${cfg.title.toLowerCase()}.` : cfg.description}
         size={modalSize}
         footer={
           <>
@@ -397,7 +398,7 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
             </div>
           ))}
           {kind === "vendor" && !selected ? (
-            <div className="grid gap-3 rounded-md border p-3 sm:col-span-2">
+            <ModalSection title="Akun vendor" description="Opsional. Buat akun agar vendor dapat masuk ke portal." className="sm:col-span-2">
               <label className="flex items-center gap-2 text-sm font-medium">
                 <input type="checkbox" checked={createVendorAccount} onChange={(event) => setCreateVendorAccount(event.target.checked)} />
                 Buat akun login vendor juga
@@ -421,10 +422,10 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
                       />
                     </div>
                   ))}
-                  <p className="text-xs text-muted-foreground">Akun dibuat dengan role Vendor dan langsung ditautkan ke vendor ini.</p>
+                  <p className="text-xs text-muted-foreground sm:col-span-2">Akun dibuat dengan role Vendor dan langsung ditautkan ke vendor ini.</p>
                 </div>
               ) : null}
-            </div>
+            </ModalSection>
           ) : null}
         </form>
       </Modal>

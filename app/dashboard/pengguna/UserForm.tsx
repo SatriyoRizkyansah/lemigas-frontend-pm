@@ -75,6 +75,7 @@ export default function UserForm({ user, canManage, onClose, onSaved }: { user?:
         open={canManage}
         onClose={close}
         title={user ? "Ubah pengguna" : "Tambah pengguna"}
+        description={user ? "Perbarui informasi akun dan akses pengguna." : "Isi informasi akun dan tentukan akses pengguna."}
         size="sm"
         footer={
           <>

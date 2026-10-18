@@ -16,8 +16,8 @@ const allSections = [
   {
     title: "Data Master",
     items: [
-      { href: "/dashboard/vendor", label: "Vendor", icon: Store },
-      { href: "/dashboard/vendor-onboarding", label: "Onboarding Vendor", icon: ShieldCheck },
+      { href: "/dashboard/vendor", label: "Vendor", icon: Store, exact: true },
+      { href: "/dashboard/vendor-onboarding", label: "Onboarding Vendor", icon: ShieldCheck, exact: true },
       { href: "/dashboard/kategori", label: "Kategori", icon: Archive },
       { href: "/dashboard/barang", label: "Barang", icon: Boxes },
     ],
@@ -84,7 +84,8 @@ export default function Sidebar({ collapsed, open, onToggle }: Props) {
               <p className="sidebar-title">{section.title}</p>
               <ul className="nav">
                 {section.items.map(({ href, label, icon: Icon, ...item }) => {
-                  const active = "exact" in item && item.exact ? pathname === href : pathname.startsWith(href);
+                  const isExact = "exact" in item && item.exact;
+                  const active = isExact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
                   return (
                     <li key={href}>
                       <Link href={href} className="nav-link" aria-current={active ? "page" : undefined} title={collapsed ? label : undefined}>

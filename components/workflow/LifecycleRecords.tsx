@@ -75,8 +75,69 @@ const sections: Record<string, Array<[string, string]>> = {
   selesai: [["laporan", "Laporan transaksi"]],
 };
 const list = (value: any): RecordData[] => (Array.isArray(value) ? value : value ? [value] : []);
-const text = (value: any): string => (value == null ? "—" : typeof value === "object" ? JSON.stringify(value) : String(value));
+const text = (value: any): string =>
+  value == null || value === ""
+    ? "—"
+    : typeof value === "object"
+      ? Object.entries(value)
+          .map(([key, item]) => `${key}: ${String(item ?? "—")}`)
+          .join(" · ")
+      : String(value);
 const date = (value: any) => (value ? new Date(value).toLocaleString("id-ID") : "—");
+const fieldLabels: Record<string, string> = {
+  jenisTransaksi: "Jenis transaksi",
+  metodeSeleksi: "Metode seleksi",
+  modelPelaksanaan: "Model pelaksanaan",
+  jenisKargo: "Jenis kargo",
+  nomorPenugasan: "Nomor penugasan",
+  spesifikasiMutu: "Spesifikasi mutu",
+  volumeMin: "Volume minimum",
+  volumeMax: "Volume maksimum",
+  satuan: "Satuan",
+  titikSerah: "Titik serah",
+  estimasiMulai: "Estimasi mulai",
+  estimasiSelesai: "Estimasi selesai",
+  penerimaPasokan: "Penerima pasokan",
+  kesiapanPenerima: "Kesiapan penerima",
+  analisisPasar: "Analisis pasar",
+  dasarPemilihan: "Dasar pemilihan",
+  strategiPengiriman: "Strategi pengiriman",
+  strategiPembiayaan: "Strategi pembiayaan",
+  status: "Status",
+  createdAt: "Dicatat pada",
+  updatedAt: "Diperbarui pada",
+};
+const hiddenFields = new Set(["id", "pengadaanId", "createdBy", "updatedBy", "disetujuiOleh"]);
+function DetailValue({ value }: { value: any }) {
+  if (value == null || value === "") return <span className="text-muted-foreground">—</span>;
+  if (Array.isArray(value))
+    return value.length ? (
+      <ul className="list-disc space-y-1 pl-5">
+        {value.map((item, index) => (
+          <li key={index}>
+            <DetailValue value={item} />
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <span className="text-muted-foreground">—</span>
+    );
+  if (typeof value === "object")
+    return (
+      <dl className="grid gap-2 sm:grid-cols-2">
+        {Object.entries(value).map(([key, item]) => (
+          <div key={key} className="rounded-md bg-muted/50 p-2">
+            <dt className="text-xs font-medium text-muted-foreground">{fieldLabels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}</dt>
+            <dd className="mt-1 break-words">
+              <DetailValue value={item} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    );
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)) return <>{date(value)}</>;
+  return <span className="whitespace-pre-wrap break-words">{String(value)}</span>;
+}
 
 export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage: string; active: boolean; pengadaanId: string; detail: RecordData }) {
   const [selected, setSelected] = useState<RecordData | null>(null);
@@ -281,14 +342,32 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           </Button>
         }
       >
-        <dl className="max-h-[60vh] space-y-3 overflow-y-auto text-sm">
-          {Object.entries(currentSelected ?? {}).map(([key, value]) => (
-            <div key={key}>
-              <dt className="font-medium break-all">{key}</dt>
-              <dd className="mt-1 whitespace-pre-wrap break-all text-muted-foreground">{typeof value === "object" && value !== null ? JSON.stringify(value, null, 2) : text(value)}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto pr-1">
+          {currentSelected ? (
+            <>
+              <div className="border-b pb-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Detail record</p>
+                <h3 className="mt-1 text-lg font-semibold">{String(currentSelected.nomor ?? currentSelected.nomorRfq ?? currentSelected.jenisKargo ?? currentSelected.namaKapal ?? currentSelected.jenis ?? "Detail transaksi")}</h3>
+                {currentSelected.status ? <p className="mt-1 text-sm text-muted-foreground">Status: {String(currentSelected.status).replaceAll("_", " ")}</p> : null}
+              </div>
+              <dl className="grid grid-cols-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
+                {Object.entries(currentSelected)
+                  .filter(([key, value]) => !hiddenFields.has(key) && value !== undefined)
+                  .map(([key, value]) => {
+                    const complexValue = value !== null && typeof value === "object";
+                    return (
+                      <div key={key} className={`min-w-0 border-b py-3 ${complexValue ? "sm:col-span-2 lg:col-span-3" : ""}`}>
+                        <dt className="text-xs font-medium text-muted-foreground">{fieldLabels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}</dt>
+                        <dd className="mt-1 break-words text-sm font-medium">
+                          <DetailValue value={value} />
+                        </dd>
+                      </div>
+                    );
+                  })}
+              </dl>
+            </>
+          ) : null}
+        </div>
       </Modal>
     </div>
   );

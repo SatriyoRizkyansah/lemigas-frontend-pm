@@ -83,15 +83,7 @@ function AuditView({ initial }: { initial: Filters }) {
   const rows = filters.byRecord ? filtered.slice((page - 1) * filters.limit, page * filters.limit) : filtered;
   return (
     <section className="space-y-5 py-1">
-      <PageHeader
-        title="Audit Log"
-        description="Jejak perubahan: pelaku, aksi, tabel, record, serta data sebelum dan sesudah."
-        actions={
-          <Button variant="outline" disabled={!allowed || query.isFetching} onClick={() => void query.refetch()}>
-            Muat ulang
-          </Button>
-        }
-      />
+      <PageHeader title="Audit Log" description="Jejak perubahan: pelaku, aksi, tabel, record, serta data sebelum dan sesudah." />
       <div className="flex flex-wrap gap-2" aria-label="Tampilan audit">
         <Button aria-pressed={!filters.byRecord} variant={!filters.byRecord ? "default" : "outline"} onClick={() => update({ byRecord: false })}>
           Semua audit

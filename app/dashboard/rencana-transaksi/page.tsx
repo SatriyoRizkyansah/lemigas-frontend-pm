@@ -1,12 +1,14 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken } from "@/lib/api/hooks";
 import { entityText, dateText } from "@/components/procurement/EntityListPage";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { Button } from "@/components/ui/Button";
+import { PageHeader } from "@/components/common/PageHeader";
+import { Modal } from "@/components/modal/Modal";
 
 type Plan = {
   id: string;
@@ -50,6 +52,30 @@ const displayValue = (value: unknown) => {
   return String(value);
 };
 
+const PLAN_DRAFT_KEY = "lemigas:rencana-transaksi:create-draft";
+const PLAN_DRAFT_FIELDS = [
+  "judul",
+  "modelPelaksanaan",
+  "jenisKargo",
+  "jenisTransaksi",
+  "metodeSeleksi",
+  "volumeMin",
+  "volumeMax",
+  "satuan",
+  "titikSerah",
+  "penerimaPasokan",
+  "estimasiMulai",
+  "estimasiSelesai",
+  "deskripsi",
+  "spesifikasiMutu",
+  "kesiapanPenerima",
+  "analisisPasar",
+  "dasarPemilihan",
+  "strategiPengiriman",
+  "strategiPembiayaan",
+] as const;
+type PlanDraft = Partial<Record<(typeof PLAN_DRAFT_FIELDS)[number], string>>;
+
 export default function RencanaTransaksiPage() {
   const [rows, setRows] = useState<Plan[]>([]);
   const [busy, setBusy] = useState(false);
@@ -58,6 +84,51 @@ export default function RencanaTransaksiPage() {
   const [detail, setDetail] = useState<Plan | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [rejectStepId, setRejectStepId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [draft, setDraft] = useState<PlanDraft>({});
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const createFormRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(PLAN_DRAFT_KEY);
+      if (stored) {
+        const parsed: unknown = JSON.parse(stored);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const safeDraft: PlanDraft = {};
+          for (const key of PLAN_DRAFT_FIELDS) {
+            const value = (parsed as Record<string, unknown>)[key];
+            if (typeof value !== "string") continue;
+            if (["spesifikasiMutu", "kesiapanPenerima", "analisisPasar"].includes(key)) {
+              try {
+                const legacyValue: unknown = JSON.parse(value);
+                if (legacyValue && typeof legacyValue === "object" && "catatan" in legacyValue && typeof legacyValue.catatan === "string") {
+                  safeDraft[key] = legacyValue.catatan;
+                  continue;
+                }
+              } catch {
+                // Keep older plain-text draft values unchanged.
+              }
+            }
+            safeDraft[key] = value;
+          }
+          setDraft(safeDraft);
+        }
+      }
+    } catch {
+      setNotice("Draft lokal tidak dapat dibaca. Isi formulir baru atau simpan kembali draft.");
+    } finally {
+      setDraftLoaded(true);
+    }
+  }, []);
+  useEffect(() => {
+    if (!draftLoaded || !createFormRef.current) return;
+    for (const key of PLAN_DRAFT_FIELDS) {
+      const control = createFormRef.current.elements.namedItem(key);
+      if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement || control instanceof HTMLSelectElement) {
+        control.value = draft[key] ?? (key === "modelPelaksanaan" ? "pengelolaan_manajemen_impor" : key === "metodeSeleksi" ? "tender" : "");
+      }
+    }
+  }, [draft, draftLoaded]);
   const refresh = useCallback(async () => {
     try {
       setBrowserToken();
@@ -71,6 +142,21 @@ export default function RencanaTransaksiPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  function saveLocalDraft() {
+    const form = createFormRef.current;
+    if (!form) return;
+    const values = new FormData(form);
+    const nextDraft: PlanDraft = {};
+    for (const key of PLAN_DRAFT_FIELDS) nextDraft[key] = String(values.get(key) ?? "");
+    try {
+      window.localStorage.setItem(PLAN_DRAFT_KEY, JSON.stringify(nextDraft));
+      setDraft(nextDraft);
+      setNotice("Draft disimpan di browser ini saja; belum dikirim ke server.");
+      setError("");
+    } catch {
+      setError("Draft lokal gagal disimpan. Periksa kapasitas penyimpanan browser.");
+    }
+  }
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -79,14 +165,9 @@ export default function RencanaTransaksiPage() {
     setNotice("");
     try {
       const f = new FormData(form);
-      const json = (key: string) => {
-        const v = String(f.get(key) ?? "").trim();
-        if (!v) return undefined;
-        try {
-          return JSON.parse(v);
-        } catch {
-          throw new Error(`${key} harus berformat JSON valid`);
-        }
+      const noteObject = (key: string) => {
+        const catatan = String(f.get(key) ?? "").trim();
+        return catatan ? { catatan } : undefined;
       };
       const number = (key: string) => (String(f.get(key) ?? "") ? Number(f.get(key)) : undefined);
       setBrowserToken();
@@ -108,14 +189,17 @@ export default function RencanaTransaksiPage() {
           dasarPemilihan: String(f.get("dasarPemilihan") || "") || undefined,
           strategiPengiriman: String(f.get("strategiPengiriman") || "") || undefined,
           strategiPembiayaan: String(f.get("strategiPembiayaan") || "") || undefined,
-          spesifikasiMutu: json("spesifikasiMutu"),
-          kesiapanPenerima: json("kesiapanPenerima"),
-          analisisPasar: json("analisisPasar"),
+          spesifikasiMutu: noteObject("spesifikasiMutu"),
+          kesiapanPenerima: noteObject("kesiapanPenerima"),
+          analisisPasar: noteObject("analisisPasar"),
         } as any,
         { format: "json" },
       );
-      setNotice("Rencana berhasil dibuat sebagai draft.");
+      setNotice("Rencana berhasil dibuat sebagai draft di server.");
       form.reset();
+      window.localStorage.removeItem(PLAN_DRAFT_KEY);
+      setDraft({});
+      setCreateOpen(false);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal membuat rencana");
@@ -169,10 +253,15 @@ export default function RencanaTransaksiPage() {
   const label = "block space-y-1 text-sm font-medium";
   return (
     <main className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold">Rencana Transaksi</h1>
-        <p className="text-muted-foreground">Susun kebutuhan, analisis pasar, strategi, approval, lalu generate pengadaan.</p>
-      </header>
+      <PageHeader
+        title="Rencana Transaksi"
+        description="Susun kebutuhan, analisis pasar, strategi, approval, lalu generate pengadaan."
+        actions={
+          <Button type="button" onClick={() => setCreateOpen(true)}>
+            Buat rencana kebutuhan{Object.values(draft).some(Boolean) ? " · Draft lokal tersedia" : ""}
+          </Button>
+        }
+      />
       {error && (
         <p role="alert" className="rounded border border-destructive p-3 text-sm">
           {error}
@@ -183,98 +272,123 @@ export default function RencanaTransaksiPage() {
           {notice}
         </p>
       )}
-      <details className="rounded-xl border bg-card p-5">
-        <summary className="cursor-pointer font-semibold">Buat rencana kebutuhan</summary>
-        <form onSubmit={(e) => void create(e)} className="mt-4 grid gap-4 md:grid-cols-2">
-          <label className={`${label} md:col-span-2`}>
-            Judul
-            <input required name="judul" maxLength={300} className={input} />
-          </label>
-          <label className={label}>
-            Model pelaksanaan
-            <select name="modelPelaksanaan" className={input}>
-              <option value="pengelolaan_manajemen_impor">Pengelolaan/manajemen impor</option>
-              <option value="pelaksanaan_impor_langsung">Pelaksanaan impor langsung</option>
-            </select>
-          </label>
-          <label className={label}>
-            Jenis kargo
-            <input required name="jenisKargo" placeholder="Minyak bumi, BBM, LPG…" className={input} />
-          </label>
-          <label className={label}>
-            Jenis transaksi
-            <input required name="jenisTransaksi" placeholder="Spot / berjangka" className={input} />
-          </label>
-          <label className={label}>
-            Metode seleksi
-            <select name="metodeSeleksi" className={input}>
-              <option value="tender">Tender</option>
-              <option value="pengadaan_langsung">Pembelian langsung</option>
-              <option value="penunjukan_langsung">Penunjukan langsung</option>
-              <option value="e_procurement">E-procurement</option>
-            </select>
-          </label>
-          <label className={label}>
-            Volume minimum
-            <input name="volumeMin" type="number" min="0" step="any" className={input} />
-          </label>
-          <label className={label}>
-            Volume maksimum
-            <input name="volumeMax" type="number" min="0" step="any" className={input} />
-          </label>
-          <label className={label}>
-            Satuan
-            <input required name="satuan" placeholder="MT, barrel…" className={input} />
-          </label>
-          <label className={label}>
-            Titik serah
-            <input required name="titikSerah" className={input} />
-          </label>
-          <label className={label}>
-            Penerima pasokan
-            <input name="penerimaPasokan" className={input} />
-          </label>
-          <label className={label}>
-            Estimasi mulai
-            <input name="estimasiMulai" type="date" className={input} />
-          </label>
-          <label className={label}>
-            Estimasi selesai
-            <input name="estimasiSelesai" type="date" className={input} />
-          </label>
-          <label className={`${label} md:col-span-2`}>
-            Deskripsi kebutuhan
-            <textarea name="deskripsi" rows={2} className={input} />
-          </label>
-          {[
-            ["spesifikasiMutu", "Spesifikasi mutu JSON"],
-            ["kesiapanPenerima", "Kesiapan penerima JSON"],
-            ["analisisPasar", "Analisis pasar JSON"],
-          ].map(([name, title]) => (
-            <label key={name} className={label}>
-              {title}
-              <textarea name={name} rows={3} placeholder='{"catatan":"…"}' className={input} />
-            </label>
-          ))}
-          <label className={label}>
-            Dasar pemilihan
-            <textarea name="dasarPemilihan" className={input} />
-          </label>
-          <label className={label}>
-            Strategi pengiriman
-            <textarea name="strategiPengiriman" className={input} />
-          </label>
-          <label className={label}>
-            Strategi pembiayaan
-            <textarea name="strategiPembiayaan" className={input} />
-          </label>
-          <div className="md:col-span-2">
-            <Button type="submit" disabled={busy}>
-              Simpan draft
+      <Modal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Buat rencana kebutuhan"
+        description="Isi kebutuhan transaksi. Simpan draft hanya menyimpan data di browser ini; Buat rencana mengirim data ke server."
+        size="lg"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={saveLocalDraft} disabled={!draftLoaded || busy}>
+              Simpan draft lokal
             </Button>
-          </div>
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+              Tutup
+            </Button>
+            <Button type="submit" form="plan-create-form" disabled={busy || !draftLoaded}>
+              {busy ? "Menyimpan…" : "Buat rencana"}
+            </Button>
+          </>
+        }
+      >
+        <form id="plan-create-form" ref={createFormRef} onSubmit={(e) => void create(e)} className="space-y-5">
+          <section className="space-y-4">
+            <h2 className="text-sm font-semibold">Informasi kebutuhan</h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className={`${label} sm:col-span-2`}>
+                Judul
+                <input required name="judul" maxLength={300} className={input} />
+              </label>
+              <label className={label}>
+                Model pelaksanaan
+                <select name="modelPelaksanaan" className={input}>
+                  <option value="pengelolaan_manajemen_impor">Pengelolaan/manajemen impor</option>
+                  <option value="pelaksanaan_impor_langsung">Pelaksanaan impor langsung</option>
+                </select>
+              </label>
+              <label className={label}>
+                Jenis kargo
+                <input required name="jenisKargo" placeholder="Minyak bumi, BBM, LPG…" className={input} />
+              </label>
+              <label className={label}>
+                Jenis transaksi
+                <input required name="jenisTransaksi" placeholder="Spot / berjangka" className={input} />
+              </label>
+              <label className={label}>
+                Metode seleksi
+                <select name="metodeSeleksi" className={input}>
+                  <option value="tender">Tender</option>
+                  <option value="pengadaan_langsung">Pembelian langsung</option>
+                  <option value="penunjukan_langsung">Penunjukan langsung</option>
+                  <option value="e_procurement">E-procurement</option>
+                </select>
+              </label>
+              <label className={label}>
+                Volume minimum
+                <input name="volumeMin" type="number" min="0" step="any" className={input} />
+              </label>
+              <label className={label}>
+                Volume maksimum
+                <input name="volumeMax" type="number" min="0" step="any" className={input} />
+              </label>
+              <label className={label}>
+                Satuan
+                <input required name="satuan" placeholder="MT, barrel…" className={input} />
+              </label>
+              <label className={label}>
+                Titik serah
+                <input required name="titikSerah" className={input} />
+              </label>
+              <label className={label}>
+                Penerima pasokan
+                <input name="penerimaPasokan" className={input} />
+              </label>
+              <label className={label}>
+                Estimasi mulai
+                <input name="estimasiMulai" type="date" className={input} />
+              </label>
+              <label className={label}>
+                Estimasi selesai
+                <input name="estimasiSelesai" type="date" className={input} />
+              </label>
+              <label className={`${label} sm:col-span-2`}>
+                Deskripsi kebutuhan
+                <textarea name="deskripsi" rows={2} className={input} />
+              </label>
+            </div>
+          </section>
+          <section className="space-y-4 border-t pt-5">
+            <h2 className="text-sm font-semibold">Analisis dan strategi</h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className={`${label} sm:col-span-2`}>
+                Spesifikasi mutu
+                <textarea name="spesifikasiMutu" rows={3} placeholder="Jelaskan standar mutu, grade, atau parameter kualitas yang dibutuhkan." className={input} />
+              </label>
+              <label className={label}>
+                Kesiapan penerima
+                <textarea name="kesiapanPenerima" rows={3} placeholder="Jelaskan kesiapan fasilitas, kapasitas, atau jadwal penerimaan." className={input} />
+              </label>
+              <label className={label}>
+                Analisis pasar
+                <textarea name="analisisPasar" rows={3} placeholder="Tuliskan kondisi pasokan, permintaan, harga, atau risiko pasar." className={input} />
+              </label>
+              <label className={label}>
+                Dasar pemilihan
+                <textarea name="dasarPemilihan" className={input} />
+              </label>
+              <label className={label}>
+                Strategi pengiriman
+                <textarea name="strategiPengiriman" className={input} />
+              </label>
+              <label className={label}>
+                Strategi pembiayaan
+                <textarea name="strategiPembiayaan" className={input} />
+              </label>
+            </div>
+          </section>
         </form>
-      </details>
+      </Modal>
       <div className="overflow-x-auto rounded-xl border">
         <table className="w-full text-sm">
           <thead className="bg-muted">

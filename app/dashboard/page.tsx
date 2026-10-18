@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, ClipboardList, PackageCheck, RefreshCw, Truck, Wallet } from "lucide-react";
+import { Activity, ClipboardList, PackageCheck, Truck, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useDashboardStats } from "@/lib/api/hooks";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -108,9 +108,6 @@ export default function DashboardPage() {
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">Pantau siklus pengadaan dari perencanaan hingga settlement.</p>
           </div>
-          <Button variant="outline" size="icon" type="button" aria-label="Muat ulang statistik" onClick={() => void statsQuery.refetch()} disabled={statsQuery.isFetching}>
-            <RefreshCw size={18} className={statsQuery.isFetching ? "spin" : ""} />
-          </Button>
         </div>
         {statsQuery.isPending ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

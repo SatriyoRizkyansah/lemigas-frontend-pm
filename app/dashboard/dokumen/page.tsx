@@ -268,9 +268,6 @@ export default function DokumenPage() {
         </div>
         <p className="text-sm text-muted-foreground">Filter memakai endpoint by-pengadaan. Pencarian dokumen pengadaan dilakukan lokal; daftar semua memakai paginasi server.</p>
       </div>
-      <Button type="button" variant="outline" disabled={!authenticated || documents.isFetching || busy} onClick={() => void refresh()}>
-        Muat ulang
-      </Button>
       {documents.isPending && authenticated ? <LoadingState label="Loading..." /> : null}
       {documents.isError ? retryError(getApiErrorMessage(documents.error), documents.refetch) : null}
       {authenticated && !documents.isPending && !documents.isError ? (
@@ -373,6 +370,7 @@ export default function DokumenPage() {
           if (!uploadLock.current) setUploadOpen(false);
         }}
         title="Unggah dokumen"
+        description="Pilih pengadaan, isi nama dokumen, lalu unggah file."
         size="md"
         footer={
           <>

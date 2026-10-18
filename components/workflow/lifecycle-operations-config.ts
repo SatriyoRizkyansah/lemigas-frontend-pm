@@ -398,14 +398,19 @@ export function operationPayload(fields: Field[], values: Record<string, string>
         throw new Error(`${field.label}: angka harus valid${field.integer ? ", bulat" : ""}${field.min !== undefined ? `, minimum ${field.min}` : ""}.`);
       body[field.name] = number;
     } else if (field.kind === "json") {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(value);
-      } catch {
-        throw new Error(`${field.label}: JSON tidak valid.`);
-      }
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${field.label}: wajib objek JSON, bukan array/null.`);
-      body[field.name] = parsed;
+      const entries = value
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const separator = line.indexOf(":");
+          if (separator < 1 || !line.slice(0, separator).trim() || !line.slice(separator + 1).trim()) {
+            throw new Error(`${field.label}: isi setiap baris dengan format “Nama: nilai”.`);
+          }
+          return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
+        });
+      if (new Set(entries.map(([key]) => key)).size !== entries.length) throw new Error(`${field.label}: nama kolom tidak boleh berulang.`);
+      body[field.name] = Object.fromEntries(entries);
     } else if (field.kind === "boolean") {
       if (value !== "true" && value !== "false") throw new Error(`${field.label}: pilihan tidak valid.`);
       body[field.name] = value === "true";

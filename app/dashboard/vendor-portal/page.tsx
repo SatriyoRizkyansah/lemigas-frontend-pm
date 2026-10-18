@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { FileUp, RefreshCw, Send } from "lucide-react";
+import { FileUp, Send } from "lucide-react";
 import { readSession, SESSION_COOKIE } from "@/lib/auth";
 
 type VendorDoc = { id: string; jenis: string; status: string; filePath: string; expiresAt?: string | null };
@@ -194,9 +194,6 @@ export default function VendorPortalPage() {
           <h1 className="mt-1 text-3xl font-bold">Portal Vendor</h1>
           <p className="mt-2 text-muted-foreground">Kelola profil, dokumen legalitas, dan tanggapi RFQ perusahaan Anda.</p>
         </div>
-        <button onClick={() => void refresh()} className="inline-flex items-center gap-2 rounded-md border px-3 py-2">
-          <RefreshCw size={16} /> Muat ulang
-        </button>
       </header>
       {error && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">

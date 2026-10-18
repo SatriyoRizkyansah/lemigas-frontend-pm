@@ -120,7 +120,14 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       const value = seed[field.name];
       const seedValue = field.payloadPath ? field.payloadPath.split(".").reduce<unknown>((current, key) => (current && typeof current === "object" ? (current as Entity)[key] : undefined), seed) : value;
       if (seedValue == null) continue;
-      initial[field.name] = field.kind === "json" ? JSON.stringify(seedValue, null, 2) : field.kind === "date" ? String(seedValue).slice(0, 10) : String(seedValue);
+      initial[field.name] =
+        field.kind === "json" && typeof seedValue === "object" && seedValue !== null
+          ? Object.entries(seedValue as Record<string, unknown>)
+              .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
+              .join("\n")
+          : field.kind === "date"
+            ? String(seedValue).slice(0, 10)
+            : String(seedValue);
     }
     setValues(initial);
     setSelected(operation);
@@ -246,8 +253,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                       onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
                       required={field.required}
                       rows={isLongText ? 3 : 4}
-                      placeholder={isLongText ? `${field.label}…` : '{"key": "value"}'}
-                      className={`w-full rounded-md border border-input bg-background p-2 text-sm ${field.kind === "json" ? "font-mono" : ""}`}
+                      placeholder={field.kind === "json" ? "Contoh: Kadar sulfur: maksimal 0,5%\nWarna: jernih" : `${field.label}…`}
+                      className="w-full rounded-md border border-input bg-background p-3 text-sm leading-6"
                     />
                   ) : (
                     <Input
