@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, ClipboardList, PackageCheck, Truck, Wallet } from "lucide-react";
+import { Activity, ClipboardList, PackageCheck, Truck, Wallet, CircleDollarSign, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { useDashboardStats } from "@/lib/api/hooks";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -44,37 +44,49 @@ function formatPeriod(value: string) {
 
 function TrendChart({ data }: { data: Array<{ periode: string; jumlah: number; nilai_estimasi: string }> }) {
   const max = Math.max(1, ...data.map((item) => item.jumlah));
-  const points = data.map((item, index) => ({ ...item, x: data.length < 2 ? 50 : 8 + (index / (data.length - 1)) * 84, y: 76 - (item.jumlah / max) * 62 }));
+  const points = data.map((item, index) => ({ ...item, x: data.length < 2 ? 50 : 8 + (index / (data.length - 1)) * 84, y: 74 - (item.jumlah / max) * 58 }));
   const line = points.map((point) => `${point.x},${point.y}`).join(" ");
+  const area = points.length ? `8,80 ${line} ${points[points.length - 1].x},80` : "";
   return (
-    <div>
-      <div className="relative h-48">
+    <div className="rounded-xl bg-muted/25 p-3">
+      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+        <span>Jumlah transaksi</span>
+        <span className="inline-flex items-center gap-1.5">
+          <i className="size-2 rounded-full bg-primary" /> Pengadaan / bulan
+        </span>
+      </div>
+      <div className="relative h-44">
         <div className="absolute inset-0 flex flex-col justify-between" aria-hidden="true">
-          {[1, 2, 3, 4].map((lineIndex) => (
-            <div key={lineIndex} className="border-t border-dashed" />
+          {[0, 1, 2, 3].map((lineIndex) => (
+            <div key={lineIndex} className="border-t border-dashed border-border/80" />
           ))}
         </div>
         <svg viewBox="0 0 100 84" preserveAspectRatio="none" className="absolute inset-0 size-full overflow-visible" role="img" aria-label="Grafik jumlah pengadaan bulanan">
-          <polyline points={line} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" className="text-primary" />
+          <defs>
+            <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="currentColor" stopOpacity=".24" />
+              <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <polygon points={area} fill="url(#trendFill)" className="text-primary" />
+          <polyline points={line} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" className="text-primary" />
           {points.map((point) => (
-            <circle key={point.periode} cx={point.x} cy={point.y} r="1.8" className="fill-primary" />
+            <g key={point.periode}>
+              <circle cx={point.x} cy={point.y} r="3.2" className="fill-background" />
+              <circle cx={point.x} cy={point.y} r="2" className="fill-primary" />
+            </g>
           ))}
         </svg>
       </div>
-      <div className="mt-2 grid grid-cols-6 gap-1 text-center text-xs text-muted-foreground">
+      <div className="mt-2 grid gap-1 text-center text-[10px] text-muted-foreground" style={{ gridTemplateColumns: `repeat(${data.length || 1}, minmax(0, 1fr))` }}>
         {data.map((item) => (
           <span key={item.periode}>{formatPeriod(item.periode)}</span>
         ))}
       </div>
-      <div className="mt-4 grid grid-cols-6 gap-1 text-center text-xs font-medium">
+      <div className="mt-3 flex flex-wrap gap-2 border-t pt-3 text-xs text-muted-foreground">
         {data.map((item) => (
-          <span key={item.periode}>{numberFormat.format(item.jumlah)}</span>
-        ))}
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
-        {data.map((item) => (
-          <span key={item.periode} className="truncate" title={`Nilai estimasi ${numberFormat.format(Number(item.nilai_estimasi))}`}>
-            {formatPeriod(item.periode)}: {numberFormat.format(Number(item.nilai_estimasi))}
+          <span key={item.periode} className="rounded-md bg-background px-2 py-1" title={`Nilai estimasi ${numberFormat.format(Number(item.nilai_estimasi))}`}>
+            {formatPeriod(item.periode)} <strong className="ml-1 text-foreground">{numberFormat.format(item.jumlah)}</strong>
           </span>
         ))}
       </div>
@@ -97,18 +109,31 @@ export default function DashboardPage() {
       .map(([currency, value]) => formatCurrency(currency, value))
       .join(" · ") || "Belum ada nilai";
   const maxStage = Math.max(1, ...(stats?.tahapan.map((item) => item.total) ?? []));
+  const totalValue = Object.values(invoiceValues).reduce((sum, value) => sum + value, 0);
 
   return (
-    <div className="space-y-8 py-1">
-      <section className="space-y-4" aria-labelledby="stats-title">
-        <div className="flex items-start justify-between gap-4">
+    <div className="space-y-7 py-1">
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 px-6 py-7 text-white shadow-lg sm:px-8" aria-labelledby="stats-title">
+        <div className="pointer-events-none absolute -right-12 -top-20 size-72 rounded-full bg-blue-400/10 blur-3xl" />
+        <div className="relative flex flex-wrap items-end justify-between gap-5">
           <div>
-            <h1 id="stats-title" className="flex items-center gap-2 text-xl font-bold">
-              <Activity size={20} /> Ringkasan Pengadaan
+            <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">
+              <Activity size={15} /> Pusat kendali pengadaan
+            </p>
+            <h1 id="stats-title" className="text-2xl font-bold tracking-tight sm:text-3xl">
+              Ringkasan Pengadaan
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">Pantau siklus pengadaan dari perencanaan hingga settlement.</p>
+            <p className="mt-2 max-w-xl text-sm text-slate-300">Pantau progres transaksi, pengiriman, dan tagihan dalam satu tampilan.</p>
+          </div>
+          <div className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm">
+            <p className="text-xs text-slate-300">Nilai tagihan tercatat</p>
+            <p className="mt-1 flex items-center gap-2 text-lg font-semibold">
+              <CircleDollarSign size={18} className="text-cyan-300" /> {totalValue ? invoiceValueLabel : "Belum ada nilai"}
+            </p>
           </div>
         </div>
+      </section>
+      <section className="space-y-4" aria-label="Indikator utama pengadaan">
         {statsQuery.isPending ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {Array.from({ length: 4 }, (_, index) => (
@@ -259,12 +284,17 @@ export default function DashboardPage() {
 
 function SummaryCard({ label, value, detail, icon: Icon }: { label: string; value: number; detail: string; icon: typeof ClipboardList }) {
   return (
-    <Card>
+    <Card className="group overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
       <CardContent className="relative py-5">
-        <Icon className="absolute right-5 top-5 size-5 text-primary" aria-hidden="true" />
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <strong className="mt-2 block text-3xl tracking-tight">{numberFormat.format(value)}</strong>
-        <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
+        <span className="absolute right-4 top-4 grid size-10 place-items-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/20">
+          <Icon className="size-5" aria-hidden="true" />
+        </span>
+        <p className="pr-12 text-sm font-medium text-muted-foreground">{label}</p>
+        <strong className="mt-3 block text-3xl tracking-tight tabular-nums">{numberFormat.format(value)}</strong>
+        <p className="mt-2 truncate text-xs text-muted-foreground" title={detail}>
+          {detail}
+        </p>
+        <ArrowUpRight className="absolute bottom-5 right-4 size-4 text-muted-foreground/40 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-primary" aria-hidden="true" />
       </CardContent>
     </Card>
   );

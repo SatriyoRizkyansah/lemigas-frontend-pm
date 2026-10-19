@@ -50,7 +50,9 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
     ? stageStatus.map((stage: any) => ({ key: stage.tahap, label: stage.label ?? stage.tahap.replaceAll("_", " "), urutan: stage.urutan, assignments: stage.assignments }))
     : [{ key: "perencanaan", label: "Perencanaan" }];
   const assignedStageKeys = new Set(stages.filter((stage) => stage.assignments?.some((assignment) => (assignment.userId ?? assignment.user?.id) === currentUser.data?.id)).map((stage) => stage.key));
-  const stageRestricted = Boolean(currentMember && ["pic", "pic_utama"].includes(currentMember.peran));
+  const systemRole = currentUser.data?.role.toLowerCase() ?? "";
+  const privilegedStageViewer = ["admin", "pimpinan"].includes(systemRole);
+  const stageRestricted = !privilegedStageViewer && Boolean(currentMember && ["pic", "pic_utama", "viewer"].includes(currentMember.peran));
   const accessibleStages = stageRestricted ? stages.filter((stage) => assignedStageKeys.has(stage.key)) : stages;
   const fallbackStage = accessibleStages[0]?.key ?? stages[0].key;
   const selectedStage = accessibleStages.some((stage) => stage.key === stageKey) ? stageKey : fallbackStage;

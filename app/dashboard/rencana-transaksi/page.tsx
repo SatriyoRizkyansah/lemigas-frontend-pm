@@ -135,6 +135,7 @@ export default function RencanaTransaksiPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [rejectStepId, setRejectStepId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [methodHelpOpen, setMethodHelpOpen] = useState(false);
   const [draft, setDraft] = useState<PlanDraft>({});
   const [savedDrafts, setSavedDrafts] = useState<SavedPlanDraft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
@@ -457,6 +458,12 @@ export default function RencanaTransaksiPage() {
                   <option value="penunjukan_langsung">Penunjukan langsung</option>
                   <option value="e_procurement">E-procurement</option>
                 </select>
+                <span className="mt-2 flex items-center justify-between gap-2 text-xs font-normal normal-case tracking-normal text-muted-foreground">
+                  Alur tahapan pengadaan mengikuti metode yang dipilih.
+                  <button type="button" className="shrink-0 font-semibold text-primary underline underline-offset-4" onClick={() => setMethodHelpOpen(true)}>
+                    Lihat alur metode
+                  </button>
+                </span>
               </label>
               <label className={`${label} xl:col-span-2`}>
                 Prioritas
@@ -901,6 +908,108 @@ export default function RencanaTransaksiPage() {
           </div>
         </Modal>
       )}
+      <Modal open={methodHelpOpen} onClose={() => setMethodHelpOpen(false)} title="Rincian alur metode seleksi" description="Urutan tahap, kegiatan utama, dan dokumen yang perlu disiapkan pada setiap metode." size="lg">
+        <div className="space-y-5">
+          <p className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm leading-relaxed">
+            <strong>Alur umum:</strong> Rencana transaksi dibuat dan diajukan untuk persetujuan. Setelah disetujui, sistem membentuk pengadaan dan membuka tahap sesuai metode. PIC melengkapi data serta dokumen pada tahap aktif; pengadaan
+            berlanjut setelah pemeriksaan dan approval yang diperlukan.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ModalSection title="Tender">
+              <ol className="space-y-2 text-sm">
+                <li>
+                  <strong>1. Perencanaan:</strong> siapkan penugasan dan analisis pasar.
+                </li>
+                <li>
+                  <strong>2. Sourcing:</strong> terbitkan RFQ dan kumpulkan penawaran vendor.
+                </li>
+                <li>
+                  <strong>3. Evaluasi & negosiasi:</strong> verifikasi vendor, evaluasi penawaran, lalu catat hasil negosiasi.
+                </li>
+                <li>
+                  <strong>4. Approval:</strong> ajukan memorandum keputusan untuk persetujuan.
+                </li>
+                <li>
+                  <strong>5. Kontrak:</strong> siapkan kontrak penyedia dan PKS penerima pasokan.
+                </li>
+                <li>
+                  <strong>6. Delivery → Settlement:</strong> catat pengiriman dan BAST, lalu proses invoice serta rekonsiliasi hingga selesai.
+                </li>
+              </ol>
+            </ModalSection>
+            <ModalSection title="Pembelian langsung">
+              <ol className="space-y-2 text-sm">
+                <li>
+                  <strong>1. Perencanaan:</strong> siapkan penugasan dan analisis pasar.
+                </li>
+                <li>
+                  <strong>2. Permintaan penawaran/vendor:</strong> minta dan catat penawaran vendor.
+                </li>
+                <li>
+                  <strong>3. Evaluasi sederhana:</strong> evaluasi penawaran dan simpan hasil evaluasi.
+                </li>
+                <li>
+                  <strong>4. Approval:</strong> ajukan memorandum keputusan untuk persetujuan.
+                </li>
+                <li>
+                  <strong>5. PO/kontrak:</strong> terbitkan PO atau kontrak.
+                </li>
+                <li>
+                  <strong>6. Delivery → Settlement:</strong> catat pengiriman dan BAST, lalu proses invoice serta rekonsiliasi hingga selesai.
+                </li>
+              </ol>
+            </ModalSection>
+            <ModalSection title="Penunjukan langsung">
+              <ol className="space-y-2 text-sm">
+                <li>
+                  <strong>1. Perencanaan:</strong> siapkan penugasan dan analisis pasar.
+                </li>
+                <li>
+                  <strong>2. Justifikasi penunjukan:</strong> isi alasan dan dokumen dasar penunjukan vendor.
+                </li>
+                <li>
+                  <strong>3. Approval:</strong> ajukan memorandum keputusan dan justifikasi untuk persetujuan.
+                </li>
+                <li>
+                  <strong>4. Negosiasi:</strong> lakukan negosiasi dengan vendor terpilih dan catat hasilnya.
+                </li>
+                <li>
+                  <strong>5. Kontrak:</strong> siapkan kontrak penyedia dan PKS penerima pasokan.
+                </li>
+                <li>
+                  <strong>6. Delivery → Settlement:</strong> catat pengiriman dan BAST, lalu proses invoice serta rekonsiliasi hingga selesai.
+                </li>
+              </ol>
+            </ModalSection>
+            <ModalSection title="E-procurement">
+              <ol className="space-y-2 text-sm">
+                <li>
+                  <strong>1. Perencanaan:</strong> siapkan penugasan dan analisis pasar.
+                </li>
+                <li>
+                  <strong>2. Publikasi platform:</strong> publikasikan kebutuhan pada platform pengadaan.
+                </li>
+                <li>
+                  <strong>3. Penawaran elektronik:</strong> terima penawaran melalui platform.
+                </li>
+                <li>
+                  <strong>4. Evaluasi:</strong> evaluasi penawaran elektronik dan simpan hasil evaluasi.
+                </li>
+                <li>
+                  <strong>5. Approval:</strong> ajukan memorandum keputusan untuk persetujuan.
+                </li>
+                <li>
+                  <strong>6. Kontrak:</strong> siapkan kontrak penyedia dan PKS penerima pasokan.
+                </li>
+                <li>
+                  <strong>7. Delivery → Settlement:</strong> catat pengiriman dan BAST, lalu proses invoice serta rekonsiliasi hingga selesai.
+                </li>
+              </ol>
+            </ModalSection>
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">Tahap dapat meminta dokumen pendukung dan penugasan PIC. Gunakan metode hanya jika sesuai dasar pengadaan serta ketentuan internal yang berlaku.</p>
+        </div>
+      </Modal>
     </main>
   );
 }
