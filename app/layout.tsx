@@ -3,6 +3,7 @@ import "@fontsource-variable/plus-jakarta-sans";
 import "./globals.css";
 import { QueryProvider } from "@/components/QueryProvider";
 import { ApiSuccessAlerts } from "@/components/ApiSuccessAlerts";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const metadata: Metadata = {
   title: { default: "LEMIGAS Super Apps", template: "%s · LEMIGAS Super Apps" },
@@ -19,10 +20,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="id">
       <body>
-        <QueryProvider>
-          {children}
-          <ApiSuccessAlerts />
-        </QueryProvider>
+        <TooltipProvider delay={200}>
+          <QueryProvider>
+            {children}
+            <ApiSuccessAlerts />
+          </QueryProvider>
+        </TooltipProvider>
       </body>
     </html>
   );

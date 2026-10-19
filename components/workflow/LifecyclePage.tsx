@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, ChevronDown, Circle, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, Circle, RefreshCw, ClipboardList, FileText, Settings2 } from "lucide-react";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
 import { use_query } from "@/lib/api/use_query";
@@ -108,9 +108,23 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
         </Alert>
       ) : (
         <>
-          <Card>
-            <CardContent className="py-5">
-              <ol className="grid gap-x-5 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b bg-muted/20 px-4 py-4 sm:px-5">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base">Tahapan transaksi</CardTitle>
+                  <CardDescription className="mt-1">Pilih tahap untuk melihat aktivitas dan dokumen terkait.</CardDescription>
+                </div>
+                <p className="text-xs font-medium text-muted-foreground">
+                  {stageStatus.filter((item: any) => item.status === "selesai").length} dari {stages.length} tahap selesai
+                </p>
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted" aria-label="Progres siklus">
+                <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${(stageStatus.filter((item: any) => item.status === "selesai").length / stages.length) * 100}%` }} />
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 py-4 sm:px-5">
+              <ol className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 {stages.map((stage, index) => {
                   const status = stagesStatusMap.get(stage.key) as string | undefined;
                   const complete = status === "selesai";
@@ -122,19 +136,22 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                         type="button"
                         variant="ghost"
                         aria-current={selectedStage ? "step" : undefined}
-                        className={`h-auto min-h-[4.5rem] w-full justify-start gap-3 rounded-lg px-3 text-left hover:bg-muted/70 ${selectedStage ? "bg-primary/10 ring-1 ring-primary/30" : ""}`}
+                        className={`h-auto min-h-[4.25rem] w-full justify-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${selectedStage ? "border-primary/40 bg-primary/5 shadow-sm hover:bg-primary/10" : "border-transparent hover:border-border hover:bg-muted/50"}`}
                         onClick={() => setStageKey(stage.key)}
                       >
                         <span
-                          className={`grid size-8 shrink-0 place-items-center rounded-full border-2 ${complete ? "border-emerald-600 bg-emerald-600 text-white" : active ? "border-primary bg-primary text-primary-foreground" : selectedStage ? "border-primary text-primary" : "border-muted-foreground/40 bg-background text-muted-foreground"}`}
+                          className={`grid size-9 shrink-0 place-items-center rounded-full border ${complete ? "border-emerald-600 bg-emerald-600 text-white" : active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground"}`}
                           aria-label={`Tahap ${index + 1}`}
                         >
-                          <span className="text-xs font-semibold">{index + 1}</span>
+                          {complete ? <Check size={16} aria-hidden="true" /> : <span className="text-xs font-semibold">{index + 1}</span>}
                         </span>
-                        <span className="min-w-0">
-                          <strong className="block whitespace-normal text-sm">{stage.label}</strong>
-                          <span className="block text-xs font-normal text-muted-foreground">{active ? "Tahap aktif" : (status?.replaceAll("_", " ") ?? "Belum mulai")}</span>
+                        <span className="min-w-0 flex-1">
+                          <strong className="block whitespace-normal text-sm font-semibold leading-5">{stage.label}</strong>
+                          <span className={`mt-0.5 block text-xs font-normal ${active ? "text-primary" : "text-muted-foreground"}`}>
+                            {active ? "Sedang berjalan" : complete ? "Selesai" : (status?.replaceAll("_", " ") ?? "Belum dimulai")}
+                          </span>
                         </span>
+                        {selectedStage && <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="Tahap dipilih" />}
                       </Button>
                     </li>
                   );
@@ -142,52 +159,78 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
               </ol>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <CardTitle>{stages.find((stage) => stage.key === stageKey)?.label}</CardTitle>
-                <CardDescription className="mt-1">{currentStage === stageKey ? "Tahap aktif" : "Pilih tahap untuk melihat catatan."}</CardDescription>
+          <Card className="overflow-hidden">
+            <CardHeader className="flex-row items-center justify-between gap-4 border-b bg-muted/30 px-4 py-4 sm:px-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid size-11 shrink-0 place-items-center rounded-xl border bg-background text-primary">
+                  <span className="text-sm font-bold">{stages.findIndex((stage) => stage.key === stageKey) + 1}</span>
+                </span>
+                <div className="min-w-0">
+                  <CardDescription className="text-xs font-semibold uppercase tracking-wider">Detail tahap</CardDescription>
+                  <CardTitle className="mt-1 truncate text-lg">{stages.find((stage) => stage.key === stageKey)?.label}</CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">{currentStage === stageKey ? "Tahap ini sedang berjalan" : "Tahap dipilih untuk ditinjau"}</p>
+                </div>
               </div>
               {canComplete && currentStage === stageKey ? (
-                <Button type="button" disabled={updateStage.isPending} onClick={() => setConfirmComplete(true)}>
+                <Button type="button" className="shrink-0" disabled={updateStage.isPending} onClick={() => setConfirmComplete(true)}>
                   Tandai tahap selesai
                 </Button>
               ) : null}
             </CardHeader>
-            <CardContent className="space-y-5">
-              {!currentStage && <p className="text-sm text-muted-foreground">Tidak ada tahap aktif. Operasi bisnis terkunci; periksa status transaksi.</p>}
+            <CardContent className="space-y-4 p-4 sm:p-5">
+              {!currentStage && <p className="rounded-lg border border-muted bg-muted/30 p-3 text-sm text-muted-foreground">Tidak ada tahap aktif. Operasi bisnis terkunci; periksa status transaksi.</p>}
               {completionIssue && currentStage === stageKey && (
-                <Alert variant="default" role="status">
-                  <AlertDescription>Kendala penyelesaian: {completionIssue}</AlertDescription>
+                <Alert variant="destructive" role="status" className="border-amber-300 bg-amber-50 text-amber-950 [&>svg]:text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                  <AlertDescription className="text-amber-900 dark:text-amber-100">Kendala penyelesaian: {completionIssue}</AlertDescription>
                 </Alert>
               )}
-              <details className="group rounded-lg border px-4">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
-                  Operasi tahap
-                  <ChevronDown size={18} className="shrink-0 transition-transform group-open:rotate-180" />
-                </summary>
-                <div className="border-t py-4">
-                  <LifecycleOperations key={stageKey} pengadaanId={pengadaanId} stage={stageKey} active={currentStage === stageKey || (uninitialized && stageKey === "perencanaan")} detail={detail} />
-                </div>
-              </details>
-              <details className="group rounded-lg border px-4">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
-                  Catatan tahap
-                  <ChevronDown size={18} className="shrink-0 transition-transform group-open:rotate-180" />
-                </summary>
-                <div className="border-t py-4">
-                  <LifecycleRecords stage={stageKey} active={currentStage === stageKey} pengadaanId={pengadaanId} detail={detail ?? {}} />
-                </div>
-              </details>
-              <details className="group rounded-lg border px-4">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
-                  Dokumen pengadaan
-                  <ChevronDown size={18} className="shrink-0 transition-transform group-open:rotate-180" />
-                </summary>
-                <div className="border-t py-4">
-                  <LifecycleDocuments key={`documents-${stageKey}`} pengadaanId={pengadaanId} stage={stageKey} active={currentStage === stageKey} detail={detail} />
-                </div>
-              </details>
+              <div className="flex flex-col gap-3">
+                <details className="group overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
+                  <summary className="flex min-h-[4.5rem] cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                      <Settings2 size={17} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <strong className="block text-sm font-semibold">Operasi tahap</strong>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">Perbarui data transaksi</span>
+                    </span>
+                    <ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="border-t bg-muted/10 px-4 py-4">
+                    <LifecycleOperations key={stageKey} pengadaanId={pengadaanId} stage={stageKey} active={currentStage === stageKey || (uninitialized && stageKey === "perencanaan")} detail={detail} />
+                  </div>
+                </details>
+                <details className="group overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
+                  <summary className="flex min-h-[4.5rem] cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300">
+                      <ClipboardList size={17} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <strong className="block text-sm font-semibold">Catatan tahap</strong>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">Riwayat dan catatan proses</span>
+                    </span>
+                    <ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="border-t bg-muted/10 px-4 py-4">
+                    <LifecycleRecords stage={stageKey} active={currentStage === stageKey} pengadaanId={pengadaanId} detail={detail ?? {}} />
+                  </div>
+                </details>
+                <details className="group overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
+                  <summary className="flex min-h-[4.5rem] cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                      <FileText size={17} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <strong className="block text-sm font-semibold">Dokumen pengadaan</strong>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">Persyaratan dan berkas terkait</span>
+                    </span>
+                    <ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="border-t bg-muted/10 px-4 py-4">
+                    <LifecycleDocuments key={`documents-${stageKey}`} pengadaanId={pengadaanId} stage={stageKey} active={currentStage === stageKey} detail={detail} />
+                  </div>
+                </details>
+              </div>
             </CardContent>
           </Card>
           <ConfirmDialog

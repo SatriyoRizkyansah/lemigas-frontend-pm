@@ -2,6 +2,8 @@
 
 import { useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { DocumentActionButton } from "@/components/documents/DocumentActionButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -15,6 +17,7 @@ import { use_mutation } from "@/lib/api/use_mutation";
 import { apiQueryKeys } from "@/lib/api/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { downloadDocument } from "@/lib/api/download";
+import { ReadDocumentButton, UploadDocumentField } from "@/components/documents/DocumentControls";
 import type { PenuhiDokumenTahapDto } from "@/lib/api/generated/api-generated";
 
 export type LifecycleDocumentsProps = { pengadaanId: string; stage: string; active: boolean; detail: any };
@@ -173,11 +176,7 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
     if (document.tipePenyimpanan !== "upload_lokal" || typeof document.id !== "string") return <span>{String(document.nama ?? "Dokumen")} (unduh tidak tersedia)</span>;
     const id = document.id;
     const name = String(document.nama ?? "dokumen");
-    return (
-      <Button type="button" variant="link" disabled={downloadId === id} onClick={() => void download(id, name)}>
-        {downloadId === id ? "Mengunduh…" : name}
-      </Button>
-    );
+    return <ReadDocumentButton documentId={id} name={name} disabled={Boolean(downloadId)} />;
   }
   const selectClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
   return (
@@ -246,18 +245,24 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
             header: "Aksi",
             filterable: false,
             render: (row) => (
-              <div className="flex flex-wrap gap-2">
-                {canUpload && uploadStage ? (
-                  <Button type="button" variant="outline" disabled={!active || locked} onClick={() => open("upload", row)}>
-                    Unggah{row.terpenuhi === true ? " pengganti" : ""}
-                  </Button>
-                ) : null}
-                {canFulfill && stageValid ? (
-                  <Button type="button" variant="outline" disabled={!active || locked || documents.isPending || documents.isError || !linkedDocuments.length} onClick={() => open("fulfill", row)}>
-                    Tautkan dokumen
-                  </Button>
-                ) : null}
-              </div>
+              <TooltipProvider delay={150}>
+                <div className="flex items-center justify-center gap-1.5">
+                  {canUpload && uploadStage ? (
+                    <DocumentActionButton label={row.terpenuhi === true ? "Unggah dokumen pengganti" : "Unggah dokumen"} tone="primary" disabled={!active || locked} onClick={() => open("upload", row)}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                        <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </DocumentActionButton>
+                  ) : null}
+                  {canFulfill && stageValid ? (
+                    <DocumentActionButton label="Tautkan dokumen" disabled={!active || locked || documents.isPending || documents.isError || !linkedDocuments.length} onClick={() => open("fulfill", row)}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                        <path d="M10 13a5 5 0 0 0 7.07 0l2-2A5 5 0 0 0 12 3.93l-1.15 1.15M14 11a5 5 0 0 0-7.07 0l-2 2A5 5 0 0 0 12 20.07l1.15-1.15" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </DocumentActionButton>
+                  ) : null}
+                </div>
+              </TooltipProvider>
             ),
           },
         ]}
@@ -315,7 +320,7 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor={`${id}-file`}>File * (maksimal 10 MB)</Label>
-                  <Input key={action.requirementId} id={`${id}-file`} type="file" required onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+                  <UploadDocumentField key={action.requirementId} id={`${id}-file`} onFileChange={setFile} />
                 </div>
                 {stage === "delivery" ? (
                   <>

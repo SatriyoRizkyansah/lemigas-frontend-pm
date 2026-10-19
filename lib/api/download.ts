@@ -11,7 +11,7 @@ function sessionToken(): string | null {
   return readSession(cookie)?.token ?? null;
 }
 
-export async function downloadDocument(id: string, fallbackName: string): Promise<void> {
+async function fetchDocumentBlob(id: string): Promise<Blob> {
   const token = sessionToken();
   if (!token) throw new Error("Sesi berakhir. Silakan login kembali.");
   const url = new URL(`${browserApi.baseUrl.replace(/\/$/, "")}/api/dokumen/${encodeURIComponent(id)}/download`);
@@ -26,11 +26,26 @@ export async function downloadDocument(id: string, fallbackName: string): Promis
     }
     throw new Error(payload ? getApiErrorMessage(payload) : `Unduh gagal (HTTP ${response.status}).`);
   }
-  const blob = await response.blob();
+  return response.blob();
+}
+
+export async function openDocument(id: string): Promise<void> {
+  const blob = await fetchDocumentBlob(id);
+  const objectUrl = URL.createObjectURL(blob);
+  const opened = window.open(objectUrl, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    URL.revokeObjectURL(objectUrl);
+    throw new Error("Browser memblokir tab dokumen. Izinkan pop-up lalu coba lagi.");
+  }
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+export async function downloadDocument(id: string, fallbackName: string): Promise<void> {
+  const blob = await fetchDocumentBlob(id);
   const objectUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = objectUrl;
   anchor.download = fallbackName || "dokumen";
   anchor.click();
-  URL.revokeObjectURL(objectUrl);
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }

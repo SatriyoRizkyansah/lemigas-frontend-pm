@@ -335,39 +335,55 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
         open={Boolean(selected)}
         onClose={() => setSelected(null)}
         title="Detail record"
-        size="md"
+        description="Informasi lengkap record pada tahap pengadaan."
+        size="xl"
+        contentClassName="max-h-[92dvh]"
+        bodyClassName="space-y-6"
         footer={
           <Button variant="outline" onClick={() => setSelected(null)}>
             Tutup
           </Button>
         }
       >
-        <div className="max-h-[65vh] space-y-4 overflow-y-auto pr-1">
-          {currentSelected ? (
-            <>
-              <div className="border-b pb-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Detail record</p>
-                <h3 className="mt-1 text-lg font-semibold">{String(currentSelected.nomor ?? currentSelected.nomorRfq ?? currentSelected.jenisKargo ?? currentSelected.namaKapal ?? currentSelected.jenis ?? "Detail transaksi")}</h3>
-                {currentSelected.status ? <p className="mt-1 text-sm text-muted-foreground">Status: {String(currentSelected.status).replaceAll("_", " ")}</p> : null}
+        {currentSelected ? (
+          <div className="space-y-6">
+            <section className="rounded-xl border bg-muted/20 p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ringkasan record</p>
+                  <h3 className="mt-1 break-words text-lg font-semibold">
+                    {String(currentSelected.nomor ?? currentSelected.nomorRfq ?? currentSelected.jenisKargo ?? currentSelected.namaKapal ?? currentSelected.jenis ?? "Detail transaksi")}
+                  </h3>
+                  {currentSelected.status ? <p className="mt-1 text-sm text-muted-foreground">Status: {String(currentSelected.status).replaceAll("_", " ")}</p> : null}
+                </div>
               </div>
-              <dl className="grid grid-cols-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
+            </section>
+            <section className="rounded-xl border bg-card p-4 sm:p-5">
+              <header className="mb-4 border-b pb-3">
+                <h3 className="font-semibold">Informasi record</h3>
+              </header>
+              <dl className="grid gap-3 sm:grid-cols-2">
                 {Object.entries(currentSelected)
                   .filter(([key, value]) => !hiddenFields.has(key) && value !== undefined)
                   .map(([key, value]) => {
                     const complexValue = value !== null && typeof value === "object";
+                    const longValue = typeof value === "string" && value.length > 90;
                     return (
-                      <div key={key} className={`min-w-0 border-b py-3 ${complexValue ? "sm:col-span-2 lg:col-span-3" : ""}`}>
+                      <div
+                        key={key}
+                        className={`grid min-w-0 gap-1 border-b border-border/70 pb-2.5 last:border-0 last:pb-0 sm:grid-cols-[minmax(7rem,0.8fr)_minmax(0,1.2fr)] sm:items-start sm:gap-4 ${complexValue || longValue ? "sm:col-span-2" : ""}`}
+                      >
                         <dt className="text-xs font-medium text-muted-foreground">{fieldLabels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}</dt>
-                        <dd className="mt-1 break-words text-sm font-medium">
+                        <dd className="break-words text-sm font-medium text-foreground">
                           <DetailValue value={value} />
                         </dd>
                       </div>
                     );
                   })}
               </dl>
-            </>
-          ) : null}
-        </div>
+            </section>
+          </div>
+        ) : null}
       </Modal>
     </div>
   );
