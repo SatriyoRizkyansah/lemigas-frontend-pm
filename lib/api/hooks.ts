@@ -91,7 +91,7 @@ export type DashboardStats = {
   message: string;
   data: {
     pengadaan: { total: number; draft: number; diajukan: number; dalam_review: number; disetujui: number; ditolak: number; selesai: number; bulan_ini: number };
-    master: { vendor_aktif: number; total_barang: number; user_aktif: number };
+    master: { vendor_aktif: number; user_aktif: number };
     approval_pending: number;
     recent_pengadaan: Array<{ id: string; nomorSurat: string | null; judul: string; status: string; metode: string; prioritas: string; createdAt: string; diajukanOlehUser?: { nama: string } | null }>;
     pengadaan_status: Array<{ status: string; total: number }>;

@@ -82,7 +82,7 @@ function workflowWaiting(row: Procurement, jenis: Jenis) {
 function Status({ value }: { value: string }) {
   return <StatusBadge status={value === "ditolak" ? "danger" : value === "disetujui" || value === "selesai" ? "ok" : "warn"}>{value.replaceAll("_", " ")}</StatusBadge>;
 }
-const hiddenDetailKeys = new Set(["id", "pengadaanId", "memorandumId", "barangId", "vendorId", "createdAt", "updatedAt"]);
+const hiddenDetailKeys = new Set(["id", "pengadaanId", "memorandumId", "vendorId", "createdAt", "updatedAt"]);
 function readableLabel(value: string) {
   return value
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -141,9 +141,121 @@ function Context({ title, value }: { title: string; value: unknown }) {
   );
 }
 
+type RencanaInboxRow = {
+  id: string;
+  nomor: string;
+  judul: string;
+  status: string;
+  dibuatOlehUser?: { nama?: string } | null;
+  approvalSteps?: { id: string; urutan: number; namaLangkah: string; status: string; catatan?: string | null; tanggalKeputusan?: string | null; penanggungJawabUser?: { nama?: string } | null }[];
+};
+function RencanaApprovalInbox() {
+  const user = useCurrentUser();
+  const role = user.data?.role?.toUpperCase() ?? "";
+  const [revisions, setRevisions] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+  const query = use_query<RencanaInboxRow[], Error, void>({
+    tag: "rencanaTransaksi",
+    method: "perencanaanControllerFindAll",
+    params: undefined,
+    queryFn: async () => {
+      setBrowserToken();
+      const data = unwrap(await apiData(browserApi.ePlanningTransaksi.perencanaanControllerFindAll({ format: "json" }) as Promise<{ data: unknown }>));
+      if (!Array.isArray(data)) throw new Error("Response daftar rencana tidak valid.");
+      return data as RencanaInboxRow[];
+    },
+  });
+  const pending = (query.data ?? []).flatMap((row) => {
+    if (!["diajukan", "dalam_review"].includes(row.status)) return [];
+    const steps = [...(row.approvalSteps ?? [])].sort((a, b) => a.urutan - b.urutan);
+    const step = steps.find((item) => item.status === "menunggu");
+    if (!step || !steps.filter((item) => item.urutan < step.urutan).every((item) => item.status === "disetujui")) return [];
+    const requiredRole = step.urutan >= 3 ? "PIMPINAN" : "VERIFIKATOR";
+    if (role !== "ADMIN" && role !== requiredRole) return [];
+    return [{ row, step, requiredRole }];
+  });
+  async function decide(row: RencanaInboxRow, stepId: string, decision: "disetujui" | "ditolak") {
+    const catatan = revisions[stepId]?.trim() ?? "";
+    if (decision === "ditolak" && !catatan) {
+      setMessage("Isi alasan revisi sebelum mengirim permintaan revisi.");
+      return;
+    }
+    setBusyId(stepId);
+    setMessage("");
+    try {
+      setBrowserToken();
+      await apiData(browserApi.ePlanningTransaksi.perencanaanControllerDecide(row.id, stepId, { decision, catatan }, { format: "json" }) as Promise<{ data: unknown }>);
+      setMessage(decision === "disetujui" ? "Tahap rencana berhasil disetujui." : "Rencana dikirim untuk revisi.");
+      await query.refetch();
+    } catch (error) {
+      setMessage(getApiErrorMessage(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+  if (query.isPending || user.isPending) return <LoadingState />;
+  if (query.isError)
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>
+          {getApiErrorMessage(query.error)}{" "}
+          <Button type="button" variant="link" size="sm" onClick={() => void query.refetch()}>
+            Coba lagi
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">Rencana transaksi menunggu peran {role || "Anda"}. Hanya tahap aktif yang dapat diputuskan.</p>
+      {message && (
+        <Alert>
+          <AlertDescription>{message}</AlertDescription>
+        </Alert>
+      )}
+      {pending.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">Tidak ada rencana transaksi yang menunggu validasi Anda.</div>
+      ) : (
+        pending.map(({ row, step, requiredRole }) => (
+          <article key={row.id} className="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground">{row.nomor}</p>
+                <h3 className="font-semibold">{row.judul}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Pemohon: {row.dibuatOlehUser?.nama ?? "—"}</p>
+              </div>
+              <Status value={row.status} />
+            </div>
+            <div className="rounded-lg bg-muted/40 p-3 text-sm">
+              <p className="text-xs text-muted-foreground">Tahap validasi · {requiredRole}</p>
+              <p className="mt-1 font-semibold">
+                {step.urutan}. {step.namaLangkah}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`rencana-revisi-${step.id}`}>Catatan keputusan / alasan revisi</Label>
+              <Input id={`rencana-revisi-${step.id}`} value={revisions[step.id] ?? ""} disabled={busyId === step.id} onChange={(event) => setRevisions((current) => ({ ...current, [step.id]: event.target.value }))} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="destructive" disabled={busyId !== null} onClick={() => void decide(row, step.id, "ditolak")}>
+                Minta revisi
+              </Button>
+              <Button type="button" disabled={busyId !== null} onClick={() => void decide(row, step.id, "disetujui")}>
+                {busyId === step.id ? "Memproses…" : "Setujui"}
+              </Button>
+            </div>
+          </article>
+        ))
+      )}
+    </div>
+  );
+}
+
 export default function ApprovalPage() {
   const [jenis, setJenis] = useState<Jenis>("pengadaan");
   const [mySubmissions, setMySubmissions] = useState(false);
+  const [rencanaInbox, setRencanaInbox] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -309,6 +421,7 @@ export default function ApprovalPage() {
                 aria-pressed={mySubmissions}
                 disabled={decide.isPending}
                 onClick={() => {
+                  setRencanaInbox(false);
                   setMySubmissions(true);
                   setJenis("pengadaan");
                   setPage(1);
@@ -321,7 +434,20 @@ export default function ApprovalPage() {
           {!mySubmissions ? (
             <div className="flex flex-wrap items-center justify-between gap-3" aria-label="Jenis approval">
               <p className="text-sm font-medium text-muted-foreground">Jenis dokumen</p>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  className="h-8"
+                  variant={rencanaInbox ? "secondary" : "outline"}
+                  aria-pressed={rencanaInbox}
+                  disabled={decide.isPending}
+                  onClick={() => {
+                    setRencanaInbox(true);
+                    setPage(1);
+                  }}
+                >
+                  <ClipboardCheck /> Rencana transaksi
+                </Button>
                 {(["pengadaan", "memorandum"] as const).map((kind) => (
                   <Button
                     key={kind}
@@ -331,6 +457,7 @@ export default function ApprovalPage() {
                     aria-pressed={jenis === kind}
                     disabled={decide.isPending}
                     onClick={() => {
+                      setRencanaInbox(false);
                       setJenis(kind);
                       setPage(1);
                     }}
@@ -355,7 +482,9 @@ export default function ApprovalPage() {
         errorAlert(user.error, () => {
           void user.refetch();
         })}
-      {query.isPending ? (
+      {!mySubmissions && rencanaInbox ? (
+        <RencanaApprovalInbox />
+      ) : query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
         errorAlert(query.error, () => {

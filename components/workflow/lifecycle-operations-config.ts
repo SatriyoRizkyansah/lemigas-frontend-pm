@@ -5,7 +5,7 @@ export type Entity = Record<string, unknown>;
 export type Field = {
   name: string;
   label: string;
-  kind?: "number" | "json" | "date" | "boolean";
+  kind?: "number" | "json" | "date" | "boolean" | "textarea";
   required?: boolean;
   min?: number;
   integer?: boolean;
@@ -31,6 +31,7 @@ const ALL = [...AOV, "pimpinan"];
 const methods = ["tender", "pengadaan_langsung", "penunjukan_langsung", "e_procurement"];
 const statuses: UpdateStatusTahapDto["status"][] = ["draft", "menunggu_persetujuan", "aktif", "selesai", "revisi", "ditolak", "gagal", "dibatalkan"];
 const text = (name: string, label: string, required = false, maxLength?: number): Field => ({ name, label, required, maxLength });
+const textarea = (name: string, label: string, required = false): Field => ({ name, label, kind: "textarea", required });
 const num = (name: string, label: string, min?: number, required = false, integer = false): Field => ({ name, label, kind: "number", min, required, integer });
 const json = (name: string, label: string, required = false): Field => ({ name, label, kind: "json", required });
 const detailText = (name: string, label: string, payloadPath: string, required = false): Field => ({ name, label, payloadPath, required });
@@ -113,12 +114,12 @@ export const lifecycleOperations: Operation[] = [
     "perencanaan",
     api.transaksiControllerCreateStrategi,
     [
-      text("jenisTransaksi", "Jenis transaksi (spot, berjangka, dll.)", true, 50),
+      select("jenisTransaksi", "Jenis transaksi", ["spot", "berjangka"]),
       select("metodeSeleksi", "Metode seleksi", methods),
       json("analisisPasar", "Analisis pasar"),
-      text("dasarPemilihan", "Dasar pemilihan"),
-      text("strategiPengiriman", "Strategi pengiriman"),
-      text("strategiPembiayaan", "Strategi pembiayaan"),
+      textarea("dasarPemilihan", "Dasar pemilihan"),
+      textarea("strategiPengiriman", "Strategi pengiriman"),
+      textarea("strategiPembiayaan", "Strategi pembiayaan"),
     ],
     AO,
     "strategi",

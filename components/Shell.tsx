@@ -48,7 +48,7 @@ export default function Shell({ user, children }: { user: User; children: React.
         {drawerOpen && <div className="scrim" onClick={() => setDrawerOpen(false)} aria-hidden="true" />}
         <div className="main-col">
           <main id="main" className="main">
-            {children}
+            <div className="page-surface">{children}</div>
           </main>
           <footer className="footer">© 2026 LEMIGAS · Kementerian ESDM</footer>
         </div>

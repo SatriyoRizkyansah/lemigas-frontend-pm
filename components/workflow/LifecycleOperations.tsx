@@ -28,10 +28,49 @@ function unwrap(value: unknown): unknown {
 function records(value: unknown): Entity[] {
   return Array.isArray(value) ? value.map(object) : [];
 }
+function parseParameterRows(value: string): Array<{ name: string; value: string }> {
+  const rows = value
+    .split(/\r?\n/)
+    .filter((line) => line.trim())
+    .map((line) => {
+      const separator = line.indexOf(":");
+      return separator < 0 ? { name: line.trim(), value: "" } : { name: line.slice(0, separator).trim(), value: line.slice(separator + 1).trim() };
+    });
+  return rows.length ? rows : [{ name: "", value: "" }];
+}
+function serializeParameterRows(rows: Array<{ name: string; value: string }>): string {
+  return rows.map((row) => `${row.name}: ${row.value}`).join("\n");
+}
+function cleanParameterRows(value: string): string {
+  return parseParameterRows(value)
+    .filter((row) => row.name.trim() || row.value.trim())
+    .map((row) => `${row.name}: ${row.value}`)
+    .join("\n");
+}
 function choices(rows: Entity[]): Choice[] {
   return rows
     .filter((row) => typeof row.id === "string")
     .map((row) => ({ value: String(row.id), label: [row.nomor ?? row.nama ?? row.namaKapal ?? row.nomorBillOfLading ?? row.jenis ?? row.id, object(row.vendor).nama, row.status].filter(Boolean).join(" · ") }));
+}
+function operationFieldSections(operationKey: string | undefined, fields: Field[]): Array<{ title: string; fields: Field[] }> {
+  const sections: Record<string, { title: string; fields: string[] }[]> = {
+    perencanaan: [
+      { title: "Informasi kebutuhan", fields: ["modelPelaksanaan", "jenisKargo", "satuan", "titikSerah", "nomorPenugasan", "penerimaPasokan"] },
+      { title: "Spesifikasi dan kesiapan penerima", fields: ["spesifikasiMutu", "kesiapanPenerima"] },
+      { title: "Volume dan jadwal", fields: ["volumeMin", "volumeMax", "estimasiMulai", "estimasiSelesai"] },
+    ],
+    strategi: [
+      { title: "Metode transaksi", fields: ["jenisTransaksi", "metodeSeleksi"] },
+      { title: "Analisis dan strategi", fields: ["analisisPasar", "dasarPemilihan", "strategiPengiriman", "strategiPembiayaan"] },
+    ],
+  };
+  const configured = sections[operationKey ?? ""];
+  if (!configured) return [{ title: "Informasi", fields }];
+  const grouped = configured.map((section) => ({ title: section.title, fields: fields.filter((field) => section.fields.includes(field.name)) })).filter((section) => section.fields.length);
+  const assigned = new Set(grouped.flatMap((section) => section.fields.map((field) => field.name)));
+  const remaining = fields.filter((field) => !assigned.has(field.name));
+  if (remaining.length) grouped.push({ title: "Informasi tambahan", fields: remaining });
+  return grouped;
 }
 
 /** Standalone: parent supplies unwrapped GET siklus detail; mutations invalidate lifecycle and related lists. */
@@ -147,7 +186,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     setError("");
     setSuccess("");
     try {
-      const body = operationPayload(fields, values, options);
+      const payloadValues = Object.fromEntries(Object.entries(values).map(([name, value]) => [name, fields.find((field) => field.name === name)?.kind === "json" ? cleanParameterRows(value) : value]));
+      const body = operationPayload(fields, payloadValues, options);
       submitting.current = true;
       await mutation.mutateAsync({ operation: selected, body });
       setSuccess(`${selected.title}: berhasil.`);
@@ -174,6 +214,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           </Button>
         ))}
       </div>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
       {success ? (
         <Alert role="status">
           <AlertDescription>{success}</AlertDescription>
@@ -222,61 +267,124 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           <fieldset disabled={locked || !permitted} className="space-y-4">
             {selected?.key === "rfq" ? <p className="text-sm text-muted-foreground">Lengkapi kebutuhan RFQ. Informasi yang diisi akan dikirim kepada vendor terpilih.</p> : null}
             {selected?.key === "penawaran" ? <p className="text-sm text-muted-foreground">Masukkan rincian penawaran vendor pada kolom terpisah, bukan sebagai JSON.</p> : null}
-            {fields.map((field) => {
-              const fieldId = `${id}-${field.name}`;
-              const isSelect = !!field.relation || !!field.options || field.kind === "boolean";
-              const isLongText = field.payloadPath !== undefined;
-              return (
-                <div key={field.name} className="space-y-1.5">
-                  <Label htmlFor={fieldId}>
-                    {field.label}
-                    {field.required ? " *" : ""}
-                  </Label>
-                  {isSelect ? (
-                    <Select value={values[field.name] || ""} onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: String(value ?? "") }))} disabled={locked || !permitted || (field.relation === "vendor" && vendorBlocked)}>
-                      <SelectTrigger id={fieldId} aria-required={field.required}>
-                        <SelectValue placeholder="Pilih…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {!field.required ? <SelectItem value="">Tidak diisi</SelectItem> : null}
-                        {options(field).map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : field.kind === "json" || isLongText ? (
-                    <textarea
-                      id={fieldId}
-                      value={values[field.name] ?? ""}
-                      onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
-                      required={field.required}
-                      rows={isLongText ? 3 : 4}
-                      placeholder={field.kind === "json" ? "Contoh: Kadar sulfur: maksimal 0,5%\nWarna: jernih" : `${field.label}…`}
-                      className="w-full rounded-md border border-input bg-background p-3 text-sm leading-6"
-                    />
-                  ) : (
-                    <Input
-                      id={fieldId}
-                      type={field.kind === "date" ? "date" : field.kind === "number" ? "number" : "text"}
-                      step={field.kind === "number" ? (field.integer ? "1" : "any") : undefined}
-                      min={field.min}
-                      maxLength={field.maxLength}
-                      required={field.required}
-                      value={values[field.name] ?? ""}
-                      onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
-                    />
-                  )}
+            {operationFieldSections(selected?.key, fields).map((section) => (
+              <section key={section.title} className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
+                <h3 className="text-sm font-semibold">{section.title}</h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {section.fields.map((field) => {
+                    const fieldId = `${id}-${field.name}`;
+                    const isSelect = !!field.relation || !!field.options || field.kind === "boolean";
+                    const isLongText = field.payloadPath !== undefined;
+                    return (
+                      <div key={field.name} className="space-y-1.5">
+                        <Label htmlFor={fieldId}>
+                          {field.label}
+                          {field.required ? " *" : ""}
+                        </Label>
+                        {isSelect ? (
+                          <Select
+                            value={values[field.name] || ""}
+                            onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: String(value ?? "") }))}
+                            disabled={locked || !permitted || (field.relation === "vendor" && vendorBlocked)}
+                          >
+                            <SelectTrigger id={fieldId} aria-required={field.required}>
+                              <SelectValue placeholder="Pilih…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {!field.required ? <SelectItem value="">Tidak diisi</SelectItem> : null}
+                              {options(field).map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : field.kind === "json" ? (
+                          <div className="space-y-3" aria-describedby={`${fieldId}-hint`}>
+                            <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
+                              Isi kolom parameter dan nilai. Contoh parameter sesuai kebutuhan:{" "}
+                              {field.name === "kesiapanPenerima" ? "Fasilitas, kapasitas, jadwal penerimaan." : field.name === "analisisPasar" ? "Pasokan, harga, risiko pasar." : "Kadar sulfur, densitas, viskositas."}
+                            </p>
+                            <div className="space-y-2">
+                              {parseParameterRows(values[field.name] ?? "").map((row, index, rows) => (
+                                <div key={`${fieldId}-row-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] items-center gap-2">
+                                  <Input
+                                    aria-label={`${field.label}: parameter ${index + 1}`}
+                                    placeholder="Parameter"
+                                    value={row.name}
+                                    onChange={(event) => {
+                                      const next = [...rows];
+                                      next[index] = { ...row, name: event.target.value };
+                                      setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                    }}
+                                  />
+                                  <Input
+                                    aria-label={`${field.label}: nilai ${index + 1}`}
+                                    placeholder="Nilai"
+                                    value={row.value}
+                                    onChange={(event) => {
+                                      const next = [...rows];
+                                      next[index] = { ...row, value: event.target.value };
+                                      setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                    }}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    aria-label={`Hapus parameter ${index + 1}`}
+                                    disabled={rows.length === 1}
+                                    onClick={() => {
+                                      const next = rows.filter((_, rowIndex) => rowIndex !== index);
+                                      setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                    }}
+                                  >
+                                    Hapus
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const next = [...parseParameterRows(values[field.name] ?? ""), { name: "", value: "" }];
+                                setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                              }}
+                            >
+                              Tambah parameter
+                            </Button>
+                          </div>
+                        ) : isLongText || field.kind === "textarea" ? (
+                          <textarea
+                            id={fieldId}
+                            value={values[field.name] ?? ""}
+                            onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
+                            required={field.required}
+                            rows={3}
+                            placeholder={`${field.label}…`}
+                            className="w-full rounded-md border border-input bg-background p-3 text-sm leading-6"
+                          />
+                        ) : (
+                          <Input
+                            id={fieldId}
+                            type={field.kind === "date" ? "date" : field.kind === "number" ? "number" : "text"}
+                            step={field.kind === "number" ? (field.integer ? "1" : "any") : undefined}
+                            min={field.min}
+                            maxLength={field.maxLength}
+                            required={field.required}
+                            value={values[field.name] ?? ""}
+                            onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </section>
+            ))}
           </fieldset>
-          {error ? (
-            <Alert variant="destructive" role="alert">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
         </form>
       </Modal>
     </section>

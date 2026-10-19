@@ -51,35 +51,6 @@ const config: Record<string, Config> = {
       },
     ],
   },
-  kategori: {
-    title: "Kategori",
-    description: "Kelola kategori pengadaan.",
-    tag: "kategori",
-    method: "kategoriGetControllerFindAll",
-    createMethod: "kategoriPostControllerCreate",
-    updateMethod: "kategoriPutControllerUpdate",
-    deleteMethod: "kategoriDeleteControllerRemove",
-    fields: [
-      { name: "kode", label: "Kode", required: true },
-      { name: "nama", label: "Nama kategori", required: true },
-    ],
-  },
-  barang: {
-    title: "Barang",
-    description: "Kelola barang dan spesifikasinya.",
-    tag: "barang",
-    method: "barangGetControllerFindAll",
-    createMethod: "barangPostControllerCreate",
-    updateMethod: "barangPutControllerUpdate",
-    deleteMethod: "barangDeleteControllerRemove",
-    fields: [
-      { name: "nama", label: "Nama barang", required: true },
-      { name: "spesifikasi", label: "Spesifikasi" },
-      { name: "satuan", label: "Satuan", required: true },
-      { name: "kategoriId", label: "ID kategori", required: true },
-      { name: "hargaEstimasi", label: "Harga estimasi", type: "number" },
-    ],
-  },
 };
 
 function unwrapList(value: unknown): ListPayload {
@@ -99,11 +70,11 @@ function unwrapList(value: unknown): ListPayload {
   };
 }
 
-export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md" }: { kind: keyof typeof config; formColumns?: 1 | 2; modalSize?: "sm" | "md" }) {
-  const cfg = config[kind];
+export default function MasterDataPage({ formColumns = 1, modalSize = "md" }: { formColumns?: 1 | 2; modalSize?: "sm" | "md" }) {
+  const cfg = config.vendor;
   const currentUser = useCurrentUser();
   const role = currentUser.data?.role.toLowerCase();
-  const canEdit = kind === "kategori" ? role === "admin" : role === "admin" || role === "operator";
+  const canEdit = role === "admin" || role === "operator";
   const canDelete = role === "admin";
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -113,7 +84,7 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
   const [createVendorAccount, setCreateVendorAccount] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
-  const [filters, setFilters] = useState<Record<string, string>>({ status: "__all", kategoriId: "__all" });
+  const [filters, setFilters] = useState<Record<string, string>>({ status: "__all" });
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
   useEffect(() => {
@@ -127,10 +98,9 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
       query: debouncedSearch || undefined,
       limit,
       page,
-      ...(kind === "vendor" && filters.status !== "__all" ? { status: filters.status } : {}),
-      ...(kind === "barang" && filters.kategoriId !== "__all" ? { kategoriId: filters.kategoriId } : {}),
+      ...(filters.status !== "__all" ? { status: filters.status } : {}),
     }),
-    [kind, debouncedSearch, limit, page, filters],
+    [debouncedSearch, limit, page, filters],
   );
   const query = use_query<ListPayload, Error, typeof params>({
     tag: cfg.tag,
@@ -138,24 +108,8 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
     params,
     queryFn: async (request) => {
       setBrowserToken();
-      const group = cfg.tag === "kategori" ? browserApi.kategoriPengadaan : browserApi[cfg.tag as "vendor" | "barang"];
-      const fn = (group as any)[cfg.method];
+      const fn = (browserApi.vendor as any)[cfg.method];
       return unwrapList(await apiData(fn(request, { format: "json" }) as Promise<{ data: unknown }>));
-    },
-  });
-  const categoryQuery = use_query<ListPayload, Error, { limit: number; page: number }>({
-    tag: "kategori",
-    method: "kategoriGetControllerFindAll",
-    params: { limit: 100, page: 1 },
-    enabled: kind === "barang",
-    queryFn: async (request) => {
-      setBrowserToken();
-      const firstPage = unwrapList(await apiData(browserApi.kategoriPengadaan.kategoriGetControllerFindAll(request, { format: "json" }) as Promise<{ data: unknown }>));
-      if (firstPage.totalPages <= 1) return firstPage;
-      const remainingPages = await Promise.all(
-        Array.from({ length: firstPage.totalPages - 1 }, (_, index) => apiData(browserApi.kategoriPengadaan.kategoriGetControllerFindAll({ ...request, page: index + 2 }, { format: "json" }) as Promise<{ data: unknown }>)),
-      );
-      return { ...firstPage, items: [...firstPage.items, ...remainingPages.flatMap((pageData) => unwrapList(pageData).items)] };
     },
   });
   const invalidate = [apiQueryKeys.resource(cfg.tag)];
@@ -165,8 +119,7 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
     invalidateKeys: invalidate,
     mutationFn: async (body) => {
       setBrowserToken();
-      const group = cfg.tag === "kategori" ? browserApi.kategoriPengadaan : browserApi[cfg.tag as "vendor" | "barang"];
-      return apiData((group as any)[cfg.createMethod](body, { format: "json" }) as Promise<{ data: unknown }>);
+      return apiData((browserApi.vendor as any)[cfg.createMethod](body, { format: "json" }) as Promise<{ data: unknown }>);
     },
     onSuccess: () => setOpen(false),
   });
@@ -176,8 +129,7 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
     invalidateKeys: invalidate,
     mutationFn: async ({ id, body }) => {
       setBrowserToken();
-      const group = cfg.tag === "kategori" ? browserApi.kategoriPengadaan : browserApi[cfg.tag as "vendor" | "barang"];
-      return apiData((group as any)[cfg.updateMethod](id, body, { format: "json" }) as Promise<{ data: unknown }>);
+      return apiData((browserApi.vendor as any)[cfg.updateMethod](id, body, { format: "json" }) as Promise<{ data: unknown }>);
     },
     onSuccess: () => setOpen(false),
   });
@@ -187,20 +139,17 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
     invalidateKeys: invalidate,
     mutationFn: async (id) => {
       setBrowserToken();
-      const group = cfg.tag === "kategori" ? browserApi.kategoriPengadaan : browserApi[cfg.tag as "vendor" | "barang"];
-      return apiData((group as any)[cfg.deleteMethod](id, { format: "json" }) as Promise<{ data: unknown }>);
+      return apiData((browserApi.vendor as any)[cfg.deleteMethod](id, { format: "json" }) as Promise<{ data: unknown }>);
     },
     onSuccess: () => setRemoving(null),
   });
   const rows = query.data?.items ?? [];
-  const categories = categoryQuery.data?.items ?? [];
   const columns = [
-    ...cfg.fields.slice(0, kind === "vendor" ? cfg.fields.length : 4).map((field) => ({
+    ...cfg.fields.map((field) => ({
       key: field.name,
       header: field.label,
-      render: (row: Entity) => (field.name === "kategoriId" ? String(row.kategori?.nama ?? "—") : field.name === "status" ? (row.status === "aktif" ? "Aktif" : "Nonaktif") : String(row[field.name] ?? "—")),
+      render: (row: Entity) => (field.name === "status" ? (row.status === "aktif" ? "Aktif" : "Nonaktif") : String(row[field.name] ?? "—")),
     })),
-    ...(kind === "kategori" ? [{ key: "jumlahBarang", header: "Jumlah barang", render: (row: Entity) => String(row._count?.barang ?? 0) }] : []),
     {
       key: "actions",
       header: "Aksi",
@@ -254,9 +203,9 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
   function save(event: React.FormEvent) {
     event.preventDefault();
     if (!canEdit || cfg.fields.some((field) => field.required && !form[field.name]?.trim())) return;
-    if (kind === "vendor" && createVendorAccount && (!form.akunNama?.trim() || !form.akunEmail?.trim() || (form.akunPassword?.length ?? 0) < 6)) return;
+    if (createVendorAccount && (!form.akunNama?.trim() || !form.akunEmail?.trim() || (form.akunPassword?.length ?? 0) < 6)) return;
     const body = Object.fromEntries(cfg.fields.filter((field) => form[field.name] !== "").map((field) => [field.name, field.type === "number" ? Number(form[field.name]) : form[field.name]]));
-    if (!selected && kind === "vendor" && createVendorAccount) {
+    if (!selected && createVendorAccount) {
       body.akunNama = form.akunNama.trim();
       body.akunEmail = form.akunEmail.trim();
       body.akunPassword = form.akunPassword;
@@ -300,24 +249,18 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
           searchPlaceholder={`Cari ${cfg.title.toLowerCase()}…`}
           emptyMessage={`Belum ada data ${cfg.title.toLowerCase()}.`}
           remoteSearch
-          filters={
-            kind === "vendor"
-              ? [
-                  {
-                    field: "status",
-                    label: "Status vendor",
-                    options: [
-                      { label: "Aktif", value: "aktif" },
-                      { label: "Nonaktif", value: "nonaktif" },
-                    ],
-                  },
-                ]
-              : kind === "barang"
-                ? [{ field: "kategoriId", label: "Kategori", options: categories.map((category) => ({ label: `${category.kode} — ${category.nama}`, value: category.id })) }]
-                : []
-          }
-          filterValues={kind === "vendor" || kind === "barang" ? filters : undefined}
-          onFilterChange={kind === "vendor" || kind === "barang" ? (field, value) => setFilters((current) => ({ ...current, [field]: value })) : undefined}
+          filters={[
+            {
+              field: "status",
+              label: "Status vendor",
+              options: [
+                { label: "Aktif", value: "aktif" },
+                { label: "Nonaktif", value: "nonaktif" },
+              ],
+            },
+          ]}
+          filterValues={filters}
+          onFilterChange={(field, value) => setFilters((current) => ({ ...current, [field]: value }))}
           pagination={{
             page,
             pageSize: limit,
@@ -347,7 +290,7 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
             <Button
               type="submit"
               form="master-form"
-              disabled={busy || (kind === "vendor" && createVendorAccount && (!form.akunNama?.trim() || !form.akunEmail?.trim() || (form.akunPassword?.length ?? 0) < 6))}
+              disabled={busy || (createVendorAccount && (!form.akunNama?.trim() || !form.akunEmail?.trim() || (form.akunPassword?.length ?? 0) < 6))}
               className="bg-foreground text-background hover:bg-foreground/90"
             >
               {busy ? "Menyimpan…" : "Simpan"}
@@ -359,20 +302,7 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
           {cfg.fields.map((field, index) => (
             <div className={`grid gap-2 ${formColumns === 2 && cfg.fields.length % 2 === 1 && index === cfg.fields.length - 1 ? "sm:col-span-2" : ""}`} key={field.name}>
               <Label htmlFor={`master-${field.name}`}>{field.label}</Label>
-              {field.name === "kategoriId" ? (
-                <Select value={form.kategoriId ?? ""} onValueChange={(value) => value && setForm((current) => ({ ...current, kategoriId: value }))}>
-                  <SelectTrigger id="master-kategoriId" aria-label="Kategori barang">
-                    <SelectValue placeholder={categoryQuery.isPending ? "Memuat kategori…" : "Pilih kategori"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.kode} — {category.nama}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : field.options ? (
+              {field.options ? (
                 <Select value={form[field.name] ?? field.options[0]?.value ?? ""} onValueChange={(value) => value && setForm((current) => ({ ...current, [field.name]: value }))}>
                   <SelectTrigger id={`master-${field.name}`} aria-label={field.label}>
                     <SelectValue placeholder={`Pilih ${field.label.toLowerCase()}`} />
@@ -397,7 +327,7 @@ export default function MasterDataPage({ kind, formColumns = 1, modalSize = "md"
               )}
             </div>
           ))}
-          {kind === "vendor" && !selected ? (
+          {!selected ? (
             <ModalSection title="Akun vendor" description="Opsional. Buat akun agar vendor dapat masuk ke portal." className="sm:col-span-2">
               <label className="flex items-center gap-2 text-sm font-medium">
                 <input type="checkbox" checked={createVendorAccount} onChange={(event) => setCreateVendorAccount(event.target.checked)} />

@@ -220,6 +220,11 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
           </AlertDescription>
         </Alert>
       ) : null}
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
       {success ? (
         <Alert role="status">
           <AlertDescription>{success}</AlertDescription>
@@ -352,11 +357,6 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
               </>
             )}
           </fieldset>
-          {error ? (
-            <Alert variant="destructive" role="alert">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
         </form>
       </Modal>
     </section>

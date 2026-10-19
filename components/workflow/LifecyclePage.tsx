@@ -199,23 +199,16 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
             message="Selesaikan tahap ini? Backend akan memeriksa kelengkapan record dan dokumen wajib sebelum melanjutkan."
             confirmLabel="Selesaikan tahap"
             busy={updateStage.isPending}
-            onConfirm={() => updateStage.mutate({ tahap: stageKey, status: "selesai" }, { onSuccess: () => setConfirmComplete(false) })}
+            onConfirm={() =>
+              updateStage.mutate(
+                { tahap: stageKey, status: "selesai" },
+                {
+                  onSuccess: () => setConfirmComplete(false),
+                  onError: (error) => window.dispatchEvent(new CustomEvent("api:error", { detail: { message: getApiErrorMessage(error) } })),
+                },
+              )
+            }
           />
-          {updateStage.isSuccess && (
-            <p role="status" className="text-sm text-muted-foreground">
-              Tahap berhasil diselesaikan.
-            </p>
-          )}
-          {updateStage.isError ? (
-            <Alert variant="destructive" role="alert">
-              <AlertDescription className="flex flex-wrap items-center gap-2">
-                {getApiErrorMessage(updateStage.error)}
-                <Button type="button" variant="link" size="sm" onClick={() => void query.refetch()}>
-                  Muat ulang tahap
-                </Button>
-              </AlertDescription>
-            </Alert>
-          ) : null}
         </>
       )}
     </section>

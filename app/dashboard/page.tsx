@@ -137,7 +137,7 @@ export default function DashboardPage() {
             <SummaryCard label="Pengiriman" value={shipmentTotal} detail="Total kargo tercatat" icon={Truck} />
             <SummaryCard label="Tagihan" value={invoiceTotal} detail={`Nilai tercatat: ${invoiceValueLabel}`} icon={Wallet} />
             <SummaryCard label="Vendor aktif" value={stats.master.vendor_aktif} detail="Penyedia siap digunakan" icon={PackageCheck} />
-            <SummaryCard label="Barang terdaftar" value={stats.master.total_barang} detail={`${numberFormat.format(stats.master.user_aktif)} pengguna aktif`} icon={ClipboardList} />
+            <SummaryCard label="Pengguna aktif" value={stats.master.user_aktif} detail="Akun internal aktif" icon={ClipboardList} />
           </div>
         ) : null}
       </section>

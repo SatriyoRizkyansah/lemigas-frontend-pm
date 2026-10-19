@@ -828,6 +828,15 @@ button {
   flex: 1;
   padding: 12px 32px 24px 24px;
 }
+.page-surface {
+  min-width: 0;
+  min-height: 100%;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
 .footer {
   padding: 14px 32px 18px 24px;
   color: var(--ink-soft);
@@ -896,6 +905,9 @@ button {
   .main {
     padding: 14px 24px 24px;
   }
+  .page-surface {
+    padding: 20px;
+  }
   .footer {
     padding: 16px 24px 20px;
   }
@@ -923,6 +935,10 @@ button {
   }
   .main {
     padding: 8px 16px 20px;
+  }
+  .page-surface {
+    padding: 16px;
+    border-radius: var(--r-md);
   }
   .footer {
     padding: 14px 16px 18px;

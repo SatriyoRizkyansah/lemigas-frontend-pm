@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Archive, Boxes, ClipboardList, FolderOpen, Gauge, Package, PanelLeftClose, PanelLeftOpen, ShieldCheck, Store, Users } from "lucide-react";
+import { Activity, ClipboardList, FolderOpen, Gauge, Package, PanelLeftClose, PanelLeftOpen, ShieldCheck, Store, Users } from "lucide-react";
 import Skyline from "./Skyline";
 import { userFromIdentity, SESSION_COOKIE } from "@/lib/auth";
 import { Button } from "@/components/ui/legacy-button";
@@ -18,8 +18,6 @@ const allSections = [
     items: [
       { href: "/dashboard/vendor", label: "Vendor", icon: Store, exact: true },
       { href: "/dashboard/vendor-onboarding", label: "Onboarding Vendor", icon: ShieldCheck, exact: true },
-      { href: "/dashboard/kategori", label: "Kategori", icon: Archive },
-      { href: "/dashboard/barang", label: "Barang", icon: Boxes },
     ],
   },
   {
