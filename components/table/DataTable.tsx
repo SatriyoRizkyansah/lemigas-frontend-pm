@@ -93,7 +93,8 @@ export function DataTable<T>({
       if (
         activeFilters.some((filter) => {
           const selected = filterValues[String(filter.field)] ?? ALL_FILTER_VALUE;
-          return selected !== ALL_FILTER_VALUE && String(row[filter.field as keyof T] ?? "") !== selected;
+          const rawValue = String(row[filter.field as keyof T] ?? "");
+          return selected !== ALL_FILTER_VALUE && !rawValue.split(" | ").includes(selected);
         })
       )
         return false;

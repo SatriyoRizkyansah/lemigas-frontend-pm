@@ -48,7 +48,8 @@ export default function LoginPage() {
       await queryClient.cancelQueries();
       queryClient.clear();
       browserApi.setSecurityData(null);
-      setSession(access.token, { name: response.nama, email: identity.trim(), role: access.akses }, remember);
+      const roles = response.akses.map((item) => ({ token: item.token, label: item.akses, roleId: item.roleId, roleCode: item.kode }));
+      setSession(access.token, { name: response.nama, email: identity.trim(), role: access.akses }, remember, roles);
       browserApi.setSecurityData(access.token);
       router.replace("/dashboard");
       router.refresh();

@@ -7,7 +7,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { browserApi } from "@/lib/api/browser-client";
 import { Bell, CheckCheck, ChevronDown, LayoutGrid, LogOut, Menu, Search, User as UserIcon } from "lucide-react";
 import Logo from "./Logo";
-import { clearSession, type User } from "@/lib/auth";
+import { clearSession, readSession, setActiveSessionRole, type RoleAccess, type User } from "@/lib/auth";
+import { useSwitchRoleMutation } from "@/lib/api/hooks";
 import { Button } from "@/components/ui/Button";
 import { dateText } from "@/components/procurement/EntityListPage";
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead } from "@/app/dashboard/notifikasi/notifications";
@@ -26,6 +27,18 @@ export default function Topbar({ user, onMenu }: { user: User; onMenu: () => voi
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
   const readPending = markRead.isPending || markAllRead.isPending;
+  const [switchError, setSwitchError] = useState("");
+  const switchRole = useSwitchRoleMutation();
+  const session =
+    typeof document === "undefined"
+      ? null
+      : readSession(
+          document.cookie
+            .split(";")
+            .map((part) => part.trim())
+            .find((part) => part.startsWith("lemigas_session="))
+            ?.slice("lemigas_session=".length),
+        );
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -50,6 +63,22 @@ export default function Topbar({ user, onMenu }: { user: User; onMenu: () => voi
     e.preventDefault();
     const term = q.trim();
     router.push(term ? `/dashboard?q=${encodeURIComponent(term)}` : "/dashboard");
+  }
+
+  async function changeRole(role: RoleAccess) {
+    if (!role.roleId || switchRole.isPending) return;
+    setSwitchError("");
+    try {
+      const result = await switchRole.mutateAsync({ data: { roleId: role.roleId } });
+      await queryClient.cancelQueries();
+      queryClient.clear();
+      setActiveSessionRole(result.token, role);
+      browserApi.setSecurityData(result.token);
+      setMenu(false);
+      router.refresh();
+    } catch {
+      setSwitchError("Gagal mengganti role. Silakan coba lagi.");
+    }
   }
 
   async function logout() {
@@ -174,6 +203,25 @@ export default function Topbar({ user, onMenu }: { user: User; onMenu: () => voi
                 <strong>{user.name}</strong>
                 <span>{user.email || user.role}</span>
               </div>
+              {session?.roles && session.roles.length > 1 ? (
+                <div className="role-switcher" aria-label="Ganti role">
+                  <strong>Ganti role</strong>
+                  {session.roles.map((role, index) => (
+                    <button
+                      key={role.roleId ?? `${role.label}-${index}`}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={role.label === user.role}
+                      disabled={!role.roleId || switchRole.isPending || role.label === user.role}
+                      onClick={() => void changeRole(role)}
+                    >
+                      {role.label === user.role ? "✓ " : ""}
+                      {role.label}
+                    </button>
+                  ))}
+                  {switchError ? <span role="alert">{switchError}</span> : null}
+                </div>
+              ) : null}
               <Link href="/dashboard/profil" role="menuitem" onClick={() => setMenu(false)}>
                 <UserIcon size={18} /> Profil
               </Link>

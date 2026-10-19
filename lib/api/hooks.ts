@@ -11,7 +11,7 @@ export type LoginResponse = {
   id_pegawai: string;
   nama: string;
   foto?: string;
-  akses: Array<{ token: string; akses: string }>;
+  akses: Array<{ token: string; akses: string; roleId?: string; kode?: string }>;
 };
 
 export type CurrentUser = {
@@ -55,7 +55,9 @@ function parseLoginResponse(value: unknown): LoginResponse {
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.akses)) {
     throw new Error("Server tidak mengirim profil login yang valid. Periksa response POST /api/auth/login.");
   }
-  const akses = payload.akses.filter((item): item is { token: string; akses: string } => Boolean(item && typeof item.token === "string" && item.token && typeof item.akses === "string"));
+  const akses = payload.akses
+    .filter((item): item is { token: string; akses: string; roleId?: string; kode?: string } => Boolean(item && typeof item.token === "string" && item.token && typeof item.akses === "string"))
+    .map((item) => ({ token: item.token, akses: item.akses, roleId: typeof item.roleId === "string" ? item.roleId : undefined, kode: typeof item.kode === "string" ? item.kode : undefined }));
   if (!akses.length) throw new Error("Server login tidak mengirim token akses. Periksa response POST /api/auth/login.");
   return { id_pegawai: payload.id_pegawai ?? "", nama: payload.nama ?? "Pengguna", foto: payload.foto, akses };
 }
@@ -116,6 +118,15 @@ export function useDashboardStats(enabled = true) {
 }
 
 /** POST /api/auth/login via use_mutation. */
+export function useSwitchRoleMutation() {
+  return use_mutation<{ token: string; role: { id: string; kode: string; nama: string } }, Error, { data: { roleId: string }; params?: RequestParams }>({
+    tag: "auth",
+    method: "switchRole",
+    mutationFn: async ({ data, params }) => apiData(browserApi.auth.switchRole(data, { ...params, format: "json" }) as unknown as Promise<{ data: { token: string; role: { id: string; kode: string; nama: string } } }>),
+    invalidateKeys: [apiQueryKeys.resource("auth"), apiQueryKeys.resource("dashboard")],
+  });
+}
+
 export function useLoginMutation() {
   return use_mutation<LoginResponse, Error, { data: LoginDto; params?: RequestParams }>({
     tag: "auth",

@@ -1,12 +1,26 @@
 export const SESSION_COOKIE = "lemigas_session";
 
 export type User = { name: string; role: string; email: string; initials: string };
-export type Session = { token: string; user: User };
+export type RoleAccess = { roleId?: string; roleCode?: string; token: string; label: string };
+export type Session = { token: string; user: User; roles: RoleAccess[] };
 
-export function setSession(token: string, user: Omit<User, "initials">, remember: boolean) {
+export function setSession(token: string, user: Omit<User, "initials">, remember: boolean, roles: RoleAccess[] = []) {
   const maxAge = remember ? `; max-age=${60 * 60 * 24 * 30}` : "";
-  const session: Session = { token, user: { ...user, initials: makeInitials(user.name) } };
+  const session: Session = { token, user: { ...user, initials: makeInitials(user.name) }, roles };
   document.cookie = `${SESSION_COOKIE}=${encodeURIComponent(JSON.stringify(session))}; path=/; samesite=lax${maxAge}`;
+}
+
+export function setActiveSessionRole(token: string, role: RoleAccess) {
+  const raw = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${SESSION_COOKIE}=`))
+    ?.slice(SESSION_COOKIE.length + 1);
+  const session = readSession(raw);
+  if (!session) return;
+  session.token = token;
+  session.user.role = role.label;
+  document.cookie = `${SESSION_COOKIE}=${encodeURIComponent(JSON.stringify(session))}; path=/; samesite=lax`;
 }
 
 export function clearSession() {
@@ -23,7 +37,7 @@ export function readSession(value: string | undefined): Session | null {
   try {
     const parsed = JSON.parse(decodeURIComponent(value)) as Partial<Session>;
     if (typeof parsed.token !== "string" || !parsed.user || typeof parsed.user.name !== "string") return null;
-    return { token: parsed.token, user: { ...parsed.user, initials: makeInitials(parsed.user.name), role: parsed.user.role || "staff", email: parsed.user.email || "" } };
+    return { token: parsed.token, roles: Array.isArray(parsed.roles) ? parsed.roles : [], user: { ...parsed.user, initials: makeInitials(parsed.user.name), role: parsed.user.role || "staff", email: parsed.user.email || "" } };
   } catch {
     return null;
   }
