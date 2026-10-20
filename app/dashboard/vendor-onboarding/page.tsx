@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FileText, XCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CheckCircle2, FileText, Eye, XCircle } from "lucide-react";
 import { readSession, SESSION_COOKIE } from "@/lib/auth";
 import { LoadingState } from "@/components/loading/LoadingState";
 import { EmptyData } from "@/components/loading/EmptyData";
 import { PageHeader } from "@/components/common/PageHeader";
+import { StatusBadge } from "@/components/common/StatusBadge";
 import { Button } from "@/components/ui/Button";
+import { DataTable } from "@/components/table/DataTable";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type Onboarding = {
   id: string;
@@ -26,6 +29,13 @@ type Onboarding = {
   };
 };
 const API = process.env.NEXT_PUBLIC_LEMIGAS_API_URL ?? "http://localhost:3001";
+const STATUS_LABELS: Record<string, string> = {
+  submitted: "Menunggu review",
+  in_review: "Dalam review",
+  requires_revision: "Perlu revisi",
+  approved: "Disetujui",
+  rejected: "Ditolak",
+};
 
 function token() {
   const raw = document.cookie
@@ -49,6 +59,7 @@ export default function VendorOnboardingPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [selectedItem, setSelectedItem] = useState<Onboarding | null>(null);
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -65,17 +76,66 @@ export default function VendorOnboardingPage() {
     void refresh();
   }, [refresh]);
 
+  const columns = useMemo(
+    () => [
+      {
+        key: "nama",
+        header: "Nama Vendor",
+        render: (item: Onboarding) => (
+          <div>
+            <p className="font-medium text-foreground">{item.vendor.nama}</p>
+            <p className="text-xs text-muted-foreground">{item.vendor.email || item.vendor.npwp || "Kontak belum tersedia"}</p>
+          </div>
+        ),
+      },
+      {
+        key: "submittedAt",
+        header: "Tanggal Pengajuan",
+        render: (item: Onboarding) => <span className="text-sm text-muted-foreground">{item.submittedAt ? new Date(item.submittedAt).toLocaleDateString("id-ID", { dateStyle: "medium" }) : "—"}</span>,
+      },
+      {
+        key: "status",
+        header: "Status",
+        render: (item: Onboarding) => (
+          <StatusBadge status={item.status === "approved" ? "ok" : item.status === "rejected" ? "danger" : item.status === "requires_revision" ? "warn" : "neutral"}>
+            {STATUS_LABELS[item.status] ?? item.status.replaceAll("_", " ")}
+          </StatusBadge>
+        ),
+      },
+      { key: "documents", header: "Dokumen", render: (item: Onboarding) => <span className="text-sm text-muted-foreground">{item.vendor.vendorDocuments.length} dokumen</span> },
+      {
+        key: "actions",
+        header: "Aksi",
+        className: "w-28 text-right",
+        render: (item: Onboarding) => (
+          <Button type="button" variant="outline" size="sm" onClick={() => setSelectedItem(item)}>
+            <Eye className="mr-2 size-4" />
+            Detail
+          </Button>
+        ),
+        filterable: false,
+      },
+    ],
+    [],
+  );
+
   async function review(item: Onboarding, decision: "approved" | "rejected" | "requires_revision") {
     setBusy(item.id);
     setError("");
     try {
-      await request(`/api/vendor-onboarding/${item.id}/review`, {
+      const result = await request<{ message?: string }>(`/api/vendor-onboarding/${item.id}/review`, {
         method: "PUT",
         body: JSON.stringify({ status: decision, rejectionReason: notes[item.id] || undefined, revision: decision === "requires_revision" ? { catatan: notes[item.id] || "Mohon perbaiki data/dokumen" } : undefined }),
       });
+      const message = result.message || "Review onboarding berhasil disimpan.";
+      setError("");
+      window.dispatchEvent(new CustomEvent("api:success", { detail: { message } }));
+      setSelectedItem(null);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Review gagal disimpan");
+      const message = e instanceof Error ? e.message : "Review gagal disimpan";
+      setError(message);
+      window.dispatchEvent(new CustomEvent("api:error", { detail: { message } }));
     } finally {
       setBusy("");
     }
@@ -93,27 +153,8 @@ export default function VendorOnboardingPage() {
   }
 
   return (
-    <section className="space-y-6">
-      <PageHeader
-        title="Onboarding Vendor"
-        description="Review profil perusahaan dan dokumen legalitas sebelum vendor mengikuti sourcing."
-        actions={
-          <>
-            <select
-              aria-label="Filter status onboarding"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            >
-              <option value="submitted">Menunggu review</option>
-              <option value="in_review">Dalam review</option>
-              <option value="requires_revision">Perlu revisi</option>
-              <option value="approved">Disetujui</option>
-              <option value="rejected">Ditolak</option>
-            </select>
-          </>
-        }
-      />
+    <section className="space-y-5 py-1">
+      <PageHeader title="Onboarding Vendor" description="Review profil perusahaan dan dokumen legalitas sebelum vendor mengikuti sourcing." />
       {error && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
           {error}
@@ -124,89 +165,129 @@ export default function VendorOnboardingPage() {
       ) : items.length === 0 ? (
         <EmptyData className="min-h-72 border-border/70 bg-card/70 shadow-sm" label={status === "submitted" ? "Belum ada vendor yang menunggu review." : `Belum ada onboarding berstatus ${status.replaceAll("_", " ")}.`} />
       ) : (
-        <div className="space-y-4">
-          {items.map((item) => (
-            <article key={item.id} className="rounded-xl border bg-card p-5 shadow-sm">
-              <div className="flex flex-wrap justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-semibold">{item.vendor.nama}</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Diajukan {item.submittedAt ? new Date(item.submittedAt).toLocaleString("id-ID") : "—"} · Status: {item.status}
-                  </p>
-                </div>
-                <span className="rounded-full bg-muted px-3 py-1 text-sm">{item.vendor.vendorAccounts.length} akun pengguna</span>
+        <DataTable
+          columns={columns}
+          rows={items}
+          rowKey={(item) => item.id}
+          pageSize={10}
+          searchPlaceholder="Cari nama, email, NPWP..."
+          emptyMessage="Belum ada vendor untuk status ini."
+          filters={[{ field: "status", label: "Status onboarding", options: Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })) }]}
+          filterValues={{ status }}
+          onFilterChange={(field, value) => {
+            if (field === "status" && value !== "__all") {
+              setStatus(value);
+              setSelectedItem(null);
+            }
+          }}
+        />
+      )}
+      <Dialog
+        open={Boolean(selectedItem)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedItem(null);
+        }}
+      >
+        {selectedItem && (
+          <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{selectedItem.vendor.nama}</DialogTitle>
+              <DialogDescription>Detail profil, dokumen legalitas, dan keputusan review onboarding.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusBadge status={selectedItem.status === "approved" ? "ok" : selectedItem.status === "rejected" ? "danger" : selectedItem.status === "requires_revision" ? "warn" : "neutral"}>
+                  {STATUS_LABELS[selectedItem.status] ?? selectedItem.status.replaceAll("_", " ")}
+                </StatusBadge>
+                <span className="text-sm text-muted-foreground">Diajukan {selectedItem.submittedAt ? new Date(selectedItem.submittedAt).toLocaleString("id-ID") : "—"}</span>
               </div>
-              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-                <div>
-                  <dt className="text-muted-foreground">NPWP</dt>
-                  <dd>{item.vendor.npwp || "—"}</dd>
-                </div>
+              <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
                 <div>
                   <dt className="text-muted-foreground">Email</dt>
-                  <dd>{item.vendor.email || "—"}</dd>
+                  <dd className="mt-1 font-medium">{selectedItem.vendor.email || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">NPWP</dt>
+                  <dd className="mt-1 font-medium">{selectedItem.vendor.npwp || "—"}</dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Telepon</dt>
-                  <dd>{item.vendor.telepon || "—"}</dd>
+                  <dd className="mt-1 font-medium">{selectedItem.vendor.telepon || "—"}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Kontak</dt>
-                  <dd>{item.vendor.contactPerson || "—"}</dd>
+                  <dt className="text-muted-foreground">Kontak person</dt>
+                  <dd className="mt-1 font-medium">{selectedItem.vendor.contactPerson || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Akun pengguna</dt>
+                  <dd className="mt-1 font-medium">{selectedItem.vendor.vendorAccounts.length} akun</dd>
                 </div>
                 <div className="sm:col-span-2">
                   <dt className="text-muted-foreground">Alamat</dt>
-                  <dd>{item.vendor.alamat || "—"}</dd>
+                  <dd className="mt-1 font-medium">{selectedItem.vendor.alamat || "—"}</dd>
                 </div>
               </dl>
-              <div className="mt-4">
-                <h3 className="font-medium">Dokumen</h3>
-                {item.vendor.vendorDocuments.length ? (
-                  <ul className="mt-2 flex flex-wrap gap-2">
-                    {item.vendor.vendorDocuments.map((doc) => (
-                      <li key={doc.id}>
-                        <button onClick={() => void openDocument(doc.id)} className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted">
-                          <FileText size={16} />
-                          {doc.jenis} · {doc.status}
-                        </button>
+              <div>
+                <h3 className="text-sm font-semibold">Dokumen legalitas</h3>
+                {selectedItem.vendor.vendorDocuments.length ? (
+                  <ul className="mt-3 divide-y rounded-lg border bg-background">
+                    {selectedItem.vendor.vendorDocuments.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5 first:rounded-t-lg last:rounded-b-lg">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                            <FileText className="size-4" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{doc.jenis}</p>
+                            <p className="text-xs text-muted-foreground">{doc.expiresAt ? `Berlaku hingga ${new Date(doc.expiresAt).toLocaleDateString("id-ID")}` : "Dokumen vendor"}</p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <StatusBadge status={doc.status === "verified" || doc.status === "approved" ? "ok" : doc.status === "rejected" ? "danger" : doc.status === "draft" ? "neutral" : "warn"}>
+                            {doc.status.replaceAll("_", " ")}
+                          </StatusBadge>
+                          <Button type="button" variant="outline" size="sm" onClick={() => void openDocument(doc.id)}>
+                            Buka
+                          </Button>
+                        </div>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="mt-1 text-sm text-muted-foreground">Belum ada dokumen.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Belum ada dokumen.</p>
                 )}
               </div>
-              {["submitted", "in_review"].includes(item.status) && (
-                <div className="mt-5 border-t pt-4">
-                  <label className="block text-sm font-medium" htmlFor={`note-${item.id}`}>
-                    Catatan review / alasan
+              {["submitted", "in_review"].includes(selectedItem.status) && (
+                <div>
+                  <label className="text-sm font-semibold" htmlFor={`note-${selectedItem.id}`}>
+                    Catatan review / alasan penolakan
                   </label>
                   <textarea
-                    id={`note-${item.id}`}
-                    value={notes[item.id] ?? ""}
-                    onChange={(e) => setNotes((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                    rows={2}
-                    className="mt-1 w-full rounded-md border bg-background p-2"
-                    placeholder="Isi jika perlu revisi atau penolakan"
+                    id={`note-${selectedItem.id}`}
+                    value={notes[selectedItem.id] ?? ""}
+                    onChange={(e) => setNotes((prev) => ({ ...prev, [selectedItem.id]: e.target.value }))}
+                    rows={3}
+                    className="mt-2 w-full rounded-md border bg-background p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                    placeholder="Wajib diisi jika pengajuan ditolak"
                   />
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button disabled={Boolean(busy)} onClick={() => void review(item, "approved")} className="inline-flex items-center gap-2 rounded-md bg-emerald-700 px-4 py-2 text-white disabled:opacity-50">
-                      <CheckCircle2 size={16} />
-                      {busy === item.id ? "Menyimpan…" : "Setujui"}
-                    </button>
-                    <button disabled={Boolean(busy)} onClick={() => void review(item, "requires_revision")} className="rounded-md border px-4 py-2 disabled:opacity-50">
-                      Minta revisi
-                    </button>
-                    <button disabled={Boolean(busy)} onClick={() => void review(item, "rejected")} className="inline-flex items-center gap-2 rounded-md border border-destructive px-4 py-2 text-destructive disabled:opacity-50">
-                      <XCircle size={16} />
-                      Tolak
-                    </button>
-                  </div>
                 </div>
               )}
-            </article>
-          ))}
-        </div>
-      )}
+            </div>
+            {["submitted", "in_review"].includes(selectedItem.status) && (
+              <DialogFooter>
+                <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={() => void review(selectedItem, "rejected")}>
+                  <XCircle className="mr-2 size-4" />
+                  Tolak
+                </Button>
+                <Button type="button" disabled={Boolean(busy)} onClick={() => void review(selectedItem, "approved")}>
+                  <CheckCircle2 className="mr-2 size-4" />
+                  {busy === selectedItem.id ? "Menyimpan…" : "Terima vendor"}
+                </Button>
+              </DialogFooter>
+            )}
+          </DialogContent>
+        )}
+      </Dialog>
     </section>
   );
 }

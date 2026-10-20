@@ -35,7 +35,7 @@ export function ApiSuccessAlerts() {
   }, []);
 
   return (
-    <div className="fixed bottom-5 right-5 z-[200] flex w-[min(380px,calc(100vw-2.5rem))] flex-col gap-3" aria-live="polite" aria-relevant="additions">
+    <div className="fixed left-5 top-5 z-[200] flex w-[min(380px,calc(100vw-2.5rem))] flex-col gap-3" aria-live="polite" aria-relevant="additions">
       {alerts.map(({ id, message, variant, closing }) => (
         <Alert
           key={id}

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Activity, ClipboardList, FolderOpen, Gauge, Package, PanelLeftClose, PanelLeftOpen, ShieldCheck, Store, Users } from "lucide-react";
 import Skyline from "./Skyline";
 import { userFromIdentity, SESSION_COOKIE } from "@/lib/auth";
@@ -54,7 +54,18 @@ function allowedSections(role: string) {
       { ...allSections[2], items: allSections[2].items.filter((item) => ["Rencana Transaksi", "Approval"].includes(item.label)) },
       { ...allSections[3], items: allSections[3].items.filter((item) => item.label === "Audit Log") },
     ];
-  if (normalized.includes("vendor")) return [{ title: "Portal Vendor", items: [{ href: "/dashboard/vendor-portal", label: "Onboarding & Penawaran", icon: Store }] }];
+  if (normalized.includes("vendor"))
+    return [
+      {
+        title: "Portal Vendor",
+        items: [
+          { href: "/dashboard/vendor-portal/beranda", label: "Beranda", icon: Gauge, exact: true },
+          { href: "/dashboard/vendor-portal", label: "Profil & Dokumen", icon: FolderOpen, exact: true, section: "profile" },
+          { href: "/dashboard/vendor-portal?section=rfq", label: "RFQ & Penawaran", icon: Package, exact: true, section: "rfq" },
+          { href: "/dashboard/vendor-portal?section=negotiation", label: "Negosiasi", icon: Activity, exact: true, section: "negotiation" },
+        ],
+      },
+    ];
   return [allSections[0], { ...allSections[2], items: allSections[2].items.filter((item) => ["Rencana Transaksi", "Pengadaan", "Dokumen"].includes(item.label)) }];
 }
 
@@ -62,6 +73,7 @@ type Props = { collapsed: boolean; open: boolean; onToggle: () => void };
 
 export default function Sidebar({ collapsed, open, onToggle }: Props) {
   const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
   const [role, setRole] = useState("user");
   useEffect(() => {
     const value = document.cookie
@@ -83,7 +95,8 @@ export default function Sidebar({ collapsed, open, onToggle }: Props) {
               <ul className="nav">
                 {section.items.map(({ href, label, icon: Icon, ...item }) => {
                   const isExact = "exact" in item && item.exact;
-                  const active = isExact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+                  const vendorSection = "section" in item ? item.section : undefined;
+                  const active = vendorSection ? pathname === "/dashboard/vendor-portal" && (searchParams?.get("section") || "profile") === vendorSection : isExact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
                   return (
                     <li key={href}>
                       <Link href={href} className="nav-link" aria-current={active ? "page" : undefined} title={collapsed ? label : undefined}>

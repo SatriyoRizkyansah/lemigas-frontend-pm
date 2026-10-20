@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
 import { use_query } from "@/lib/api/use_query";
@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/common/PageHeader";
+import { StatusBadge } from "@/components/common/StatusBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Entity = { id: string; nama: string; [key: string]: any };
@@ -70,6 +71,14 @@ function unwrapList(value: unknown): ListPayload {
   };
 }
 
+function unwrapDetail(value: unknown): Entity {
+  let payload: any = value;
+  for (let i = 0; i < 3 && payload && typeof payload === "object" && "data" in payload; i += 1) {
+    payload = payload.data;
+  }
+  return payload as Entity;
+}
+
 export default function MasterDataPage({ formColumns = 1, modalSize = "md" }: { formColumns?: 1 | 2; modalSize?: "sm" | "md" }) {
   const cfg = config.vendor;
   const currentUser = useCurrentUser();
@@ -79,6 +88,7 @@ export default function MasterDataPage({ formColumns = 1, modalSize = "md" }: { 
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Entity | null>(null);
+  const [detailVendor, setDetailVendor] = useState<Entity | null>(null);
   const [removing, setRemoving] = useState<Entity | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [createVendorAccount, setCreateVendorAccount] = useState(false);
@@ -86,6 +96,7 @@ export default function MasterDataPage({ formColumns = 1, modalSize = "md" }: { 
   const [limit, setLimit] = useState(10);
   const [filters, setFilters] = useState<Record<string, string>>({ status: "__all" });
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -141,9 +152,39 @@ export default function MasterDataPage({ formColumns = 1, modalSize = "md" }: { 
       setBrowserToken();
       return apiData((browserApi.vendor as any)[cfg.deleteMethod](id, { format: "json" }) as Promise<{ data: unknown }>);
     },
-    onSuccess: () => setRemoving(null),
+    onSuccess: () => {
+      setRemoving(null);
+      setDeleteError("");
+    },
+    onError: (error) => setDeleteError(getApiErrorMessage(error)),
+  });
+  const detailQuery = use_query<Entity, Error, { id: string }>({
+    tag: `${cfg.tag}-detail`,
+    method: "vendorGetControllerFindOne",
+    params: { id: detailVendor?.id ?? "" },
+    enabled: Boolean(detailVendor?.id),
+    queryFn: async ({ id }) => {
+      setBrowserToken();
+      const fn = (browserApi.vendor as any).vendorGetControllerFindOne;
+      return unwrapDetail(await apiData(fn(id, { format: "json" }) as Promise<{ data: unknown }>));
+    },
   });
   const rows = query.data?.items ?? [];
+  const onboardingLabel = (status?: string | null) => {
+    if (!status) return "Belum diajukan";
+    return (
+      (
+        {
+          draft: "Draft",
+          submitted: "Menunggu verifikasi",
+          in_review: "Sedang diverifikasi",
+          requires_revision: "Perlu revisi",
+          approved: "Terverifikasi",
+          rejected: "Ditolak",
+        } as Record<string, string>
+      )[status] ?? status.replaceAll("_", " ")
+    );
+  };
   const columns = [
     ...cfg.fields.map((field) => ({
       key: field.name,
@@ -151,12 +192,31 @@ export default function MasterDataPage({ formColumns = 1, modalSize = "md" }: { 
       render: (row: Entity) => (field.name === "status" ? (row.status === "aktif" ? "Aktif" : "Nonaktif") : String(row[field.name] ?? "—")),
     })),
     {
+      key: "onboardingStatus",
+      header: "Status onboarding",
+      render: (row: Entity) => {
+        const status = row.vendorOnboarding?.status as string | undefined;
+        return <StatusBadge status={status === "approved" ? "ok" : status === "rejected" ? "danger" : status === "requires_revision" ? "warn" : "neutral"}>{onboardingLabel(status)}</StatusBadge>;
+      },
+    },
+    {
       key: "actions",
       header: "Aksi",
       className: "w-24 whitespace-nowrap",
       render: (row: Entity) => (
         <TooltipProvider>
           <div className="flex w-max flex-nowrap items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger
+                type="button"
+                aria-label={`Detail ${row.nama}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                onClick={() => setDetailVendor(row)}
+              >
+                <Eye className="h-4 w-4" aria-hidden="true" />
+              </TooltipTrigger>
+              <TooltipContent>Detail</TooltipContent>
+            </Tooltip>
             {canEdit && (
               <Tooltip>
                 <TooltipTrigger
@@ -271,11 +331,90 @@ export default function MasterDataPage({ formColumns = 1, modalSize = "md" }: { 
           }}
         />
       )}
-      {create.isError || update.isError || remove.isError ? (
+      {create.isError || update.isError ? (
         <Alert variant="destructive">
-          <AlertDescription>{getApiErrorMessage(create.error ?? update.error ?? remove.error)}</AlertDescription>
+          <AlertDescription>{getApiErrorMessage(create.error ?? update.error)}</AlertDescription>
         </Alert>
       ) : null}
+      {deleteError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{deleteError}</AlertDescription>
+        </Alert>
+      ) : null}
+      <Modal open={Boolean(detailVendor)} onClose={() => setDetailVendor(null)} title={`Detail vendor${detailVendor ? ` — ${detailVendor.nama}` : ""}`} description="Informasi vendor dan akun pengguna yang terhubung." size="md">
+        {detailQuery.isPending ? (
+          <LoadingState />
+        ) : detailQuery.isError ? (
+          <Alert variant="destructive">
+            <AlertDescription>{getApiErrorMessage(detailQuery.error)}</AlertDescription>
+          </Alert>
+        ) : detailQuery.data ? (
+          <div className="space-y-5">
+            <dl className="grid gap-3 sm:grid-cols-2">
+              {cfg.fields.map((field) => (
+                <div className="min-w-0 border-b border-border pb-2" key={field.name}>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{field.label}</dt>
+                  <dd className="mt-1 break-words text-sm text-foreground">{field.name === "status" ? (detailQuery.data.status === "aktif" ? "Aktif" : "Nonaktif") : String(detailQuery.data[field.name] ?? "—")}</dd>
+                </div>
+              ))}
+            </dl>
+            <section className="space-y-3">
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status onboarding</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <StatusBadge
+                    status={
+                      detailQuery.data.vendorOnboarding?.status === "approved"
+                        ? "ok"
+                        : detailQuery.data.vendorOnboarding?.status === "rejected"
+                          ? "danger"
+                          : detailQuery.data.vendorOnboarding?.status === "requires_revision"
+                            ? "warn"
+                            : "neutral"
+                    }
+                  >
+                    {onboardingLabel(detailQuery.data.vendorOnboarding?.status)}
+                  </StatusBadge>
+                  {detailQuery.data.vendorOnboarding?.reviewedAt && (
+                    <span className="text-xs text-muted-foreground">Direview {new Date(detailQuery.data.vendorOnboarding.reviewedAt).toLocaleDateString("id-ID", { dateStyle: "medium" })}</span>
+                  )}
+                </div>
+                {detailQuery.data.vendorOnboarding?.rejectionReason && <p className="mt-2 text-sm text-destructive">Catatan reviewer: {detailQuery.data.vendorOnboarding.rejectionReason}</p>}
+              </div>
+            </section>
+            <section className="space-y-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Akun pengguna vendor</h3>
+                <p className="text-xs text-muted-foreground">Daftar akun login yang tertaut ke vendor ini.</p>
+              </div>
+              {Array.isArray(detailQuery.data.vendorAccounts) && detailQuery.data.vendorAccounts.length ? (
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[28rem] text-sm">
+                    <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide">
+                      <tr>
+                        <th className="px-3 py-2">Nama pengguna</th>
+                        <th className="px-3 py-2">Email</th>
+                        <th className="px-3 py-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detailQuery.data.vendorAccounts.map((account: Entity) => (
+                        <tr className="border-t border-border" key={account.id}>
+                          <td className="px-3 py-2">{account.nama || "—"}</td>
+                          <td className="px-3 py-2">{account.email || "—"}</td>
+                          <td className="px-3 py-2">{account.status === "aktif" ? "Aktif" : "Nonaktif"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">Belum ada akun pengguna untuk vendor ini.</p>
+              )}
+            </section>
+          </div>
+        ) : null}
+      </Modal>
       <Modal
         open={open && canEdit}
         onClose={() => setOpen(false)}
