@@ -2,6 +2,11 @@
 
 import { useQuery, type UseQueryOptions, type UseQueryResult } from "@tanstack/react-query";
 import { apiQueryKeys } from "./query-keys";
+import { getApiErrorMessage } from "./errors";
+
+function notifyApiError(error: unknown) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("api:error", { detail: { message: getApiErrorMessage(error) } }));
+}
 
 type ApiQueryOptions<TData, TError, TParams> = Omit<UseQueryOptions<TData, TError, TData, readonly unknown[]>, "queryKey" | "queryFn"> & {
   tag: string;
@@ -16,6 +21,13 @@ export function use_query<TData, TError = Error, TParams = void>({ tag, method, 
   return useQuery<TData, TError, TData, readonly unknown[]>({
     ...options,
     queryKey: queryKey ?? apiQueryKeys.endpoint(tag, method, params),
-    queryFn: () => queryFn(params),
+    queryFn: async () => {
+      try {
+        return await queryFn(params);
+      } catch (error) {
+        notifyApiError(error);
+        throw error;
+      }
+    },
   });
 }

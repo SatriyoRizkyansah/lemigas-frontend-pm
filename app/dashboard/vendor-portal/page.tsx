@@ -1,8 +1,8 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { FileUp, Send } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FileUp, Send, Clock3, FileText, CircleCheck } from "lucide-react";
 import { readSession, SESSION_COOKIE } from "@/lib/auth";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
@@ -10,6 +10,7 @@ import { LoadingState } from "@/components/loading/LoadingState";
 import { EmptyData } from "@/components/loading/EmptyData";
 import { Button } from "@/components/ui/Button";
 import { UploadDocumentField } from "@/components/documents/DocumentControls";
+import { useToast } from "@/components/ui/use-toast";
 
 type VendorDoc = { id: string; jenis: string; status: string; filePath: string; expiresAt?: string | null };
 type Portal = {
@@ -19,7 +20,30 @@ type Portal = {
   revision?: unknown;
   vendor: { id: string; nama: string; alamat?: string | null; telepon?: string | null; email?: string | null; npwp?: string | null; contactPerson?: string | null; vendorDocuments: VendorDoc[] };
 };
-type Rfq = { id: string; nomor: string; batasRespons?: string | null; pengadaan: { id: string; nomorSurat: string; judul: string; status: string } };
+type VendorOffer = {
+  id: string;
+  nomorRfq?: string | null;
+  hargaPenawaran?: number | string | null;
+  mataUang: string;
+  berlakuSampai?: string | null;
+  syaratPembayaran?: string | null;
+  ketentuanPengangkutan?: string | null;
+  detail?: Record<string, unknown> | null;
+  status: string;
+  submittedAt?: string | null;
+  updatedAt?: string | null;
+};
+type Rfq = {
+  id: string;
+  penawaran?: VendorOffer[];
+  nomor: string;
+  revisi?: number;
+  revisiDariId?: string | null;
+  alasanPerubahan?: string | null;
+  batasRespons?: string | null;
+  ketentuan?: Record<string, unknown> | null;
+  pengadaan: { id: string; nomorSurat: string; judul: string; status: string };
+};
 const DOCUMENT_TYPES = ["NIB", "NPWP", "Akta Perusahaan", "Surat Domisili", "Rekening Bank", "Lainnya"] as const;
 
 type Negotiation = {
@@ -49,20 +73,82 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload;
 }
 
+function normalizedRfqTerm(key: string, value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : value;
+}
+function formatRfqValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value))
+    return (
+      value
+        .map(formatRfqValue)
+        .filter((item) => item !== "—")
+        .join(", ") || "—"
+    );
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const preferred = ["value", "label", "nama", "name", "text", "detail"];
+    const simple = preferred.find((key) => record[key] !== undefined && (typeof record[key] !== "object" || record[key] === null));
+    if (simple) return formatRfqValue(record[simple]);
+    return (
+      Object.entries(record)
+        .filter(([, item]) => item !== null && item !== undefined && item !== "")
+        .map(([key, item]) => `${key.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase())}: ${formatRfqValue(item)}`)
+        .join(" · ") || "—"
+    );
+  }
+  return String(value);
+}
+function rfqTermLabel(key: string): string {
+  const labels: Record<string, string> = {
+    satuan: "Satuan",
+    volume: "Volume",
+    titikSerah: "Titik serah",
+    spesifikasi: "Spesifikasi",
+    dokumenDiminta: "Dokumen diminta",
+    syaratPembayaran: "Syarat pembayaran",
+    syaratPenyerahan: "Syarat penyerahan",
+  };
+  return labels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
+}
+
 function VendorPortalView() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const selectedSection = searchParams?.get("section");
+  const selectedRfqId = searchParams?.get("rfq");
+  const openRfq = (rfqId?: string) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.set("section", "rfq");
+    if (rfqId) params.set("rfq", rfqId);
+    else params.delete("rfq");
+    router.push(`/dashboard/vendor-portal?${params.toString()}`, { scroll: false });
+  };
   const section = selectedSection === "rfq" ? "rfq" : selectedSection === "negotiation" ? "negotiation" : "profile";
   const [profile, setProfile] = useState<Portal | null>(null);
   const [loading, setLoading] = useState(true);
   const [rfqs, setRfqs] = useState<Rfq[]>([]);
   const [negotiations, setNegotiations] = useState<Negotiation[]>([]);
   const [filesByType, setFilesByType] = useState<Record<string, File | null>>({});
-  const [error, setError] = useState("");
+  const { toast } = useToast();
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [quoteCurrency, setQuoteCurrency] = useState("USD");
+  const currencyConfig: Record<string, { prefix: string; locale: string; currency: string }> = {
+    IDR: { prefix: "Rp", locale: "id-ID", currency: "IDR" },
+    USD: { prefix: "$", locale: "en-US", currency: "USD" },
+    RUB: { prefix: "₽", locale: "ru-RU", currency: "RUB" },
+  };
+  const formatMoneyInput = (raw: string, code: string) => {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) return "";
+    return new Intl.NumberFormat(currencyConfig[code]?.locale ?? "en-US", { maximumFractionDigits: 0 }).format(Number(digits));
+  };
+  const [quoteAmount, setQuoteAmount] = useState("");
   const refresh = useCallback(async () => {
-    setError("");
     try {
       const result = await request<{ data: Portal }>("/api/vendor-onboarding/me");
       setProfile(result.data);
@@ -75,7 +161,7 @@ function VendorPortalView() {
         setNegotiations([]);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memuat portal");
+      toast({ title: "Gagal memuat portal", description: e instanceof Error ? e.message : "Gagal memuat portal", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -83,12 +169,16 @@ function VendorPortalView() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  useEffect(() => {
+    const prior = rfqs.find((item) => item.id === selectedRfqId)?.penawaran?.[0];
+    setQuoteCurrency(prior?.mataUang ?? "USD");
+    setQuoteAmount(prior?.hargaPenawaran == null ? "" : formatMoneyInput(String(prior.hargaPenawaran), prior.mataUang));
+  }, [rfqs, selectedRfqId]);
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!profile) return;
     setBusy(true);
-    setError("");
     setNotice("");
     const form = new FormData(event.currentTarget);
     const values = Object.fromEntries(form.entries());
@@ -100,8 +190,7 @@ function VendorPortalView() {
       await refresh();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Profil gagal disimpan";
-      setError(message);
-      window.dispatchEvent(new CustomEvent("api:error", { detail: { message } }));
+      toast({ title: "Profil gagal disimpan", description: message, variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -109,11 +198,10 @@ function VendorPortalView() {
   async function uploadDocument(jenis: string) {
     const file = filesByType[jenis];
     if (!file) {
-      setError(`Pilih file untuk dokumen ${jenis}.`);
+      toast({ title: "Dokumen belum dipilih", description: `Pilih file untuk dokumen ${jenis}.`, variant: "destructive" });
       return;
     }
     setBusy(true);
-    setError("");
     setNotice("");
     const form = new FormData();
     form.append("file", file);
@@ -127,15 +215,13 @@ function VendorPortalView() {
       await refresh();
     } catch (e) {
       const message = e instanceof Error ? e.message : `Dokumen ${jenis} gagal diunggah`;
-      setError(message);
-      window.dispatchEvent(new CustomEvent("api:error", { detail: { message } }));
+      toast({ title: "Unggah dokumen gagal", description: message, variant: "destructive" });
     } finally {
       setBusy(false);
     }
   }
   async function submitOnboarding() {
     setBusy(true);
-    setError("");
     setNotice("");
     try {
       const result = await request<{ message?: string }>("/api/vendor-onboarding/me/submit", { method: "POST" });
@@ -145,8 +231,7 @@ function VendorPortalView() {
       await refresh();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Pengajuan gagal";
-      setError(message);
-      window.dispatchEvent(new CustomEvent("api:error", { detail: { message } }));
+      toast({ title: "Pengajuan gagal", description: message, variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -162,12 +247,11 @@ function VendorPortalView() {
       link.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unduh gagal");
+      toast({ title: "Unduh gagal", description: e instanceof Error ? e.message : "Unduh gagal", variant: "destructive" });
     }
   }
   async function respondNegotiation(item: Negotiation, tanggapan: "diterima" | "ditolak") {
     setBusy(true);
-    setError("");
     setNotice("");
     try {
       await request(`/api/vendor-onboarding/me/negotiations/${item.id}/respond`, {
@@ -177,7 +261,7 @@ function VendorPortalView() {
       setNotice(`Negosiasi putaran ${item.putaran} ${tanggapan}.`);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Tanggapan negosiasi gagal disimpan");
+      toast({ title: "Tanggapan negosiasi gagal", description: e instanceof Error ? e.message : "Tanggapan negosiasi gagal disimpan", variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -186,26 +270,29 @@ function VendorPortalView() {
   async function submitQuote(event: FormEvent<HTMLFormElement>, rfq: Rfq) {
     event.preventDefault();
     setBusy(true);
-    setError("");
     setNotice("");
     const form = new FormData(event.currentTarget);
-    const amount = Number(form.get("hargaPenawaran"));
+    const amount = Number(String(form.get("hargaPenawaran") ?? "").replace(/[^\d]/g, ""));
     try {
       await request(`/api/pengadaan/${rfq.pengadaan.id}/penawaran`, {
         method: "POST",
         body: JSON.stringify({
+          rfqId: rfq.id,
           nomorRfq: rfq.nomor,
           hargaPenawaran: amount,
           mataUang: String(form.get("mataUang") || "USD"),
           berlakuSampai: form.get("berlakuSampai") || undefined,
           syaratPembayaran: form.get("syaratPembayaran") || undefined,
           ketentuanPengangkutan: form.get("ketentuanPengangkutan") || undefined,
+          detail: { spesifikasi: form.get("spesifikasi"), volume: form.get("volume"), satuan: form.get("satuan"), catatan: form.get("catatan") },
         }),
       });
       setNotice(`Penawaran untuk ${rfq.nomor} berhasil dikirim.`);
       event.currentTarget.reset();
+      setQuoteAmount("");
+      await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Penawaran gagal dikirim");
+      toast({ title: "Penawaran gagal dikirim", description: e instanceof Error ? e.message : "Penawaran gagal dikirim", variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -215,13 +302,8 @@ function VendorPortalView() {
     <section className="space-y-6">
       <PageHeader
         title={section === "profile" ? "Profil & Dokumen" : section === "rfq" ? "RFQ & Penawaran" : "Negosiasi"}
-        description={section === "profile" ? "Kelola profil perusahaan dan dokumen legalitas." : section === "rfq" ? "Lihat RFQ yang ditujukan kepada perusahaan dan kirim penawaran." : "Tanggapi putaran negosiasi dari tim pengadaan."}
+        description={section === "profile" ? "Kelola profil perusahaan dan dokumen legalitas." : section === "rfq" ? "Tinjau kebutuhan, ketentuan, dan tenggat sebelum mengirim penawaran." : "Tanggapi putaran negosiasi dari tim pengadaan."}
       />
-      {error && (
-        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          {error}
-        </div>
-      )}
       {notice && (
         <div role="status" className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
           {notice}
@@ -498,48 +580,257 @@ function VendorPortalView() {
           )}
           {section === "rfq" && profile.status === "approved" && (
             <section className="space-y-4">
-              <div>{/* <p className="text-sm text-muted-foreground">Hanya RFQ yang diterbitkan untuk perusahaan Anda yang tampil.</p> */}</div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <article className="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm">
+                  <span className="rounded-lg bg-primary/10 p-2 text-primary">
+                    <FileText size={18} />
+                  </span>
+                  <div>
+                    <p className="text-xs text-muted-foreground">RFQ aktif</p>
+                    <p className="font-semibold">{rfqs.length} RFQ</p>
+                  </div>
+                </article>
+                <article className="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm">
+                  <span className="rounded-lg bg-primary/10 p-2 text-primary">
+                    <Clock3 size={18} />
+                  </span>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Tenggat terdekat</p>
+                    <p className="font-semibold">
+                      {rfqs.some((item) => item.batasRespons) ? new Date(Math.min(...rfqs.filter((item) => item.batasRespons).map((item) => new Date(item.batasRespons!).getTime()))).toLocaleDateString("id-ID") : "Tidak ditentukan"}
+                    </p>
+                  </div>
+                </article>
+                <article className="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm">
+                  <span className="rounded-lg bg-emerald-500/10 p-2 text-emerald-700">
+                    <CircleCheck size={18} />
+                  </span>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Langkah berikutnya</p>
+                    <p className="font-semibold">Tinjau dan kirim</p>
+                  </div>
+                </article>
+              </div>
+              <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+                <strong>Alur penawaran</strong>
+                <ol className="mt-2 grid gap-2 sm:grid-cols-3">
+                  <li>1. Periksa detail dan tenggat RFQ.</li>
+                  <li>2. Isi harga, spesifikasi, volume, dan syarat.</li>
+                  <li>3. Kirim penawaran; tunggu tindak lanjut tim pengadaan.</li>
+                </ol>
+              </div>
               {rfqs.length === 0 ? (
                 <EmptyData className="min-h-48 border-border/70 bg-card/70 shadow-sm" label="Belum ada RFQ aktif untuk vendor ini." />
-              ) : (
-                rfqs.map((rfq) => (
-                  <article key={rfq.id} className="space-y-4 rounded-xl border border-border/70 bg-card p-5 shadow-sm">
-                    <div>
-                      <h3 className="font-semibold">{rfq.pengadaan.judul}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {rfq.pengadaan.nomorSurat} · RFQ {rfq.nomor} · Batas respons: {rfq.batasRespons ? new Date(rfq.batasRespons).toLocaleString("id-ID") : "Tidak ditentukan"}
-                      </p>
-                    </div>
-                    <form onSubmit={(e) => void submitQuote(e, rfq)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      <label className="space-y-1 text-sm">
-                        Harga penawaran
-                        <input name="hargaPenawaran" type="number" min="0" step="0.0001" required className="w-full rounded-md border bg-background p-2" />
-                      </label>
-                      <label className="space-y-1 text-sm">
-                        Mata uang
-                        <select name="mataUang" className="w-full rounded-md border bg-background p-2">
-                          <option>USD</option>
-                          <option>IDR</option>
-                        </select>
-                      </label>
-                      <label className="space-y-1 text-sm">
-                        Berlaku sampai
-                        <input name="berlakuSampai" type="date" className="w-full rounded-md border bg-background p-2" />
-                      </label>
-                      <label className="space-y-1 text-sm">
-                        Syarat pembayaran
-                        <input name="syaratPembayaran" className="w-full rounded-md border bg-background p-2" />
-                      </label>
-                      <label className="space-y-1 text-sm">
-                        Ketentuan pengangkutan
-                        <input name="ketentuanPengangkutan" className="w-full rounded-md border bg-background p-2" />
-                      </label>
-                      <Button type="submit" disabled={busy} className="self-end">
-                        Kirim penawaran
+              ) : selectedRfqId ? (
+                (() => {
+                  const rfq = rfqs.find((item) => item.id === selectedRfqId);
+                  if (!rfq)
+                    return (
+                      <div className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
+                        <p>RFQ tidak ditemukan atau sudah tidak aktif.</p>
+                        <Button type="button" variant="outline" className="mt-3" onClick={() => openRfq()}>
+                          Kembali ke daftar RFQ
+                        </Button>
+                      </div>
+                    );
+                  const expired = Boolean(rfq.batasRespons && new Date(rfq.batasRespons).getTime() < Date.now());
+                  const priorOffers = rfq.penawaran ?? [];
+                  const priorOffer = priorOffers[0];
+                  const priorDetail = priorOffer?.detail ?? {};
+                  const dateInputValue = priorOffer?.berlakuSampai ? new Date(priorOffer.berlakuSampai).toISOString().slice(0, 10) : "";
+                  const terms = Object.entries(rfq.ketentuan ?? {})
+                    .map(([key, value]) => [key, normalizedRfqTerm(key, value)] as const)
+                    .filter(([, value]) => value !== null && value !== undefined && value !== "" && !(Array.isArray(value) && value.length === 0));
+                  return (
+                    <div key={rfq.id} className="space-y-3">
+                      <Button type="button" variant="outline" onClick={() => openRfq()}>
+                        ← Kembali ke daftar RFQ
                       </Button>
-                    </form>
-                  </article>
-                ))
+                      <article className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+                        <header className="border-b bg-muted/20 p-5">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                                {rfq.pengadaan.nomorSurat} · RFQ {rfq.nomor} · Revisi {rfq.revisi ?? 1}
+                              </p>
+                              <h2 className="mt-1 text-lg font-semibold">{rfq.pengadaan.judul}</h2>
+                            </div>
+                            <StatusBadge status={expired ? "danger" : "warn"}>{expired ? "Tenggat lewat" : "Menunggu penawaran"}</StatusBadge>
+                          </div>
+                          <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                            <Clock3 size={15} /> Batas respons: {rfq.batasRespons ? new Date(rfq.batasRespons).toLocaleString("id-ID") : "Tidak ditentukan"}
+                          </p>
+                          {rfq.alasanPerubahan && <p className="mt-2 rounded-md bg-amber-50 p-2 text-sm text-amber-900">Perubahan: {rfq.alasanPerubahan}</p>}
+                        </header>
+                        <div className="grid gap-5 p-5 lg:grid-cols-[1.1fr_0.9fr]">
+                          <section className="space-y-3">
+                            <h3 className="flex items-center gap-2 font-semibold">
+                              <FileText size={17} /> Ketentuan dan kebutuhan
+                            </h3>
+                            {terms.length ? (
+                              <dl className="grid gap-2 sm:grid-cols-2">
+                                {terms.map(([key, value]) => (
+                                  <div key={key} className="min-w-0 rounded-lg border bg-background p-3">
+                                    <dt className="text-xs font-medium text-muted-foreground">{rfqTermLabel(key)}</dt>
+                                    <dd className="mt-1 break-words whitespace-pre-wrap text-sm leading-6">{formatRfqValue(value)}</dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            ) : (
+                              <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">Ketentuan belum disertakan pada RFQ.</p>
+                            )}
+                          </section>
+                          <section className="space-y-3 rounded-xl border bg-muted/10 p-4">
+                            <div>
+                              <h3 className="font-semibold">{priorOffer ? "Revisi penawaran" : "Kirim penawaran"}</h3>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {priorOffer
+                                  ? `Penawaran terakhir diperbarui ${priorOffer.updatedAt ? new Date(priorOffer.updatedAt).toLocaleString("id-ID") : ""}. Revisi akan mengganti penawaran aktif sebelumnya.`
+                                  : `Belum ada penawaran untuk RFQ ${rfq.nomor}, revisi ${rfq.revisi ?? 1}.`}
+                              </p>
+                            </div>
+                            {priorOffers.length > 0 && (
+                              <div className="space-y-2 rounded-lg border bg-background p-3">
+                                <p className="text-sm font-medium">Daftar penawaran Anda ({priorOffers.length})</p>
+                                {priorOffers.map((offer, index) => (
+                                  <div key={offer.id} className="flex flex-wrap justify-between gap-2 border-t pt-2 text-sm">
+                                    <span>
+                                      {index === 0 ? "Terbaru" : `Penawaran ${index + 1}`} · {offer.nomorRfq ?? rfq.nomor}
+                                    </span>
+                                    <span className="font-medium">
+                                      {offer.mataUang} {Number(offer.hargaPenawaran ?? 0).toLocaleString("id-ID")} · {offer.status}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {expired ? (
+                              <p className="text-sm text-destructive">Tenggat lewat. Pengiriman tidak tersedia.</p>
+                            ) : (
+                              <form key={priorOffer?.id ?? rfq.id} onSubmit={(e) => void submitQuote(e, rfq)} className="space-y-3">
+                                <label className="block space-y-1 text-sm">
+                                  Harga penawaran *
+                                  <span className="flex overflow-hidden rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring/40">
+                                    <span className="flex min-w-14 items-center justify-center border-r bg-muted/40 px-3 text-sm font-medium text-muted-foreground">{currencyConfig[quoteCurrency]?.prefix ?? quoteCurrency}</span>
+                                    <input
+                                      name="hargaPenawaran"
+                                      type="text"
+                                      required
+                                      inputMode="numeric"
+                                      value={quoteAmount}
+                                      onChange={(event) => setQuoteAmount(formatMoneyInput(event.target.value, quoteCurrency))}
+                                      placeholder="Masukkan jumlah"
+                                      className="w-full min-w-0 bg-transparent px-3 py-2 text-sm outline-none"
+                                    />
+                                  </span>
+                                </label>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  <label className="space-y-1 text-sm">
+                                    Mata uang
+                                    <select
+                                      name="mataUang"
+                                      value={quoteCurrency}
+                                      onChange={(event) => {
+                                        const nextCurrency = event.target.value;
+                                        setQuoteCurrency(nextCurrency);
+                                        setQuoteAmount((current) => formatMoneyInput(current, nextCurrency));
+                                      }}
+                                      className="w-full rounded-md border bg-background p-2"
+                                    >
+                                      <option value="IDR">IDR — Rupiah (Rp)</option>
+                                      <option value="USD">USD — Dolar AS ($)</option>
+                                      <option value="RUB">RUB — Rubel Rusia (₽)</option>
+                                    </select>
+                                  </label>
+                                  <label className="space-y-1 text-sm">
+                                    Berlaku sampai
+                                    <input name="berlakuSampai" type="date" defaultValue={dateInputValue} className="w-full rounded-md border bg-background p-2" />
+                                  </label>
+                                </div>
+                                <label className="block space-y-1 text-sm">
+                                  Spesifikasi
+                                  <input name="spesifikasi" defaultValue={String(priorDetail.spesifikasi ?? "")} className="w-full rounded-md border bg-background p-2" />
+                                </label>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  <label className="space-y-1 text-sm">
+                                    Volume
+                                    <input name="volume" defaultValue={String(priorDetail.volume ?? "")} className="w-full rounded-md border bg-background p-2" />
+                                  </label>
+                                  <label className="space-y-1 text-sm">
+                                    Satuan
+                                    <input name="satuan" defaultValue={String(priorDetail.satuan ?? "")} className="w-full rounded-md border bg-background p-2" />
+                                  </label>
+                                </div>
+                                <label className="block space-y-1 text-sm">
+                                  Syarat pembayaran
+                                  <input name="syaratPembayaran" defaultValue={priorOffer?.syaratPembayaran ?? ""} className="w-full rounded-md border bg-background p-2" />
+                                </label>
+                                <label className="block space-y-1 text-sm">
+                                  Ketentuan pengangkutan
+                                  <input name="ketentuanPengangkutan" defaultValue={priorOffer?.ketentuanPengangkutan ?? ""} className="w-full rounded-md border bg-background p-2" />
+                                </label>
+                                <label className="block space-y-1 text-sm">
+                                  Catatan
+                                  <textarea name="catatan" rows={2} defaultValue={String(priorDetail.catatan ?? "")} className="w-full rounded-md border bg-background p-2" />
+                                </label>
+                                <Button type="submit" disabled={busy} className="w-full">
+                                  <Send size={16} /> {priorOffer ? "Kirim revisi penawaran" : "Kirim penawaran"}
+                                </Button>
+                              </form>
+                            )}
+                          </section>
+                        </div>
+                      </article>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+                  <div className="border-b p-4">
+                    <h2 className="font-semibold">Daftar RFQ</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">Pilih RFQ untuk melihat ketentuan dan mengirim penawaran.</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] text-left text-sm">
+                      <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th className="px-4 py-3">Proyek</th>
+                          <th className="px-4 py-3">Nomor RFQ</th>
+                          <th className="px-4 py-3">Revisi</th>
+                          <th className="px-4 py-3">Batas respons</th>
+                          <th className="px-4 py-3">Status</th>
+                          <th className="px-4 py-3">
+                            <span className="sr-only">Aksi</span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {rfqs.map((rfq) => {
+                          const expired = Boolean(rfq.batasRespons && new Date(rfq.batasRespons).getTime() < Date.now());
+                          return (
+                            <tr key={rfq.id} className="hover:bg-muted/20">
+                              <td className="px-4 py-3">
+                                <p className="font-medium">{rfq.pengadaan.judul}</p>
+                                <p className="text-xs text-muted-foreground">{rfq.pengadaan.nomorSurat}</p>
+                              </td>
+                              <td className="px-4 py-3 font-medium">{rfq.nomor}</td>
+                              <td className="px-4 py-3">R{rfq.revisi ?? 1}</td>
+                              <td className="px-4 py-3">{rfq.batasRespons ? new Date(rfq.batasRespons).toLocaleDateString("id-ID") : "Tidak ditentukan"}</td>
+                              <td className="px-4 py-3">
+                                <StatusBadge status={expired ? "danger" : "warn"}>{expired ? "Tenggat lewat" : "Menunggu penawaran"}</StatusBadge>
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <Button type="button" variant="outline" size="sm" onClick={() => openRfq(rfq.id)}>
+                                  Lihat detail
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
             </section>
           )}

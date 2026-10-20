@@ -1,6 +1,11 @@
 "use client";
 
 import { useMutation, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import { getApiErrorMessage } from "./errors";
+
+function notifyApiError(error: unknown) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("api:error", { detail: { message: getApiErrorMessage(error) } }));
+}
 
 type ApiMutationOptions<TData, TError, TVariables> = {
   tag: string;
@@ -29,6 +34,9 @@ export function use_mutation<TData, TError = Error, TVariables = void>({
       await Promise.all(invalidateKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
       await onSuccess?.(data, variables);
     },
-    onError,
+    onError: (error, variables) => {
+      notifyApiError(error);
+      onError?.(error, variables);
+    },
   });
 }

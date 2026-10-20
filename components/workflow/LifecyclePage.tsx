@@ -8,7 +8,6 @@ import { use_query } from "@/lib/api/use_query";
 import { use_mutation } from "@/lib/api/use_mutation";
 import { apiQueryKeys } from "@/lib/api/query-keys";
 import { LoadingState } from "@/components/loading/LoadingState";
-import { getApiErrorMessage } from "@/lib/api/errors";
 import { Button } from "@/components/ui/Button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LifecycleOperations } from "./LifecycleOperations";
@@ -112,14 +111,11 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
       {query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
-        <Alert variant="destructive">
-          <AlertDescription className="flex flex-wrap items-center gap-2">
-            {getApiErrorMessage(query.error)}{" "}
-            <Button variant="link" size="sm" type="button" onClick={() => void query.refetch()}>
-              Coba lagi
-            </Button>
-          </AlertDescription>
-        </Alert>
+        <div className="flex justify-center py-8">
+          <Button variant="outline" size="sm" type="button" onClick={() => void query.refetch()}>
+            Coba lagi
+          </Button>
+        </div>
       ) : (
         <>
           <Card className="overflow-hidden">
@@ -197,7 +193,18 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                 </div>
               </div>
               {canComplete && currentStage === selectedStage ? (
-                <Button type="button" className="shrink-0" disabled={updateStage.isPending} onClick={() => setConfirmComplete(true)}>
+                <Button
+                  type="button"
+                  className="shrink-0"
+                  disabled={updateStage.isPending}
+                  onClick={() => {
+                    if (completionIssue) {
+                      window.dispatchEvent(new CustomEvent("api:error", { detail: { message: completionIssue } }));
+                      return;
+                    }
+                    setConfirmComplete(true);
+                  }}
+                >
                   Tandai tahap selesai
                 </Button>
               ) : null}
@@ -211,11 +218,6 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
               ) : (
                 <>
                   {!currentStage && <p className="rounded-lg border border-muted bg-muted/30 p-3 text-sm text-muted-foreground">Tidak ada tahap aktif. Operasi bisnis terkunci; periksa status transaksi.</p>}
-                  {completionIssue && currentStage === selectedStage && (
-                    <Alert variant="destructive" role="status" className="border-amber-300 bg-amber-50 text-amber-950 [&>svg]:text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-                      <AlertDescription className="text-amber-900 dark:text-amber-100">Kendala penyelesaian: {completionIssue}</AlertDescription>
-                    </Alert>
-                  )}
                   <div className="flex flex-col gap-3">
                     <details className="group overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
                       <summary className="flex min-h-[4.5rem] cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
@@ -281,7 +283,6 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                 { tahap: selectedStage, status: "selesai" },
                 {
                   onSuccess: () => setConfirmComplete(false),
-                  onError: (error) => window.dispatchEvent(new CustomEvent("api:error", { detail: { message: getApiErrorMessage(error) } })),
                 },
               )
             }

@@ -13,6 +13,8 @@ import { apiData, setBrowserToken } from "@/lib/api/hooks";
 import { use_mutation } from "@/lib/api/use_mutation";
 import { apiQueryKeys } from "@/lib/api/query-keys";
 import { ContentType } from "@/lib/api/generated/api-generated";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { getApiErrorMessage } from "@/lib/api/errors";
 type RecordData = Record<string, any>;
 const auditTables: Record<string, string> = {
   perencanaan: "perencanaan_kebutuhan",
@@ -143,6 +145,28 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
   const [selected, setSelected] = useState<RecordData | null>(null);
   const [jenisDraft, setJenisDraft] = useState<Record<string, string>>({});
   const user = useCurrentUser();
+  const canManageRfq = user.isSuccess && !user.isRefetchError && ["admin", "operator"].includes(user.data.role.toLowerCase());
+  const [rfqActionError, setRfqActionError] = useState("");
+  const rfqAction = use_mutation<unknown, Error, { rfqId: string; action: "tutup" | "buka-kembali" }>({
+    tag: "siklusTransaksiKomoditas",
+    method: "rfqLifecycleAction",
+    invalidateKeys: [apiQueryKeys.resource("siklusTransaksiKomoditas"), apiQueryKeys.resource("lifecycleHistory"), apiQueryKeys.resource("lifecycleEvidence")],
+    mutationFn: async ({ rfqId, action }) => {
+      setBrowserToken();
+      return apiData(
+        browserApi.request({
+          path: `/api/pengadaan/${encodeURIComponent(pengadaanId)}/rfq/${encodeURIComponent(rfqId)}/${action}`,
+          method: "POST",
+          body: { alasan: action === "tutup" ? "Ditutup dari detail RFQ" : "Dibuka kembali dari detail RFQ" },
+          secure: true,
+          type: ContentType.Json,
+          format: "json",
+        }) as Promise<{ data: unknown }>,
+      );
+    },
+    onError: (error) => setRfqActionError(getApiErrorMessage(error)),
+    onSuccess: () => setRfqActionError(""),
+  });
   const updateContractType = use_mutation<unknown, Error, { id: string; jenis: string }>({
     tag: "siklusTransaksiKomoditas",
     method: "updateContractType",
@@ -194,6 +218,11 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           Audit record pengadaan
         </Link>
       )}
+      {rfqActionError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{rfqActionError}</AlertDescription>
+        </Alert>
+      ) : null}
       {(stage === "sourcing" || stage === "evaluasi_negosiasi") && (
         <details className="group rounded-lg border px-4">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
@@ -255,6 +284,31 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                     { key: "ringkasan", header: "Record", render: (row) => text(row.ringkasan) },
                     { key: "pihak", header: "Pihak / relasi", render: (row) => text(row.pihak) },
                     { key: "status", header: "Status", render: (row) => text(row.status ?? row.hasil) },
+                    ...(key === "rfq"
+                      ? [
+                          {
+                            key: "rfqActions",
+                            header: "Aksi RFQ",
+                            render: (row: RecordData) => {
+                              const action = row.status === "aktif" ? "tutup" : row.status === "selesai" ? "buka-kembali" : null;
+                              if (!action || !canManageRfq) return <span className="text-xs text-muted-foreground">—</span>;
+                              return (
+                                <Button
+                                  size="sm"
+                                  variant={action === "tutup" ? "outline" : "secondary"}
+                                  disabled={rfqAction.isPending || !active}
+                                  onClick={() => {
+                                    const confirmText = action === "tutup" ? "Tutup RFQ ini? Vendor tidak dapat mengirim penawaran baru." : "Buka kembali RFQ ini? Vendor dapat mengirim penawaran lagi.";
+                                    if (window.confirm(confirmText)) rfqAction.mutate({ rfqId: row.id, action });
+                                  }}
+                                >
+                                  {action === "tutup" ? "Tutup RFQ" : "Buka kembali"}
+                                </Button>
+                              );
+                            },
+                          },
+                        ]
+                      : []),
                     ...(key === "kontrak"
                       ? [
                           {

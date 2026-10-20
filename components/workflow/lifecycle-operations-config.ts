@@ -13,6 +13,7 @@ export type Field = {
   options?: readonly string[];
   relation?: string;
   payloadPath?: string;
+  multiple?: boolean;
 };
 export type Operation = {
   key: string;
@@ -35,10 +36,12 @@ const textarea = (name: string, label: string, required = false): Field => ({ na
 const num = (name: string, label: string, min?: number, required = false, integer = false): Field => ({ name, label, kind: "number", min, required, integer });
 const json = (name: string, label: string, required = false): Field => ({ name, label, kind: "json", required });
 const detailText = (name: string, label: string, payloadPath: string, required = false): Field => ({ name, label, payloadPath, required });
+const detailJson = (name: string, label: string, payloadPath: string): Field => ({ name, label, kind: "json", payloadPath });
 const date = (name: string, label: string, required = false): Field => ({ name, label, kind: "date", required });
 const select = (name: string, label: string, options: readonly string[], required = true): Field => ({ name, label, options, required });
 const rel = (name: string, label: string, relation: string, required = false): Field => ({ name, label, relation, required });
 const vendor = (required = false, name = "vendorId") => rel(name, "Vendor", "vendor", required);
+const vendorMultiple: Field = { name: "vendorIds", label: "Vendor tujuan", relation: "vendor", required: true, multiple: true };
 const currency = text("mataUang", "Mata uang (IDR, USD, dll.)", false, 10);
 const nomor = text("nomor", "Nomor", true, 100);
 const shipmentStatuses = ["direncanakan", "dimuat", "dalam_perjalanan", "tiba", "dibongkar", "diserahkan", "bermasalah"];
@@ -125,17 +128,36 @@ export const lifecycleOperations: Operation[] = [
     "strategi",
   ),
   create("rfq", "Terbitkan RFQ", "sourcing", api.transaksiControllerCreateRfq, [
-    vendor(true),
+    select("mode", "Mode penerbitan", ["baru", "tambah_vendor", "revisi"]),
+    { ...rel("rfqId", "RFQ acuan", "rfqAktif"), required: false, multiple: true },
+    vendorMultiple,
     nomor,
+    text("alasanPerubahan", "Alasan revisi", false, 1000),
     date("batasRespons", "Batas respons"),
-    detailText("spesifikasi", "Spesifikasi kebutuhan", "spesifikasi"),
-    detailText("volume", "Volume yang diminta", "volume"),
-    detailText("satuan", "Satuan", "satuan"),
-    detailText("titikSerah", "Titik serah", "titikSerah"),
-    detailText("syaratPenyerahan", "Syarat penyerahan", "syaratPenyerahan"),
-    detailText("syaratPembayaran", "Syarat pembayaran", "syaratPembayaran"),
-    detailText("dokumenDiminta", "Dokumen yang diminta", "dokumenDiminta"),
+    detailJson("spesifikasi", "Spesifikasi kebutuhan", "ketentuan.spesifikasi"),
+    detailText("volume", "Volume yang diminta", "ketentuan.volume"),
+    detailText("satuan", "Satuan", "ketentuan.satuan"),
+    detailText("titikSerah", "Titik serah", "ketentuan.titikSerah"),
+    detailText("syaratPenyerahan", "Syarat penyerahan", "ketentuan.syaratPenyerahan"),
+    detailText("syaratPembayaran", "Syarat pembayaran", "ketentuan.syaratPembayaran"),
+    detailJson("dokumenDiminta", "Dokumen yang diminta", "ketentuan.dokumenDiminta"),
   ]),
+  ...(["tutup", "buka-kembali"] as const).map((action) => ({
+    key: action === "tutup" ? "tutupRfq" : "bukaKembaliRfq",
+    title: action === "tutup" ? "Tutup RFQ" : "Buka kembali RFQ",
+    stages: ["sourcing"],
+    roles: AO,
+    fields: [rel("rfqId", "RFQ", action === "tutup" ? "rfqAktif" : "rfqTertutup", true), textarea("alasan", "Alasan perubahan", true)],
+    run: (id: string, body: Entity) =>
+      browserApi.request<unknown, unknown>({
+        path: `/api/pengadaan/${encodeURIComponent(id)}/rfq/${encodeURIComponent(String(body.rfqId))}/${action}`,
+        method: "POST",
+        body: { alasan: body.alasan },
+        type: ContentType.Json,
+        format: "json",
+        secure: true,
+      }),
+  })),
   create(
     "penawaran",
     "Catat penawaran",
@@ -378,7 +400,19 @@ export const lifecycleOperations: Operation[] = [
 export function operationPayload(fields: Field[], values: Record<string, string>, options: (field: Field) => { value: string; label: string }[]): Entity {
   const body: Entity = {};
   for (const field of fields) {
-    const value = (values[field.name] ?? "").trim();
+    const rawValue = values[field.name] ?? "";
+    if (field.multiple) {
+      const selected = rawValue
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (!selected.length && field.required) throw new Error(`${field.label} wajib diisi.`);
+      const available = new Set(options(field).map((item) => item.value));
+      if (selected.some((item) => !available.has(item))) throw new Error(`${field.label}: pilih vendor yang tersedia.`);
+      if (selected.length) body[field.name] = [...new Set(selected)];
+      continue;
+    }
+    const value = rawValue.trim();
     if (!value) {
       if (field.required) throw new Error(`${field.label} wajib diisi.`);
       continue;
@@ -392,7 +426,23 @@ export function operationPayload(fields: Field[], values: Record<string, string>
         if (!child || typeof child !== "object" || Array.isArray(child)) node[key] = {};
         return node[key] as Entity;
       }, body);
-      target[field.payloadPath.split(".").at(-1)!] = value;
+      if (field.kind === "json") {
+        const entries = value
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => {
+            const separator = line.indexOf(":");
+            if (separator < 1 || !line.slice(0, separator).trim() || !line.slice(separator + 1).trim()) {
+              throw new Error(`${field.label}: isi setiap baris dengan format “Nama: nilai”.`);
+            }
+            return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
+          });
+        if (new Set(entries.map(([key]) => key)).size !== entries.length) throw new Error(`${field.label}: nama parameter tidak boleh berulang.`);
+        target[field.payloadPath.split(".").at(-1)!] = Object.fromEntries(entries);
+      } else {
+        target[field.payloadPath.split(".").at(-1)!] = value;
+      }
     } else if (field.kind === "number") {
       const number = Number(value);
       if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) || !Number.isFinite(number) || (field.integer && !Number.isInteger(number)) || (field.min !== undefined && number < field.min))

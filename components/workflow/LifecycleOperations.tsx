@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/modal/Modal";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,22 @@ function parseParameterRows(value: string): Array<{ name: string; value: string 
 function serializeParameterRows(rows: Array<{ name: string; value: string }>): string {
   return rows.map((row) => `${row.name}: ${row.value}`).join("\n");
 }
+function normalizedTerm(terms: Entity, key: string): unknown {
+  const value = terms[key];
+  const nested = object(value);
+  return Object.prototype.hasOwnProperty.call(nested, key) ? nested[key] : value;
+}
+function parameterText(value: unknown): string {
+  const entries = Object.entries(object(value));
+  return entries.map(([name, item]) => `${name}: ${typeof item === "string" ? item : JSON.stringify(item)}`).join("\n");
+}
+function plainText(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (value == null) return "";
+  const entries = Object.entries(object(value));
+  if (entries.length === 1 && typeof entries[0][1] === "string") return entries[0][1] as string;
+  return JSON.stringify(value);
+}
 function cleanParameterRows(value: string): string {
   return parseParameterRows(value)
     .filter((row) => row.name.trim() || row.value.trim())
@@ -54,6 +71,10 @@ function choices(rows: Entity[]): Choice[] {
 }
 function operationFieldSections(operationKey: string | undefined, fields: Field[]): Array<{ title: string; fields: Field[] }> {
   const sections: Record<string, { title: string; fields: string[] }[]> = {
+    rfq: [
+      { title: "Informasi RFQ", fields: ["mode", "vendorIds", "rfqId", "rfqIds", "nomor", "alasanPerubahan", "batasRespons"] },
+      { title: "Kebutuhan dan ketentuan", fields: ["spesifikasi", "volume", "satuan", "titikSerah", "syaratPenyerahan", "syaratPembayaran", "dokumenDiminta"] },
+    ],
     perencanaan: [
       { title: "Informasi kebutuhan", fields: ["modelPelaksanaan", "jenisKargo", "satuan", "titikSerah", "nomorPenugasan", "penerimaPasokan"] },
       { title: "Spesifikasi dan kesiapan penerima", fields: ["spesifikasiMutu", "kesiapanPenerima"] },
@@ -89,9 +110,21 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const submitting = useRef(false);
+  const revisionSeedKey = useRef("");
   const uninitialized = stage === "perencanaan" && Array.isArray(detail.tahapan) && detail.tahapan.length === 0;
   const available = lifecycleOperations.filter((op) => op.stages.includes(stage) && op.roles.includes(role) && (!uninitialized || op.key === "perencanaan") && (!op.available || op.available(detail)));
-  const fields = selected?.fields.filter((field) => !(role === "vendor" && field.name === "vendorId")) ?? [];
+  const fields =
+    selected?.fields
+      .filter((field) => {
+        if (role === "vendor" && field.name === "vendorId") return false;
+        if (selected.key === "tutupRfq" || selected.key === "bukaKembaliRfq") return false;
+        if (selected.key !== "rfq") return true;
+        const mode = values.mode || "baru";
+        if (mode === "baru") return field.name !== "rfqId" && field.name !== "alasanPerubahan";
+        if (mode === "tambah_vendor") return ["mode", "rfqId", "vendorIds"].includes(field.name);
+        return field.name !== "vendorIds";
+      })
+      .map((field) => (selected?.key === "rfq" && field.name === "rfqId" && values.mode === "revisi" ? { ...field, name: "rfqIds", label: "RFQ acuan (pilih satu atau beberapa)", multiple: true, required: true } : field)) ?? [];
   const needsVendors = !!selected && fields.some((field) => field.relation === "vendor");
   const vendors = use_query<Entity[], Error, string>({
     tag: "vendor",
@@ -123,6 +156,16 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       for (const row of [...related, ...(vendors.data ?? [])]) if (typeof row.id === "string") all.set(row.id, row);
       return choices([...all.values()].filter((row) => selected?.key !== "penawaran" || row.status === "aktif"));
     }
+    if (field.relation === "rfqAktif" || field.relation === "rfqTertutup") {
+      const rows = records(detail.rfq).filter((row) => row.status === (field.relation === "rfqAktif" ? "aktif" : "selesai"));
+      const unique = new Map<string, Entity>();
+      for (const row of rows) {
+        const key = String(row.kelompokId ?? row.id ?? "");
+        const current = unique.get(key);
+        if (!current || Number(row.revisi ?? 1) > Number(current.revisi ?? 1)) unique.set(key, row);
+      }
+      return [...unique.values()].map((row) => ({ value: String(row.id ?? ""), label: `${String(row.nomor ?? "RFQ")} · ${String(object(row.vendor).nama ?? "vendor")} · R${String(row.revisi ?? 1)}` }));
+    }
     if (field.relation) return choices(field.relation === "laporanDraft" ? records(detail.laporan).filter((row) => row.status === "draft") : records(detail[field.relation]));
     if (field.kind === "boolean")
       return [
@@ -151,9 +194,34 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const permitted = !!selected && active && available.some((op) => op.key === selected.key);
   const vendorBlocked = needsVendors && (vendors.isPending || vendors.isError);
   const missingRelation = fields.some((field) => field.required && field.relation && !options(field).length);
+  useEffect(() => {
+    if (selected?.key !== "rfq" || values.mode !== "revisi") {
+      revisionSeedKey.current = "";
+      return;
+    }
+    const ids = (values.rfqIds ?? "").split(",").filter(Boolean);
+    const key = ids.join(",");
+    if (!ids.length || key === revisionSeedKey.current) return;
+    revisionSeedKey.current = key;
+    const rfq = records(detail.rfq).find((row) => row.id === ids[0]);
+    if (!rfq) return;
+    const terms = object(rfq.ketentuan);
+    setValues((current) => ({
+      ...current,
+      nomor: String(rfq.nomor ?? "").replace(/-R\d+$/, ""),
+      batasRespons: rfq.batasRespons ? String(rfq.batasRespons).slice(0, 10) : "",
+      spesifikasi: parameterText(normalizedTerm(terms, "spesifikasi")),
+      volume: plainText(normalizedTerm(terms, "volume")),
+      satuan: plainText(normalizedTerm(terms, "satuan")),
+      titikSerah: plainText(normalizedTerm(terms, "titikSerah")),
+      syaratPenyerahan: plainText(normalizedTerm(terms, "syaratPenyerahan")),
+      syaratPembayaran: plainText(normalizedTerm(terms, "syaratPembayaran")),
+      dokumenDiminta: parameterText(normalizedTerm(terms, "dokumenDiminta")),
+    }));
+  }, [detail.rfq, selected?.key, values.mode, values.rfqIds]);
   function open(operation: Operation) {
     if (locked || !active) return;
-    const initial: Record<string, string> = {};
+    const initial: Record<string, string> = operation.key === "rfq" ? { mode: "baru" } : {};
     const seed = object(operation.seed ? detail[operation.seed] : null);
     for (const field of operation.fields) {
       const value = seed[field.name];
@@ -168,6 +236,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
             ? String(seedValue).slice(0, 10)
             : String(seedValue);
     }
+    revisionSeedKey.current = "";
     setValues(initial);
     setSelected(operation);
     setError("");
@@ -186,11 +255,16 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     setError("");
     setSuccess("");
     try {
+      if (selected.key === "rfq") {
+        if (values.mode === "tambah_vendor" && !values.rfqId) throw new Error("Pilih RFQ acuan untuk tambah vendor.");
+        if (values.mode === "revisi" && !(values.rfqIds ?? "").split(",").filter(Boolean).length) throw new Error("Pilih minimal satu RFQ acuan untuk direvisi.");
+        if (values.mode === "revisi" && !values.alasanPerubahan?.trim()) throw new Error("Alasan revisi wajib diisi.");
+      }
       const payloadValues = Object.fromEntries(Object.entries(values).map(([name, value]) => [name, fields.find((field) => field.name === name)?.kind === "json" ? cleanParameterRows(value) : value]));
       const body = operationPayload(fields, payloadValues, options);
       submitting.current = true;
       await mutation.mutateAsync({ operation: selected, body });
-      setSuccess(`${selected.title}: berhasil.`);
+      setSuccess(selected.key === "rfq" ? `RFQ berhasil diterbitkan kepada ${(body.vendorIds as string[] | undefined)?.length ?? 1} vendor.` : `${selected.title}: berhasil.`);
       setSelected(null);
     } catch (cause) {
       setError(getApiErrorMessage(cause));
@@ -208,11 +282,13 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       {!active ? <p className="text-sm text-muted-foreground">Operasi dinonaktifkan: tahap ini tidak aktif.</p> : null}
       {active && !user.isPending && !user.isError && !available.length ? <p className="text-sm text-muted-foreground">Tidak ada operasi tersedia untuk peran atau status saat ini.</p> : null}
       <div className="flex flex-wrap gap-2">
-        {available.map((operation) => (
-          <Button key={operation.key} type="button" variant="outline" disabled={!active || locked} onClick={() => open(operation)}>
-            {operation.title}
-          </Button>
-        ))}
+        {available
+          .filter((operation) => !["tutupRfq", "bukaKembaliRfq"].includes(operation.key))
+          .map((operation) => (
+            <Button key={operation.key} type="button" variant="outline" disabled={!active || locked} onClick={() => open(operation)}>
+              {operation.title}
+            </Button>
+          ))}
       </div>
       {error ? (
         <Alert variant="destructive">
@@ -265,8 +341,16 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           ) : null}
           {!fields.length ? <p>Konfirmasi {selected?.title.toLowerCase()} untuk pengadaan ini.</p> : null}
           <fieldset disabled={locked || !permitted} className="space-y-4">
-            {selected?.key === "rfq" ? <p className="text-sm text-muted-foreground">Lengkapi kebutuhan RFQ. Informasi yang diisi akan dikirim kepada vendor terpilih.</p> : null}
-            {selected?.key === "penawaran" ? <p className="text-sm text-muted-foreground">Masukkan rincian penawaran vendor pada kolom terpisah, bukan sebagai JSON.</p> : null}
+            {selected?.key === "rfq" ? (
+              <p className="text-sm text-muted-foreground">
+                {values.mode === "baru"
+                  ? "Terbitkan RFQ baru kepada vendor pilihan."
+                  : values.mode === "tambah_vendor"
+                    ? "Pilih RFQ aktif dan vendor baru. Ketentuan akan disalin dari RFQ acuan."
+                    : "Nilai awal disalin dari RFQ pertama yang dipilih. Perubahan akan diterapkan ke seluruh vendor dan RFQ acuan terpilih sebagai revisi baru."}
+              </p>
+            ) : null}
+            {selected?.key === "penawaran" ? <p className="text-sm text-muted-foreground">Catat satu penawaran per vendor dan nomor RFQ. Ulangi hanya untuk vendor yang sudah menyampaikan penawaran.</p> : null}
             {operationFieldSections(selected?.key, fields).map((section) => (
               <section key={section.title} className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
                 <h3 className="text-sm font-semibold">{section.title}</h3>
@@ -276,12 +360,147 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                     const isSelect = !!field.relation || !!field.options || field.kind === "boolean";
                     const isLongText = field.payloadPath !== undefined;
                     return (
-                      <div key={field.name} className="space-y-1.5">
+                      <div key={field.name} className={`min-w-0 space-y-1.5${selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "dokumenDiminta"].includes(field.name) ? " sm:col-span-2" : ""}`}>
                         <Label htmlFor={fieldId}>
                           {field.label}
                           {field.required ? " *" : ""}
                         </Label>
-                        {isSelect ? (
+                        {field.multiple && field.relation && field.relation !== "vendor" ? (
+                          <div className="space-y-2">
+                            <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border bg-background p-2">
+                              {(values[field.name] ?? "")
+                                .split(",")
+                                .filter(Boolean)
+                                .map((choiceId) => {
+                                  const choice = options(field).find((item) => item.value === choiceId);
+                                  return (
+                                    <span key={choiceId} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
+                                      {choice?.label ?? choiceId}
+                                      <button
+                                        type="button"
+                                        aria-label={`Hapus ${field.label}`}
+                                        disabled={locked}
+                                        onClick={() =>
+                                          setValues((old) => ({
+                                            ...old,
+                                            [field.name]: (old[field.name] ?? "")
+                                              .split(",")
+                                              .filter((value) => value && value !== choiceId)
+                                              .join(","),
+                                          }))
+                                        }
+                                      >
+                                        <X size={13} />
+                                      </button>
+                                    </span>
+                                  );
+                                })}
+                              {!values[field.name] ? <span className="px-1 text-xs text-muted-foreground">Pilih satu atau beberapa RFQ</span> : null}
+                            </div>
+                            <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-1" role="group" aria-label={field.label}>
+                              {options(field).map((choice) => {
+                                const selectedIds = (values[field.name] ?? "").split(",").filter(Boolean);
+                                const checked = selectedIds.includes(choice.value);
+                                return (
+                                  <button
+                                    key={choice.value}
+                                    type="button"
+                                    disabled={locked}
+                                    onClick={() => setValues((old) => ({ ...old, [field.name]: checked ? selectedIds.filter((value) => value !== choice.value).join(",") : [...selectedIds, choice.value].join(",") }))}
+                                    className="flex w-full items-center justify-between rounded px-2 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
+                                  >
+                                    <span>{choice.label}</span>
+                                    {checked ? <Check size={16} className="text-primary" /> : null}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : field.multiple && field.relation === "vendor" ? (
+                          <div className="space-y-2">
+                            <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border bg-background p-2">
+                              {(values[field.name] ?? "")
+                                .split(",")
+                                .filter(Boolean)
+                                .map((vendorId) => {
+                                  const choice = options(field).find((item) => item.value === vendorId);
+                                  return (
+                                    <span key={vendorId} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
+                                      {choice?.label ?? vendorId}
+                                      <button
+                                        type="button"
+                                        aria-label={`Hapus ${choice?.label ?? "vendor"}`}
+                                        disabled={locked}
+                                        onClick={() =>
+                                          setValues((old) => ({
+                                            ...old,
+                                            [field.name]: (old[field.name] ?? "")
+                                              .split(",")
+                                              .filter((id) => id && id !== vendorId)
+                                              .join(","),
+                                          }))
+                                        }
+                                      >
+                                        <X size={13} />
+                                      </button>
+                                    </span>
+                                  );
+                                })}
+                              <span className="px-1 text-xs text-muted-foreground">{(values[field.name] ?? "").split(",").filter(Boolean).length ? "Vendor dipilih" : "Pilih vendor di bawah"}</span>
+                            </div>
+                            <Input
+                              placeholder="Cari vendor…"
+                              aria-label="Cari vendor tujuan"
+                              value={values.__vendorSearch ?? ""}
+                              disabled={locked || vendorBlocked}
+                              onChange={(event) => setValues((old) => ({ ...old, __vendorSearch: event.target.value }))}
+                            />
+                            <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border p-1" role="group" aria-label="Vendor tujuan">
+                              {options(field)
+                                .filter((choice) => choice.label.toLocaleLowerCase("id-ID").includes((values.__vendorSearch ?? "").toLocaleLowerCase("id-ID")))
+                                .map((choice) => {
+                                  const selectedIds = (values[field.name] ?? "").split(",").filter(Boolean);
+                                  const checked = selectedIds.includes(choice.value);
+                                  return (
+                                    <button
+                                      key={choice.value}
+                                      type="button"
+                                      disabled={locked}
+                                      onClick={() => setValues((old) => ({ ...old, [field.name]: checked ? selectedIds.filter((id) => id !== choice.value).join(",") : [...selectedIds, choice.value].join(",") }))}
+                                      className="flex w-full items-center justify-between rounded px-2 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
+                                    >
+                                      <span>{choice.label}</span>
+                                      {checked ? <Check size={16} className="text-primary" /> : null}
+                                    </button>
+                                  );
+                                })}
+                              {!vendorBlocked && !options(field).some((choice) => choice.label.toLocaleLowerCase("id-ID").includes((values.__vendorSearch ?? "").toLocaleLowerCase("id-ID"))) ? (
+                                <p className="px-2 py-3 text-center text-xs text-muted-foreground">Vendor tidak ditemukan.</p>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={locked || vendorBlocked}
+                                onClick={() =>
+                                  setValues((old) => ({
+                                    ...old,
+                                    [field.name]: options(field)
+                                      .map((choice) => choice.value)
+                                      .join(","),
+                                  }))
+                                }
+                              >
+                                Pilih semua ({options(field).length})
+                              </Button>
+                              <Button type="button" variant="ghost" size="sm" disabled={locked} onClick={() => setValues((old) => ({ ...old, [field.name]: "" }))}>
+                                Kosongkan pilihan
+                              </Button>
+                            </div>
+                          </div>
+                        ) : isSelect ? (
                           <Select
                             value={values[field.name] || ""}
                             onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: String(value ?? "") }))}
@@ -294,7 +513,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               {!field.required ? <SelectItem value="">Tidak diisi</SelectItem> : null}
                               {options(field).map((option) => (
                                 <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
+                                  {selected?.key === "rfq" && field.name === "mode" ? (({ baru: "RFQ baru", tambah_vendor: "Tambah vendor", revisi: "Ubah RFQ" } as Record<string, string>)[option.value] ?? option.label) : option.label}
                                 </SelectItem>
                               ))}
                             </SelectContent>

@@ -10,32 +10,38 @@ export function ApiSuccessAlerts() {
   const [alerts, setAlerts] = useState<ApiAlert[]>([]);
 
   useEffect(() => {
-    const showAlert = (variant: ApiAlert["variant"]) => (event: Event) => {
-      const message = (event as CustomEvent<{ message?: unknown }>).detail?.message;
-      if (typeof message !== "string" || !message.trim()) return;
-
+    const addAlert = (message: string, variant: ApiAlert["variant"]) => {
+      if (!message.trim()) return;
       const id = Date.now() + Math.random();
       setAlerts((current) => [...current.slice(-2), { id, message: message.trim(), variant }]);
       window.setTimeout(() => {
         setAlerts((current) => current.map((alert) => (alert.id === id ? { ...alert, closing: true } : alert)));
-        window.setTimeout(() => {
-          setAlerts((current) => current.filter((alert) => alert.id !== id));
-        }, 260);
+        window.setTimeout(() => setAlerts((current) => current.filter((alert) => alert.id !== id)), 260);
       }, 5000);
+    };
+    const showAlert = (variant: ApiAlert["variant"]) => (event: Event) => {
+      const message = (event as CustomEvent<{ message?: unknown }>).detail?.message;
+      if (typeof message === "string") addAlert(message, variant);
+    };
+    const showToast = (event: Event) => {
+      const detail = (event as CustomEvent<{ description?: string; variant?: "default" | "destructive" }>).detail;
+      if (typeof detail?.description === "string") addAlert(detail.description, detail.variant === "destructive" ? "error" : "success");
     };
 
     const showSuccess = showAlert("success");
     const showError = showAlert("error");
+    window.addEventListener("shadcn:toast", showToast);
     window.addEventListener("api:success", showSuccess);
     window.addEventListener("api:error", showError);
     return () => {
+      window.removeEventListener("shadcn:toast", showToast);
       window.removeEventListener("api:success", showSuccess);
       window.removeEventListener("api:error", showError);
     };
   }, []);
 
   return (
-    <div className="fixed left-5 top-5 z-[200] flex w-[min(380px,calc(100vw-2.5rem))] flex-col gap-3" aria-live="polite" aria-relevant="additions">
+    <div className="fixed bottom-5 right-5 z-[200] flex w-[min(380px,calc(100vw-2.5rem))] flex-col gap-3" aria-live="polite" aria-relevant="additions">
       {alerts.map(({ id, message, variant, closing }) => (
         <Alert
           key={id}
