@@ -176,7 +176,7 @@ export default function PenggunaPage() {
             </Button>
           </p>
         ) : detail.data ? (
-          <dl className="grid gap-3 break-words">
+          <dl className="divide-y divide-border">
             {Object.entries({
               ID: detail.data.data.id,
               Nama: detail.data.data.nama,
@@ -186,9 +186,9 @@ export default function PenggunaPage() {
               Status: detail.data.data.status,
               "Dibuat pada": new Date(detail.data.data.createdAt).toLocaleString("id-ID"),
             }).map(([label, value]) => (
-              <div key={label}>
-                <dt className="font-medium text-foreground">{label}</dt>
-                <dd>{value}</dd>
+              <div key={label} className="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-4">
+                <dt className="text-sm text-muted-foreground">{label}</dt>
+                <dd className={`min-w-0 break-words text-sm font-medium text-foreground ${label === "ID" ? "font-mono text-xs" : ""}`}>{value}</dd>
               </div>
             ))}
           </dl>

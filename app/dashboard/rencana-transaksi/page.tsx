@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Modal, ModalSection } from "@/components/modal/Modal";
+import { EmptyData } from "@/components/loading/EmptyData";
 
 type Plan = {
   id: string;
@@ -611,7 +612,7 @@ export default function RencanaTransaksiPage() {
         <table className="w-full text-sm">
           <thead className="bg-muted">
             <tr>
-              {["Nomor / judul", "Kargo dan volume", "Titik serah", "Estimasi", "Status", "Aksi"].map((x) => (
+              {["Nomor / judul", "Metode / prioritas", "Kargo dan volume", "Titik serah", "Estimasi", "Status", "Aksi"].map((x) => (
                 <th key={x} className="px-3 py-3 text-left">
                   {x}
                 </th>
@@ -624,6 +625,9 @@ export default function RencanaTransaksiPage() {
                 <td className="px-3 py-3">
                   <strong>{p.nomor}</strong>
                   <div>{p.judul}</div>
+                </td>
+                <td className="px-3 py-3">
+                  {entityText(p.metodeSeleksi || p.jenisTransaksi || "—")} / {entityText(p.prioritas || "sedang")}
                 </td>
                 <td className="px-3 py-3">
                   {p.jenisKargo}
@@ -662,8 +666,8 @@ export default function RencanaTransaksiPage() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="p-6 text-center text-muted-foreground">
-                  Belum ada rencana transaksi.
+                <td colSpan={6} className="p-2">
+                  <EmptyData label="Belum ada rencana transaksi." className="min-h-44 border-0 shadow-none" />
                 </td>
               </tr>
             )}
