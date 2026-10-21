@@ -110,8 +110,10 @@ const fieldLabels: Record<string, string> = {
   updatedAt: "Diperbarui pada",
 };
 const hiddenFields = new Set(["id", "pengadaanId", "createdBy", "updatedBy", "disetujuiOleh"]);
+const isIdField = (key: string) => hiddenFields.has(key) || /(?:^id$|id$|Id$)/.test(key);
 function DetailValue({ value }: { value: any }) {
   if (value == null || value === "") return <span className="text-muted-foreground">—</span>;
+  if (typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value)) return <span className="text-muted-foreground">Data terkait</span>;
   if (Array.isArray(value))
     return value.length ? (
       <ul className="list-disc space-y-1 pl-5">
@@ -124,19 +126,32 @@ function DetailValue({ value }: { value: any }) {
     ) : (
       <span className="text-muted-foreground">—</span>
     );
-  if (typeof value === "object")
+  if (typeof value === "object") {
+    const entries = Object.entries(value).filter(([key]) => !isIdField(key));
+    if (!entries.length) return <span className="text-muted-foreground">—</span>;
+    if (entries.length === 1) return <DetailValue value={entries[0][1]} />;
+    const titleEntry = entries.find(([key]) => ["nama", "name", "nomor", "kode"].includes(key.toLowerCase()));
+    const remainingEntries = entries.filter(([key]) => key !== titleEntry?.[0]);
     return (
-      <dl className="grid gap-2 sm:grid-cols-2">
-        {Object.entries(value).map(([key, item]) => (
-          <div key={key} className="rounded-md bg-muted/50 p-2">
-            <dt className="text-xs font-medium text-muted-foreground">{fieldLabels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}</dt>
-            <dd className="mt-1 break-words">
-              <DetailValue value={item} />
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <div className="space-y-2">
+        {titleEntry ? (
+          <h4 className="mb-2 border-b border-border/70 pb-2 break-words font-semibold text-foreground">
+            <DetailValue value={titleEntry[1]} />
+          </h4>
+        ) : null}
+        <dl className="divide-y divide-border/70">
+          {remainingEntries.map(([key, item]) => (
+            <div key={key} className="grid min-w-0 gap-1 py-2 first:pt-0 last:pb-0 sm:grid-cols-[minmax(9rem,0.35fr)_minmax(0,1fr)] sm:gap-4">
+              <dt className="text-xs font-medium text-muted-foreground">{fieldLabels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}</dt>
+              <dd className="min-w-0 break-words text-sm font-normal text-foreground">
+                <DetailValue value={item} />
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
     );
+  }
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)) return <>{date(value)}</>;
   return <span className="whitespace-pre-wrap break-words">{String(value)}</span>;
 }
@@ -418,16 +433,13 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
               </header>
               <dl className="grid gap-3 sm:grid-cols-2">
                 {Object.entries(currentSelected)
-                  .filter(([key, value]) => !hiddenFields.has(key) && value !== undefined)
+                  .filter(([key, value]) => !isIdField(key) && value !== undefined)
                   .map(([key, value]) => {
                     const complexValue = value !== null && typeof value === "object";
                     const longValue = typeof value === "string" && value.length > 90;
                     return (
-                      <div
-                        key={key}
-                        className={`grid min-w-0 gap-1 border-b border-border/70 pb-2.5 last:border-0 last:pb-0 sm:grid-cols-[minmax(7rem,0.8fr)_minmax(0,1.2fr)] sm:items-start sm:gap-4 ${complexValue || longValue ? "sm:col-span-2" : ""}`}
-                      >
-                        <dt className="text-xs font-medium text-muted-foreground">{fieldLabels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}</dt>
+                      <div key={key} className={`min-w-0 rounded-lg border bg-background p-3 ${complexValue || longValue ? "sm:col-span-2" : ""}`}>
+                        <dt className="mb-1 text-xs font-medium text-muted-foreground">{fieldLabels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}</dt>
                         <dd className="break-words text-sm font-medium text-foreground">
                           <DetailValue value={value} />
                         </dd>

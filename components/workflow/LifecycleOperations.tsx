@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, X } from "lucide-react";
+import { ArrowRight, Check, ClipboardList, FileCheck2, FileText, Handshake, Send, Settings2, Ship, Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/modal/Modal";
 import { Input } from "@/components/ui/input";
@@ -272,23 +272,56 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       submitting.current = false;
     }
   }
+  const operationPresentation: Record<string, { description: string; icon: typeof ClipboardList }> = {
+    perencanaan: { description: "Catat kebutuhan transaksi dan jadwal pengadaan.", icon: ClipboardList },
+    strategi: { description: "Tentukan metode seleksi dan pendekatan transaksi.", icon: Settings2 },
+    rfq: { description: "Kirim atau perbarui permintaan penawaran kepada vendor.", icon: Send },
+    tutupRfq: { description: "Akhiri penerimaan penawaran untuk RFQ aktif.", icon: FileCheck2 },
+    bukaKembaliRfq: { description: "Aktifkan kembali RFQ yang telah ditutup.", icon: FileText },
+    verifikasi: { description: "Periksa legalitas, kepatuhan, dan rekening vendor.", icon: FileCheck2 },
+    negosiasi: { description: "Catat putaran negosiasi dan hasil komersial.", icon: Handshake },
+    memorandum: { description: "Susun rekomendasi transaksi untuk persetujuan.", icon: FileText },
+    kontrak: { description: "Catat kesepakatan dan dokumen kontrak.", icon: FileCheck2 },
+    pengiriman: { description: "Pantau pengapalan dan status pengiriman kargo.", icon: Ship },
+    tagihan: { description: "Kelola tagihan, pembayaran, dan rekonsiliasi.", icon: Wallet },
+  };
   return (
-    <section className="space-y-3" aria-label="Operasi bisnis tahap">
+    <section className="space-y-4" aria-label="Operasi bisnis tahap">
       {user.isError ? (
         <Alert variant="destructive">
           <AlertDescription>{getApiErrorMessage(user.error)}</AlertDescription>
         </Alert>
       ) : null}
       {!active ? <p className="text-sm text-muted-foreground">Operasi dinonaktifkan: tahap ini tidak aktif.</p> : null}
-      {active && !user.isPending && !user.isError && !available.length ? <p className="text-sm text-muted-foreground">Tidak ada operasi tersedia untuk peran atau status saat ini.</p> : null}
-      <div className="flex flex-wrap gap-2">
+      {active && !user.isPending && !user.isError && !available.length ? (
+        <p className="rounded-lg border border-dashed bg-background px-4 py-5 text-center text-sm text-muted-foreground">Belum ada operasi yang tersedia untuk peran atau status saat ini.</p>
+      ) : null}
+      <div className="grid gap-3 sm:grid-cols-2">
         {available
-          .filter((operation) => !["tutupRfq", "bukaKembaliRfq"].includes(operation.key))
-          .map((operation) => (
-            <Button key={operation.key} type="button" variant="outline" disabled={!active || locked} onClick={() => open(operation)}>
-              {operation.title}
-            </Button>
-          ))}
+          // Keep manual offer-entry operation configured for future use, but hide it from current workflow.
+          .filter((operation) => !["tutupRfq", "bukaKembaliRfq", "penawaran"].includes(operation.key))
+          .map((operation) => {
+            const presentation = operationPresentation[operation.key];
+            const Icon = presentation?.icon ?? ClipboardList;
+            return (
+              <button
+                key={operation.key}
+                type="button"
+                disabled={!active || locked}
+                onClick={() => open(operation)}
+                className="group flex min-h-[88px] w-full items-center gap-3 rounded-xl border bg-background p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                  <Icon size={18} aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">{operation.title}</span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">{presentation?.description ?? "Perbarui informasi transaksi pada tahap ini."}</span>
+                </span>
+                <ArrowRight size={16} className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" aria-hidden="true" />
+              </button>
+            );
+          })}
       </div>
       {error ? (
         <Alert variant="destructive">
