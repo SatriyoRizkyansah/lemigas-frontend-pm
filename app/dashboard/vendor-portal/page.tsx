@@ -322,9 +322,9 @@ function VendorPortalView() {
           detail: { spesifikasi: form.get("spesifikasi"), volume: form.get("volume"), satuan: form.get("satuan"), catatan: form.get("catatan") },
         }),
       });
-      setNotice(`Penawaran untuk ${rfq.nomor} berhasil dikirim.`);
+      const message = `Penawaran untuk ${rfq.nomor} berhasil dikirim.`;
+      window.dispatchEvent(new CustomEvent("api:success", { detail: { message } }));
       setQuoteModalRfqId(null);
-      event.currentTarget.reset();
       setQuoteAmount("");
       await refresh();
     } catch (e) {
