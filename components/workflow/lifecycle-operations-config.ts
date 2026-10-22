@@ -189,7 +189,13 @@ export const lifecycleOperations: Operation[] = [
     "Simpan verifikasi vendor",
     "evaluasi_negosiasi",
     api.transaksiControllerCreateVerifikasi,
-    [vendor(true), ...["legalitas", "kewenangan", "rekening", "kepatuhan", "hasil"].map((name) => select(name, name, statuses)), text("catatan", "Catatan")],
+    [
+      vendor(true),
+      select("kewenangan", "Kewenangan penandatangan", ["selesai", "ditolak", "revisi"]),
+      select("kepatuhan", "Kepatuhan terhadap persyaratan pengadaan", ["selesai", "ditolak", "revisi"]),
+      select("hasil", "Hasil verifikasi keseluruhan", ["selesai", "ditolak", "revisi"]),
+      text("catatan", "Catatan"),
+    ],
     ["admin", "verifikator"],
   ),
   create("negosiasi", "Catat negosiasi", "evaluasi_negosiasi", api.transaksiControllerCreateNegosiasi, [

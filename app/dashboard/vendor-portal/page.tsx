@@ -10,6 +10,7 @@ import { LoadingState } from "@/components/loading/LoadingState";
 import { EmptyData } from "@/components/loading/EmptyData";
 import { Button } from "@/components/ui/Button";
 import { UploadDocumentField } from "@/components/documents/DocumentControls";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
 
 type VendorDoc = { id: string; jenis: string; status: string; filePath: string; expiresAt?: string | null };
@@ -44,7 +45,7 @@ type Rfq = {
   ketentuan?: Record<string, unknown> | null;
   pengadaan: { id: string; nomorSurat: string; judul: string; status: string };
 };
-const DOCUMENT_TYPES = ["NIB", "NPWP", "Akta Perusahaan", "Surat Domisili", "Rekening Bank", "Lainnya"] as const;
+const DOCUMENT_TYPES = ["NIB", "LEGALITAS", "NPWP", "Akta Perusahaan", "Surat Domisili", "Rekening Bank", "Surat Kuasa / Penunjukan Penandatangan"] as const;
 
 type Negotiation = {
   id: string;
@@ -114,7 +115,30 @@ function rfqTermLabel(key: string): string {
   };
   return labels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
 }
-
+function structuredRows(value: unknown): Array<[string, unknown]> | null {
+  if (Array.isArray(value)) {
+    const rows = value.map((item, index) => [String(index + 1), item] as [string, unknown]);
+    return rows.length ? rows : null;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const preferred = ["value", "label", "nama", "name", "text", "detail"];
+    if (preferred.some((key) => record[key] !== undefined && (typeof record[key] !== "object" || record[key] === null))) return null;
+    const rows = Object.entries(record).filter(([, item]) => item !== null && item !== undefined && item !== "");
+    return rows.length ? rows : null;
+  }
+  if (typeof value === "string" && value.includes(":")) {
+    const rows = value
+      .split(/\\r?\\n|\\s+·\\s+/)
+      .map((part) => {
+        const separator = part.indexOf(":");
+        return separator < 0 ? null : ([part.slice(0, separator).trim(), part.slice(separator + 1).trim()] as [string, unknown]);
+      })
+      .filter((row): row is [string, unknown] => Boolean(row && row[0] && row[1]));
+    return rows.length ? rows : null;
+  }
+  return null;
+}
 function VendorPortalView() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -493,12 +517,13 @@ function VendorPortalView() {
                         </ul>
                       </div>
                       {profile.vendor.vendorDocuments.some((doc) => !DOCUMENT_TYPES.includes(doc.jenis as (typeof DOCUMENT_TYPES)[number])) && (
-                        <div className="rounded-lg border border-border/70 p-3 text-sm">
-                          <p className="font-medium">Dokumen lainnya</p>
+                        <div className="rounded-lg border border-amber-300/60 bg-amber-50/50 p-3 text-sm">
+                          <p className="font-medium">Dokumen lama perlu dipetakan</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Dokumen lama tetap tersimpan dan dapat dibuka. Unggah penggantinya pada kategori resmi di atas.</p>
                           {profile.vendor.vendorDocuments
                             .filter((doc) => !DOCUMENT_TYPES.includes(doc.jenis as (typeof DOCUMENT_TYPES)[number]))
                             .map((doc) => (
-                              <div key={doc.id} className="mt-1 flex justify-between gap-2 text-muted-foreground">
+                              <div key={doc.id} className="mt-2 flex justify-between gap-2 text-muted-foreground">
                                 <span>
                                   {doc.jenis} · {doc.status}
                                 </span>
@@ -668,14 +693,44 @@ function VendorPortalView() {
                               <FileText size={17} /> Ketentuan dan kebutuhan
                             </h3>
                             {terms.length ? (
-                              <dl className="grid gap-2 sm:grid-cols-2">
-                                {terms.map(([key, value]) => (
-                                  <div key={key} className="min-w-0 rounded-lg border bg-background p-3">
-                                    <dt className="text-xs font-medium text-muted-foreground">{rfqTermLabel(key)}</dt>
-                                    <dd className="mt-1 break-words whitespace-pre-wrap text-sm leading-6">{formatRfqValue(value)}</dd>
-                                  </div>
-                                ))}
-                              </dl>
+                              <div className="space-y-3">
+                                <dl className="grid gap-2 sm:grid-cols-2">
+                                  {terms
+                                    .filter(([, value]) => !structuredRows(value))
+                                    .map(([key, value]) => (
+                                      <div key={key} className="min-w-0 rounded-lg border bg-background px-3 py-2.5">
+                                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{rfqTermLabel(key)}</dt>
+                                        <dd className="mt-1 break-words whitespace-pre-wrap text-sm leading-6">{formatRfqValue(value)}</dd>
+                                      </div>
+                                    ))}
+                                </dl>
+                                {terms
+                                  .filter(([, value]) => structuredRows(value))
+                                  .map(([key, value]) => {
+                                    const rows = structuredRows(value) ?? [];
+                                    return (
+                                      <section key={key} className="overflow-hidden rounded-lg border bg-background">
+                                        <h4 className="border-b bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide">{rfqTermLabel(key)}</h4>
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead className="h-9 px-3 text-[11px]">Item</TableHead>
+                                              <TableHead className="h-9 px-3 text-[11px]">Keterangan</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {rows.map(([name, item], index) => (
+                                              <TableRow key={`${name}-${index}`}>
+                                                <TableCell className="w-[35%] break-words px-3 py-2 text-xs font-medium">{name}</TableCell>
+                                                <TableCell className="break-words whitespace-pre-wrap px-3 py-2 text-xs leading-5">{formatRfqValue(item)}</TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
+                                      </section>
+                                    );
+                                  })}
+                              </div>
                             ) : (
                               <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">Ketentuan belum disertakan pada RFQ.</p>
                             )}

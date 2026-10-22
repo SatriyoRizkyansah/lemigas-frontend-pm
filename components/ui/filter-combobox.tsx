@@ -12,9 +12,10 @@ type FilterComboboxProps = {
   value: string;
   onValueChange: (value: string) => void;
   label: string;
+  disabled?: boolean;
 };
 
-export function FilterCombobox({ options, value, onValueChange, label }: FilterComboboxProps) {
+export function FilterCombobox({ options, value, onValueChange, label, disabled = false }: FilterComboboxProps) {
   const selectedOption = options.find((option) => option.value === value) ?? null;
 
   return (
@@ -27,10 +28,11 @@ export function FilterCombobox({ options, value, onValueChange, label }: FilterC
       itemToStringLabel={(option) => option.label}
       itemToStringValue={(option) => option.value}
       autoHighlight
+      disabled={disabled}
     >
       <Combobox.Trigger
         aria-label={`Filter ${label.toLocaleLowerCase("id-ID")}`}
-        className="flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-sm text-muted-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/30"
+        className="flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-sm text-muted-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Combobox.Value>{(selected) => <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? label}</span>}</Combobox.Value>
         <Combobox.Icon>

@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowRight, Check, ClipboardList, FileCheck2, FileText, Handshake, Send, Settings2, Ship, Wallet, X } from "lucide-react";
+import { ArrowRight, Check, ClipboardList, FileCheck2, FileText, Handshake, Send, Settings2, Ship, Wallet, X, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/modal/Modal";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FilterCombobox } from "@/components/ui/filter-combobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { browserApi } from "@/lib/api/browser-client";
@@ -14,6 +15,7 @@ import { use_mutation } from "@/lib/api/use_mutation";
 import { use_query } from "@/lib/api/use_query";
 import { apiQueryKeys } from "@/lib/api/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { readSession, SESSION_COOKIE } from "@/lib/auth";
 import { lifecycleOperations, operationPayload, type Entity, type Field, type Operation } from "./lifecycle-operations-config";
 
 export type LifecycleOperationsProps = { pengadaanId: string; stage: string; active: boolean; detail: any };
@@ -65,9 +67,7 @@ function cleanParameterRows(value: string): string {
     .join("\n");
 }
 function choices(rows: Entity[]): Choice[] {
-  return rows
-    .filter((row) => typeof row.id === "string")
-    .map((row) => ({ value: String(row.id), label: [row.nomor ?? row.nama ?? row.namaKapal ?? row.nomorBillOfLading ?? row.jenis ?? row.id, object(row.vendor).nama, row.status].filter(Boolean).join(" · ") }));
+  return rows.filter((row) => typeof row.id === "string").map((row) => ({ value: String(row.id), label: [row.nomor ?? row.nama ?? row.namaKapal ?? row.nomorBillOfLading ?? row.jenis ?? row.id].filter(Boolean).join(" · ") }));
 }
 function operationFieldSections(operationKey: string | undefined, fields: Field[]): Array<{ title: string; fields: Field[] }> {
   const sections: Record<string, { title: string; fields: string[] }[]> = {
@@ -109,6 +109,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [documentError, setDocumentError] = useState("");
   const submitting = useRef(false);
   const revisionSeedKey = useRef("");
   const uninitialized = stage === "perencanaan" && Array.isArray(detail.tahapan) && detail.tahapan.length === 0;
@@ -172,7 +173,10 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         { value: "true", label: "Ya" },
         { value: "false", label: "Tidak" },
       ];
-    return (field.options ?? []).map((value) => ({ value, label: value.replaceAll("_", " ") }));
+    return (field.options ?? []).map((value) => ({
+      value,
+      label: selected?.key === "verifikasi" && ["selesai", "ditolak", "revisi"].includes(value) ? ({ selesai: "Sesuai", ditolak: "Tidak sesuai", revisi: "Perlu perbaikan" } as Record<string, string>)[value] : value.replaceAll("_", " "),
+    }));
   };
   const mutation = use_mutation<unknown, Error, { operation: Operation; body: Entity }>({
     tag: "siklusTransaksiKomoditas",
@@ -373,6 +377,73 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
             </Alert>
           ) : null}
           {!fields.length ? <p>Konfirmasi {selected?.title.toLowerCase()} untuk pengadaan ini.</p> : null}
+          {selected?.key === "verifikasi"
+            ? (() => {
+                const vendor = values.vendorId ? (vendors.data ?? []).find((row) => row.id === values.vendorId) : undefined;
+                const documents = records(vendor?.vendorDocuments).filter((doc) => doc.status !== "replaced");
+                const downloadDocument = async (documentId: string, filename: string) => {
+                  try {
+                    setDocumentError("");
+                    const cookie = document.cookie
+                      .split(";")
+                      .map((part) => part.trim())
+                      .find((part) => part.startsWith(`${SESSION_COOKIE}=`))
+                      ?.slice(SESSION_COOKIE.length + 1);
+                    const authToken = readSession(cookie)?.token;
+                    if (!authToken) throw new Error("Sesi login tidak valid. Silakan login kembali.");
+                    const response = await fetch(`${process.env.NEXT_PUBLIC_LEMIGAS_API_URL ?? "http://localhost:3001"}/api/vendor-onboarding/documents/${documentId}/file`, { headers: { Authorization: `Bearer ${authToken}` } });
+                    if (!response.ok) throw new Error("Dokumen tidak dapat diunduh.");
+                    const blobUrl = URL.createObjectURL(await response.blob());
+                    const win = window.open(blobUrl, "_blank");
+                    if (!win) throw new Error("Popup blocker mencegah pembukaan tab baru.");
+                  } catch (cause) {
+                    setDocumentError(cause instanceof Error ? cause.message : "Dokumen gagal dibuka.");
+                  }
+                };
+                return (
+                  <section className="space-y-2 rounded-lg border bg-card p-4">
+                    <h3 className="text-sm font-semibold">Dokumen onboarding vendor</h3>
+                    {!values.vendorId ? (
+                      <p className="text-sm text-muted-foreground">Pilih vendor untuk memeriksa dokumen onboarding.</p>
+                    ) : documents.length ? (
+                      <div className="space-y-2">
+                        <ul className="space-y-2">
+                          {documents.map((doc) => (
+                            <li key={String(doc.id)} className="flex items-center justify-between gap-3 text-sm">
+                              <span className="flex items-center gap-2">
+                                <span
+                                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${doc.status === "verified" ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}
+                                  aria-label={doc.status === "verified" ? "Terverifikasi" : "Menunggu verifikasi"}
+                                >
+                                  <Check size={13} strokeWidth={2.5} />
+                                </span>
+                                <span>
+                                  {String(doc.jenis)} · {doc.status === "verified" ? "Terverifikasi" : "Menunggu verifikasi"}
+                                </span>
+                              </span>
+                              <Button type="button" variant="outline" size="sm" onClick={() => void downloadDocument(String(doc.id), `${String(doc.jenis)}.pdf`)}>
+                                <ExternalLink size={14} className="mr-1" />
+                                Lihat
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                        {documents.some((doc) => doc.jenis === "Surat Kuasa / Penunjukan Penandatangan") ? null : (
+                          <p className="text-xs text-muted-foreground">Surat Kuasa diperlukan bila kewenangan penandatangan tidak tercantum dalam Akta.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Belum ada dokumen onboarding.</p>
+                    )}
+                    {documentError ? (
+                      <p role="alert" className="text-sm text-destructive">
+                        {documentError}
+                      </p>
+                    ) : null}
+                  </section>
+                );
+              })()
+            : null}
           <fieldset disabled={locked || !permitted} className="space-y-4">
             {selected?.key === "rfq" ? (
               <p className="text-sm text-muted-foreground">
@@ -394,7 +465,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                     const isLongText = field.payloadPath !== undefined;
                     return (
                       <div key={field.name} className={`min-w-0 space-y-1.5${selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "dokumenDiminta"].includes(field.name) ? " sm:col-span-2" : ""}`}>
-                        <Label htmlFor={fieldId}>
+                        <Label htmlFor={fieldId} className="min-h-8 leading-4">
                           {field.label}
                           {field.required ? " *" : ""}
                         </Label>
@@ -533,12 +604,16 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               </Button>
                             </div>
                           </div>
-                        ) : isSelect ? (
-                          <Select
+                        ) : isSelect && field.relation === "vendor" ? (
+                          <FilterCombobox
+                            options={options(field)}
                             value={values[field.name] || ""}
-                            onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: String(value ?? "") }))}
-                            disabled={locked || !permitted || (field.relation === "vendor" && vendorBlocked)}
-                          >
+                            onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: value }))}
+                            label={field.label}
+                            disabled={locked || !permitted || vendorBlocked}
+                          />
+                        ) : isSelect ? (
+                          <Select value={values[field.name] || ""} onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: String(value ?? "") }))} disabled={locked || !permitted}>
                             <SelectTrigger id={fieldId} aria-required={field.required}>
                               <SelectValue placeholder="Pilih…" />
                             </SelectTrigger>
