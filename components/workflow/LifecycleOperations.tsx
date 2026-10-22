@@ -53,6 +53,18 @@ function parameterText(value: unknown): string {
   const entries = Object.entries(object(value));
   return entries.map(([name, item]) => `${name}: ${typeof item === "string" ? item : JSON.stringify(item)}`).join("\n");
 }
+function documentRequirementText(value: unknown): string {
+  if (!Array.isArray(value)) return parameterText(value);
+  return value
+    .map((entry) => {
+      const document = object(entry);
+      const name = plainText(document.nama);
+      const details = [document.wajib ? "Wajib" : "Opsional", plainText(document.keterangan)].filter((detail) => detail && detail !== "—").join("; ");
+      return name ? `${name}: ${details}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
 function plainText(value: unknown): string {
   if (typeof value === "string" || typeof value === "number") return String(value);
   if (value == null) return "";
@@ -217,17 +229,18 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     const rfq = records(detail.rfq).find((row) => row.id === ids[0]);
     if (!rfq) return;
     const terms = object(rfq.ketentuan);
+    const canonical = (key: string) => rfq[key] ?? normalizedTerm(terms, key);
     setValues((current) => ({
       ...current,
       nomor: String(rfq.nomor ?? "").replace(/-R\d+$/, ""),
       batasRespons: rfq.batasRespons ? String(rfq.batasRespons).slice(0, 10) : "",
-      spesifikasi: parameterText(normalizedTerm(terms, "spesifikasi")),
-      volume: plainText(normalizedTerm(terms, "volume")),
-      satuan: plainText(normalizedTerm(terms, "satuan")),
-      titikSerah: plainText(normalizedTerm(terms, "titikSerah")),
-      syaratPenyerahan: plainText(normalizedTerm(terms, "syaratPenyerahan")),
-      syaratPembayaran: plainText(normalizedTerm(terms, "syaratPembayaran")),
-      dokumenDiminta: parameterText(normalizedTerm(terms, "dokumenDiminta")),
+      spesifikasi: parameterText(canonical("spesifikasi")),
+      volume: plainText(canonical("volume")),
+      satuan: plainText(canonical("satuan")),
+      titikSerah: plainText(canonical("titikSerah")),
+      syaratPenyerahan: plainText(canonical("syaratPenyerahan")),
+      syaratPembayaran: plainText(canonical("syaratPembayaran")),
+      dokumenDiminta: documentRequirementText(canonical("dokumenDiminta")),
     }));
   }, [detail.rfq, selected?.key, values.mode, values.rfqIds]);
   function open(operation: Operation) {

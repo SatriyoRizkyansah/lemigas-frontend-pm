@@ -189,50 +189,52 @@ export default function VendorOnboardingPage() {
         }}
       >
         {selectedItem && (
-          <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{selectedItem.vendor.nama}</DialogTitle>
-              <DialogDescription>Detail profil, dokumen legalitas, dan keputusan review onboarding.</DialogDescription>
+          <DialogContent className="flex max-h-[min(88dvh,780px)] max-w-3xl flex-col gap-0 overflow-hidden p-0">
+            <DialogHeader className="shrink-0 border-b px-6 py-5 pr-14">
+              <DialogTitle className="text-lg">{selectedItem.vendor.nama}</DialogTitle>
+              <DialogDescription>Profil perusahaan dan dokumen legalitas untuk review onboarding.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-5">
+            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
               <div className="flex flex-wrap items-center gap-3">
                 <StatusBadge status={selectedItem.status === "approved" ? "ok" : selectedItem.status === "rejected" ? "danger" : selectedItem.status === "requires_revision" ? "warn" : "neutral"}>
                   {STATUS_LABELS[selectedItem.status] ?? selectedItem.status.replaceAll("_", " ")}
                 </StatusBadge>
                 <span className="text-sm text-muted-foreground">Diajukan {selectedItem.submittedAt ? new Date(selectedItem.submittedAt).toLocaleString("id-ID") : "—"}</span>
               </div>
-              <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
-                <div>
-                  <dt className="text-muted-foreground">Email</dt>
-                  <dd className="mt-1 font-medium">{selectedItem.vendor.email || "—"}</dd>
+              <dl className="grid gap-3 rounded-xl border bg-muted/20 p-4 text-sm sm:grid-cols-2">
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">Email</dt>
+                  <dd className="mt-1 break-words font-medium">{selectedItem.vendor.email || "—"}</dd>
                 </div>
-                <div>
-                  <dt className="text-muted-foreground">NPWP</dt>
-                  <dd className="mt-1 font-medium">{selectedItem.vendor.npwp || "—"}</dd>
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">NPWP</dt>
+                  <dd className="mt-1 break-words font-medium">{selectedItem.vendor.npwp || "—"}</dd>
                 </div>
-                <div>
-                  <dt className="text-muted-foreground">Telepon</dt>
-                  <dd className="mt-1 font-medium">{selectedItem.vendor.telepon || "—"}</dd>
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">Telepon</dt>
+                  <dd className="mt-1 break-words font-medium">{selectedItem.vendor.telepon || "—"}</dd>
                 </div>
-                <div>
-                  <dt className="text-muted-foreground">Kontak person</dt>
-                  <dd className="mt-1 font-medium">{selectedItem.vendor.contactPerson || "—"}</dd>
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">Kontak person</dt>
+                  <dd className="mt-1 break-words font-medium">{selectedItem.vendor.contactPerson || "—"}</dd>
                 </div>
-                <div>
-                  <dt className="text-muted-foreground">Akun pengguna</dt>
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">Akun pengguna</dt>
                   <dd className="mt-1 font-medium">{selectedItem.vendor.vendorAccounts.length} akun</dd>
                 </div>
-                <div className="sm:col-span-2">
-                  <dt className="text-muted-foreground">Alamat</dt>
-                  <dd className="mt-1 font-medium">{selectedItem.vendor.alamat || "—"}</dd>
+                <div className="min-w-0 sm:col-span-2">
+                  <dt className="text-xs text-muted-foreground">Alamat</dt>
+                  <dd className="mt-1 break-words font-medium">{selectedItem.vendor.alamat || "—"}</dd>
                 </div>
               </dl>
               <div>
-                <h3 className="text-sm font-semibold">Dokumen legalitas</h3>
+                <h3 className="text-sm font-semibold">
+                  Dokumen legalitas <span className="font-normal text-muted-foreground">({selectedItem.vendor.vendorDocuments.length})</span>
+                </h3>
                 {selectedItem.vendor.vendorDocuments.length ? (
-                  <ul className="mt-3 divide-y rounded-lg border bg-background">
+                  <ul className="mt-3 divide-y overflow-hidden rounded-xl border bg-background">
                     {selectedItem.vendor.vendorDocuments.map((doc) => (
-                      <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5 first:rounded-t-lg last:rounded-b-lg">
+                      <li key={doc.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 sm:flex-nowrap">
                         <div className="flex min-w-0 items-center gap-3">
                           <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                             <FileText className="size-4" />
@@ -242,7 +244,7 @@ export default function VendorOnboardingPage() {
                             <p className="text-xs text-muted-foreground">{doc.expiresAt ? `Berlaku hingga ${new Date(doc.expiresAt).toLocaleDateString("id-ID")}` : "Dokumen vendor"}</p>
                           </div>
                         </div>
-                        <div className="flex shrink-0 items-center gap-2">
+                        <div className="ml-12 flex shrink-0 items-center gap-2 sm:ml-0">
                           <StatusBadge status={doc.status === "verified" || doc.status === "approved" ? "ok" : doc.status === "rejected" ? "danger" : doc.status === "draft" ? "neutral" : "warn"}>
                             {doc.status.replaceAll("_", " ")}
                           </StatusBadge>
@@ -258,7 +260,7 @@ export default function VendorOnboardingPage() {
                 )}
               </div>
               {["submitted", "in_review"].includes(selectedItem.status) && (
-                <div>
+                <div className="rounded-xl border bg-background p-4">
                   <label className="text-sm font-semibold" htmlFor={`note-${selectedItem.id}`}>
                     Catatan review / alasan penolakan
                   </label>
@@ -274,7 +276,7 @@ export default function VendorOnboardingPage() {
               )}
             </div>
             {["submitted", "in_review"].includes(selectedItem.status) && (
-              <DialogFooter>
+              <DialogFooter className="mx-0 mb-0 shrink-0 rounded-none px-6 py-4">
                 <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={() => void review(selectedItem, "rejected")}>
                   <XCircle className="mr-2 size-4" />
                   Tolak

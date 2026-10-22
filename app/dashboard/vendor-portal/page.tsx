@@ -32,9 +32,13 @@ type VendorOffer = {
   ketentuanPengangkutan?: string | null;
   detail?: Record<string, unknown> | null;
   status: string;
+  revisi?: number;
+  isCurrent?: boolean;
   submittedAt?: string | null;
   updatedAt?: string | null;
+  dokumenPenawaran?: Array<{ requirementId: string; dokumen: { id: string; nama: string; filePath: string } }>;
 };
+type RfqDocumentRequirement = { id: string; nama: string; wajib?: boolean; keterangan?: string };
 type Rfq = {
   id: string;
   penawaran?: VendorOffer[];
@@ -43,6 +47,13 @@ type Rfq = {
   revisiDariId?: string | null;
   alasanPerubahan?: string | null;
   batasRespons?: string | null;
+  volume?: number | string | null;
+  satuan?: string | null;
+  titikSerah?: string | null;
+  syaratPembayaran?: string | null;
+  syaratPenyerahan?: string | null;
+  spesifikasi?: Record<string, unknown> | null;
+  dokumenDiminta?: RfqDocumentRequirement[] | null;
   ketentuan?: Record<string, unknown> | null;
   pengadaan: { id: string; nomorSurat: string; judul: string; status: string };
 };
@@ -183,6 +194,7 @@ function VendorPortalView() {
     return new Intl.NumberFormat(currencyConfig[code]?.locale ?? "en-US", { maximumFractionDigits: 0 }).format(Number(digits));
   };
   const [quoteAmount, setQuoteAmount] = useState("");
+  const [offerFiles, setOfferFiles] = useState<Record<string, File | null>>({});
   const refresh = useCallback(async () => {
     try {
       const result = await request<{ data: Portal }>("/api/vendor-onboarding/me");
@@ -309,7 +321,7 @@ function VendorPortalView() {
     const form = new FormData(event.currentTarget);
     const amount = Number(String(form.get("hargaPenawaran") ?? "").replace(/[^\d]/g, ""));
     try {
-      await request(`/api/pengadaan/${rfq.pengadaan.id}/penawaran`, {
+      const offerResult = await request<{ data: VendorOffer }>(`/api/pengadaan/${rfq.pengadaan.id}/penawaran`, {
         method: "POST",
         body: JSON.stringify({
           rfqId: rfq.id,
@@ -317,11 +329,32 @@ function VendorPortalView() {
           hargaPenawaran: amount,
           mataUang: String(form.get("mataUang") || "USD"),
           berlakuSampai: form.get("berlakuSampai") || undefined,
-          syaratPembayaran: form.get("syaratPembayaran") || undefined,
-          ketentuanPengangkutan: form.get("ketentuanPengangkutan") || undefined,
-          detail: { spesifikasi: form.get("spesifikasi"), volume: form.get("volume"), satuan: form.get("satuan"), catatan: form.get("catatan") },
+          detail: {
+            catatan: form.get("catatan") || undefined,
+            rfqBaseline: {
+              volume: rfq.volume,
+              satuan: rfq.satuan,
+              titikSerah: rfq.titikSerah,
+              syaratPenyerahan: rfq.syaratPenyerahan,
+              syaratPembayaran: rfq.syaratPembayaran,
+              spesifikasi: rfq.spesifikasi,
+              dokumenDiminta: rfq.dokumenDiminta,
+            },
+          },
         }),
       });
+      await Promise.all(
+        Object.entries(offerFiles)
+          .filter((entry): entry is [string, File] => entry[1] instanceof File)
+          .map(async ([requirementId, file]) => {
+            const upload = new FormData();
+            upload.append("file", file);
+            upload.append("requirementId", requirementId);
+            upload.append("nama", file.name);
+            await request(`/api/vendor-onboarding/me/offers/${offerResult.data.id}/documents`, { method: "POST", body: upload });
+          }),
+      );
+      setOfferFiles({});
       const message = `Penawaran untuk ${rfq.nomor} berhasil dikirim.`;
       window.dispatchEvent(new CustomEvent("api:success", { detail: { message } }));
       setQuoteModalRfqId(null);
@@ -651,9 +684,9 @@ function VendorPortalView() {
               <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
                 <strong>Alur penawaran</strong>
                 <ol className="mt-2 grid gap-2 sm:grid-cols-3">
-                  <li>1. Periksa detail dan tenggat RFQ.</li>
-                  <li>2. Isi harga, spesifikasi, volume, dan syarat.</li>
-                  <li>3. Kirim penawaran; tunggu tindak lanjut tim pengadaan.</li>
+                  <li>1. Periksa kebutuhan dan tenggat RFQ.</li>
+                  <li>2. Isi harga, masa berlaku, dan catatan.</li>
+                  <li>3. Lampirkan dokumen wajib, lalu kirim penawaran.</li>
                 </ol>
               </div>
               {rfqs.length === 0 ? (
@@ -675,9 +708,21 @@ function VendorPortalView() {
                   const priorOffer = priorOffers[0];
                   const priorDetail = priorOffer?.detail ?? {};
                   const dateInputValue = priorOffer?.berlakuSampai ? new Date(priorOffer.berlakuSampai).toISOString().slice(0, 10) : "";
-                  const terms = Object.entries(rfq.ketentuan ?? {})
-                    .map(([key, value]) => [key, normalizedRfqTerm(key, value)] as const)
-                    .filter(([, value]) => value !== null && value !== undefined && value !== "" && !(Array.isArray(value) && value.length === 0));
+                  const canonicalTerms: Array<[string, unknown]> = [
+                    ["volume", rfq.volume],
+                    ["satuan", rfq.satuan],
+                    ["titikSerah", rfq.titikSerah],
+                    ["syaratPenyerahan", rfq.syaratPenyerahan],
+                    ["syaratPembayaran", rfq.syaratPembayaran],
+                    ["spesifikasi", rfq.spesifikasi],
+                    ["dokumenDiminta", rfq.dokumenDiminta],
+                  ];
+                  const terms = canonicalTerms.some(([, value]) => value !== null && value !== undefined && value !== "")
+                    ? canonicalTerms.filter(([, value]) => value !== null && value !== undefined && value !== "" && !(Array.isArray(value) && value.length === 0))
+                    : Object.entries(rfq.ketentuan ?? {})
+                        .map(([key, value]) => [key, normalizedRfqTerm(key, value)] as const)
+                        .filter(([, value]) => value !== null && value !== undefined && value !== "" && !(Array.isArray(value) && value.length === 0));
+                  const documentRequirements = Array.isArray(rfq.dokumenDiminta) ? rfq.dokumenDiminta : [];
                   return (
                     <div key={rfq.id} className="space-y-3">
                       <Button type="button" variant="outline" onClick={() => openRfq()}>
@@ -717,7 +762,7 @@ function VendorPortalView() {
                                     ))}
                                 </dl>
                                 {terms
-                                  .filter(([, value]) => structuredRows(value))
+                                  .filter(([key, value]) => key !== "dokumenDiminta" && structuredRows(value))
                                   .map(([key, value]) => {
                                     const rows = structuredRows(value) ?? [];
                                     return (
@@ -742,6 +787,29 @@ function VendorPortalView() {
                                       </section>
                                     );
                                   })}
+                                {documentRequirements.length > 0 && (
+                                  <section className="overflow-hidden rounded-lg border bg-background">
+                                    <h4 className="border-b bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide">Dokumen diminta</h4>
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead className="h-9 px-3 text-[11px]">Dokumen</TableHead>
+                                          <TableHead className="h-9 px-3 text-[11px]">Status</TableHead>
+                                          <TableHead className="h-9 px-3 text-[11px]">Keterangan</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {documentRequirements.map((requirement) => (
+                                          <TableRow key={requirement.id}>
+                                            <TableCell className="px-3 py-2 text-xs font-medium">{requirement.nama}</TableCell>
+                                            <TableCell className="px-3 py-2 text-xs">{requirement.wajib ? "Wajib" : "Opsional"}</TableCell>
+                                            <TableCell className="px-3 py-2 text-xs text-muted-foreground">{requirement.keterangan || "—"}</TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </section>
+                                )}
                               </div>
                             ) : (
                               <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">Ketentuan belum disertakan pada RFQ.</p>
@@ -786,6 +854,8 @@ function VendorPortalView() {
                           title={priorOffer ? "Kirim revisi penawaran" : "Kirim penawaran"}
                           description={`RFQ ${rfq.nomor} · Revisi ${rfq.revisi ?? 1}`}
                           size="md"
+                          contentClassName="!grid-rows-[auto_minmax(0,auto)_auto]"
+                          bodyClassName="!max-h-[calc(90dvh-10rem)] space-y-5"
                           footer={
                             <>
                               <Button type="button" variant="outline" disabled={busy} onClick={() => setQuoteModalRfqId(null)}>
@@ -797,72 +867,156 @@ function VendorPortalView() {
                             </>
                           }
                         >
-                          <form id={`quote-form-${rfq.id}`} key={priorOffer?.id ?? rfq.id} onSubmit={(e) => void submitQuote(e, rfq)} className="space-y-3">
-                            <label className="block space-y-1 text-sm">
-                              Harga penawaran *
-                              <span className="flex overflow-hidden rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring/40">
-                                <span className="flex min-w-14 items-center justify-center border-r bg-muted/40 px-3 text-sm font-medium text-muted-foreground">{currencyConfig[quoteCurrency]?.prefix ?? quoteCurrency}</span>
-                                <input
-                                  name="hargaPenawaran"
-                                  type="text"
-                                  required
-                                  inputMode="numeric"
-                                  value={quoteAmount}
-                                  onChange={(event) => setQuoteAmount(formatMoneyInput(event.target.value, quoteCurrency))}
-                                  placeholder="Masukkan jumlah"
-                                  className="w-full min-w-0 bg-transparent px-3 py-2 text-sm outline-none"
-                                />
-                              </span>
-                            </label>
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              <label className="space-y-1 text-sm">
-                                Mata uang
-                                <select
-                                  name="mataUang"
-                                  value={quoteCurrency}
-                                  onChange={(event) => {
-                                    const nextCurrency = event.target.value;
-                                    setQuoteCurrency(nextCurrency);
-                                    setQuoteAmount((current) => formatMoneyInput(current, nextCurrency));
-                                  }}
-                                  className="w-full rounded-md border bg-background p-2"
-                                >
-                                  <option value="IDR">IDR — Rupiah (Rp)</option>
-                                  <option value="USD">USD — Dolar AS ($)</option>
-                                  <option value="RUB">RUB — Rubel Rusia (₽)</option>
-                                </select>
+                          <form id={`quote-form-${rfq.id}`} key={priorOffer?.id ?? rfq.id} onSubmit={(e) => void submitQuote(e, rfq)} className="space-y-5">
+                            <section className="overflow-hidden rounded-xl border bg-muted/20">
+                              <div className="border-b bg-background px-4 py-3">
+                                <h3 className="font-semibold">Ketentuan RFQ</h3>
+                                <p className="mt-1 text-xs text-muted-foreground">Baseline kebutuhan LEMIGAS. Nilai ini tidak dapat diubah dalam penawaran.</p>
+                              </div>
+                              <div className="space-y-3 p-4">
+                                <dl className="divide-y rounded-lg border bg-background px-3">
+                                  {terms
+                                    .filter(([, value]) => !structuredRows(value))
+                                    .map(([key, value]) => (
+                                      <div key={key} className="grid gap-1 py-2.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-4">
+                                        <dt className="text-xs font-medium text-muted-foreground">{rfqTermLabel(key)}</dt>
+                                        <dd className="break-words whitespace-pre-wrap text-sm leading-5">{formatRfqValue(value)}</dd>
+                                      </div>
+                                    ))}
+                                </dl>
+                                {terms
+                                  .filter(([key, value]) => key !== "dokumenDiminta" && structuredRows(value))
+                                  .map(([key, value]) => {
+                                    const rows = structuredRows(value) ?? [];
+                                    return (
+                                      <section key={key} className="overflow-hidden rounded-lg border bg-background">
+                                        <h4 className="border-b bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide">{rfqTermLabel(key)}</h4>
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead className="h-9 px-3 text-[11px]">Item</TableHead>
+                                              <TableHead className="h-9 px-3 text-[11px]">Keterangan</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {rows.map(([name, item], index) => (
+                                              <TableRow key={`${name}-${index}`}>
+                                                <TableCell className="w-[35%] break-words px-3 py-2 text-xs font-medium">{name}</TableCell>
+                                                <TableCell className="break-words whitespace-pre-wrap px-3 py-2 text-xs leading-5">{formatRfqValue(item)}</TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
+                                      </section>
+                                    );
+                                  })}
+                                {documentRequirements.length > 0 && (
+                                  <section className="overflow-hidden rounded-lg border bg-background">
+                                    <h4 className="border-b bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide">Dokumen diminta</h4>
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead className="h-9 px-3 text-[11px]">Dokumen</TableHead>
+                                          <TableHead className="h-9 px-3 text-[11px]">Status</TableHead>
+                                          <TableHead className="h-9 px-3 text-[11px]">Keterangan</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {documentRequirements.map((requirement) => (
+                                          <TableRow key={requirement.id}>
+                                            <TableCell className="px-3 py-2 text-xs font-medium">{requirement.nama}</TableCell>
+                                            <TableCell className="px-3 py-2 text-xs">{requirement.wajib ? "Wajib" : "Opsional"}</TableCell>
+                                            <TableCell className="px-3 py-2 text-xs text-muted-foreground">{requirement.keterangan || "—"}</TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </section>
+                                )}
+                              </div>
+                            </section>
+                            <section className="space-y-3 rounded-xl border bg-background p-4">
+                              <div>
+                                <h3 className="font-semibold">Nilai penawaran</h3>
+                                <p className="mt-1 text-xs text-muted-foreground">Masukkan harga dan masa berlaku penawaran.</p>
+                              </div>
+                              <label className="block space-y-1 text-sm">
+                                Harga penawaran *
+                                <span className="flex overflow-hidden rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring/40">
+                                  <span className="flex min-w-14 items-center justify-center border-r bg-muted/40 px-3 text-sm font-medium text-muted-foreground">{currencyConfig[quoteCurrency]?.prefix ?? quoteCurrency}</span>
+                                  <input
+                                    name="hargaPenawaran"
+                                    type="text"
+                                    required
+                                    inputMode="numeric"
+                                    value={quoteAmount}
+                                    onChange={(event) => setQuoteAmount(formatMoneyInput(event.target.value, quoteCurrency))}
+                                    placeholder="Masukkan jumlah"
+                                    className="w-full min-w-0 bg-transparent px-3 py-2 text-sm outline-none"
+                                  />
+                                </span>
                               </label>
-                              <label className="space-y-1 text-sm">
-                                Berlaku sampai
-                                <input name="berlakuSampai" type="date" defaultValue={dateInputValue} className="w-full rounded-md border bg-background p-2" />
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <label className="space-y-1 text-sm">
+                                  Mata uang
+                                  <select
+                                    name="mataUang"
+                                    value={quoteCurrency}
+                                    onChange={(event) => {
+                                      const nextCurrency = event.target.value;
+                                      setQuoteCurrency(nextCurrency);
+                                      setQuoteAmount((current) => formatMoneyInput(current, nextCurrency));
+                                    }}
+                                    className="w-full rounded-md border bg-background p-2"
+                                  >
+                                    <option value="IDR">IDR — Rupiah (Rp)</option>
+                                    <option value="USD">USD — Dolar AS ($)</option>
+                                    <option value="RUB">RUB — Rubel Rusia (₽)</option>
+                                  </select>
+                                </label>
+                                <label className="space-y-1 text-sm">
+                                  Berlaku sampai
+                                  <input name="berlakuSampai" type="date" defaultValue={dateInputValue} className="w-full rounded-md border bg-background p-2" />
+                                </label>
+                              </div>
+                              <label className="block space-y-1 text-sm">
+                                Catatan vendor
+                                <textarea name="catatan" rows={3} defaultValue={String(priorDetail.catatan ?? "")} className="w-full rounded-md border bg-background p-2" placeholder="Klarifikasi atau catatan untuk tim pengadaan" />
                               </label>
-                            </div>
-                            <label className="block space-y-1 text-sm">
-                              Spesifikasi
-                              <input name="spesifikasi" defaultValue={String(priorDetail.spesifikasi ?? "")} className="w-full rounded-md border bg-background p-2" />
-                            </label>
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              <label className="space-y-1 text-sm">
-                                Volume
-                                <input name="volume" defaultValue={String(priorDetail.volume ?? "")} className="w-full rounded-md border bg-background p-2" />
-                              </label>
-                              <label className="space-y-1 text-sm">
-                                Satuan
-                                <input name="satuan" defaultValue={String(priorDetail.satuan ?? "")} className="w-full rounded-md border bg-background p-2" />
-                              </label>
-                            </div>
-                            <label className="block space-y-1 text-sm">
-                              Syarat pembayaran
-                              <input name="syaratPembayaran" defaultValue={priorOffer?.syaratPembayaran ?? ""} className="w-full rounded-md border bg-background p-2" />
-                            </label>
-                            <label className="block space-y-1 text-sm">
-                              Ketentuan pengangkutan
-                              <input name="ketentuanPengangkutan" defaultValue={priorOffer?.ketentuanPengangkutan ?? ""} className="w-full rounded-md border bg-background p-2" />
-                            </label>
-                            <label className="block space-y-1 text-sm">
-                              Catatan
-                              <textarea name="catatan" rows={2} defaultValue={String(priorDetail.catatan ?? "")} className="w-full rounded-md border bg-background p-2" />
-                            </label>
+                            </section>
+                            {documentRequirements.length > 0 && (
+                              <section className="space-y-3 rounded-xl border bg-background p-4">
+                                <div>
+                                  <h3 className="font-semibold">Dokumen persyaratan</h3>
+                                  <p className="mt-1 text-xs text-muted-foreground">Unggah bukti sesuai persyaratan RFQ. File terhubung ke revisi penawaran ini.</p>
+                                </div>
+                                <div className="space-y-3">
+                                  {documentRequirements.map((requirement) => {
+                                    const existingDocument = (priorOffer?.dokumenPenawaran ?? []).find((document) => document.requirementId === requirement.id);
+                                    const required = Boolean(requirement.wajib && !existingDocument);
+                                    return (
+                                      <div key={requirement.id} className="rounded-lg border bg-muted/20 p-3">
+                                        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                                          <div>
+                                            <p className="text-sm font-medium">
+                                              {requirement.nama} {requirement.wajib ? <span className="text-destructive">*</span> : <span className="text-muted-foreground">(Opsional)</span>}
+                                            </p>
+                                            <p className="mt-1 text-xs text-muted-foreground">{requirement.keterangan || (requirement.wajib ? "Wajib dilampirkan" : "Lampirkan bila relevan")}</p>
+                                          </div>
+                                          {existingDocument ? <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700">Sudah terlampir</span> : null}
+                                        </div>
+                                        <UploadDocumentField
+                                          id={`offer-document-${rfq.id}-${requirement.id}`}
+                                          required={required}
+                                          disabled={busy}
+                                          onFileChange={(file) => setOfferFiles((current) => ({ ...current, [requirement.id]: file }))}
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </section>
+                            )}
                           </form>
                         </Modal>
                       </article>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Download } from "lucide-react";
 import { useCurrentUser } from "@/lib/api/hooks";
 import { DataTable } from "@/components/table/DataTable";
 import { Modal } from "@/components/modal/Modal";
@@ -125,6 +125,14 @@ const fieldLabels: Record<string, string> = {
   status: "Status",
   createdAt: "Dicatat pada",
   updatedAt: "Diperbarui pada",
+  nomorRfq: "Nomor RFQ",
+  hargaPenawaran: "Harga penawaran",
+  mataUang: "Mata uang",
+  berlakuSampai: "Berlaku sampai",
+  submittedAt: "Dikirim pada",
+  revisi: "Revisi",
+  contactPerson: "Kontak person",
+  npwp: "NPWP",
 };
 const hiddenFields = new Set(["id", "pengadaanId", "createdBy", "updatedBy", "disetujuiOleh"]);
 const isIdField = (key: string) => hiddenFields.has(key) || /(?:^id$|id$|Id$)/.test(key);
@@ -180,6 +188,8 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
   const [recommending, setRecommending] = useState(false);
   const [evaluation, setEvaluation] = useState({ administrasi: false, teknis: false, komersial: false, skor: "", peringkat: "", alasan: "", catatanEvaluasi: "" });
   const [recommendation, setRecommendation] = useState("");
+  const [documentDownloadId, setDocumentDownloadId] = useState("");
+  const [documentDownloadError, setDocumentDownloadError] = useState("");
   const user = useCurrentUser();
   const canManageRfq = user.isSuccess && !user.isRefetchError && ["admin", "operator"].includes(user.data.role.toLowerCase());
   const [rfqActionError, setRfqActionError] = useState("");
@@ -222,6 +232,35 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
     },
   });
   const canAudit = user.isSuccess && !user.isRefetchError && ["admin", "pimpinan"].includes(user.data.role.toLowerCase());
+  async function downloadOfferDocument(id: string, name: string) {
+    setDocumentDownloadId(id);
+    setDocumentDownloadError("");
+    try {
+      setBrowserToken();
+      const cookie = document.cookie
+        .split(";")
+        .map((item) => item.trim())
+        .find((item) => item.startsWith("lemigas_session="))
+        ?.slice("lemigas_session=".length);
+      const { readSession } = await import("@/lib/auth");
+      const token = readSession(cookie)?.token;
+      const response = await fetch(`${process.env.NEXT_PUBLIC_LEMIGAS_API_URL ?? "http://localhost:3001"}/api/vendor-onboarding/me/offers/documents/${encodeURIComponent(id)}/file`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) throw new Error("Dokumen tidak dapat diunduh");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = name;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setDocumentDownloadError(error instanceof Error ? error.message : "Dokumen tidak dapat diunduh");
+    } finally {
+      setDocumentDownloadId("");
+    }
+  }
   const canManageSelection = user.isSuccess && !user.isRefetchError && ["admin", "operator", "verifikator"].includes(user.data.role.toLowerCase());
   const selectionMutation = use_mutation<unknown, Error, { path: string; method: "PUT" | "POST"; body: RecordData }>({
     tag: "siklusTransaksiKomoditas",
@@ -624,39 +663,193 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
         }
       >
         {currentSelected ? (
-          <div className="space-y-6">
-            <section className="rounded-xl border bg-muted/20 p-4 sm:p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ringkasan record</p>
-                  <h3 className="mt-1 break-words text-lg font-semibold">
-                    {String(currentSelected.nomor ?? currentSelected.nomorRfq ?? currentSelected.jenisKargo ?? currentSelected.namaKapal ?? currentSelected.jenis ?? "Detail transaksi")}
-                  </h3>
-                  {currentSelected.status ? <p className="mt-1 text-sm text-muted-foreground">Status: {String(currentSelected.status).replaceAll("_", " ")}</p> : null}
-                </div>
-              </div>
-            </section>
-            <section className="rounded-xl border bg-card p-4 sm:p-5">
-              <header className="mb-4 border-b pb-3">
-                <h3 className="font-semibold">Informasi record</h3>
-              </header>
-              <dl className="grid gap-3 sm:grid-cols-2">
-                {Object.entries(currentSelected)
-                  .filter(([key, value]) => !isIdField(key) && value !== undefined)
-                  .map(([key, value]) => {
-                    const complexValue = value !== null && typeof value === "object";
-                    const longValue = typeof value === "string" && value.length > 90;
-                    return (
-                      <div key={key} className={`min-w-0 rounded-lg border bg-background p-3 ${complexValue || longValue ? "sm:col-span-2" : ""}`}>
-                        <dt className="mb-1 text-xs font-medium text-muted-foreground">{fieldLabels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}</dt>
-                        <dd className="break-words text-sm font-medium text-foreground">
-                          <DetailValue value={value} />
-                        </dd>
+          <div className="space-y-5">
+            {(() => {
+              const isOffer = currentSelected.hargaPenawaran !== undefined;
+              const title = String(
+                isOffer
+                  ? (currentSelected.vendor?.nama ?? currentSelected.nomorRfq ?? "Penawaran vendor")
+                  : (currentSelected.nomor ?? currentSelected.nomorRfq ?? currentSelected.jenisKargo ?? currentSelected.namaKapal ?? currentSelected.jenis ?? "Detail transaksi"),
+              );
+              const hasCanonicalRfq = ["volume", "satuan", "titikSerah", "spesifikasi", "dokumenDiminta", "syaratPembayaran", "syaratPenyerahan"].some((key) => currentSelected[key] != null);
+              const offerInternalFields = new Set(["hargaAcuan", "diferensialHarga", "ketentuanPengangkutan", "syaratPembayaran", "isCurrent", "revisiDariId", "nomorRfq", "vendor", "detail", "submittedAt", "updatedAt"]);
+              const entries = Object.entries(currentSelected).filter(
+                ([key, value]) => !isIdField(key) && value !== undefined && value !== null && value !== "" && !(hasCanonicalRfq && key === "ketentuan") && !(isOffer && offerInternalFields.has(key)),
+              );
+              const scalarEntries = entries.filter(([, value]) => typeof value !== "object");
+              const complexEntries = entries.filter(([key, value]) => value !== null && typeof value === "object" && !(isOffer && key === "detail"));
+              const offerDetail = isOffer && currentSelected.detail && typeof currentSelected.detail === "object" ? currentSelected.detail : null;
+              const rfqBaseline = offerDetail?.rfqBaseline && typeof offerDetail.rfqBaseline === "object" ? offerDetail.rfqBaseline : null;
+              const labelFor = (key: string) => fieldLabels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (character) => character.toUpperCase());
+              return (
+                <>
+                  <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/[0.07] via-background to-background p-5 shadow-sm sm:p-6">
+                    <div className="absolute inset-y-0 left-0 w-1 bg-primary/70" />
+                    <div className="flex flex-wrap items-start justify-between gap-4 pl-2">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">{isOffer ? "Penawaran vendor" : currentSelected.nomorRfq ? "Permintaan penawaran" : "Record transaksi"}</p>
+                        <h3 className="mt-2 break-words text-2xl font-semibold tracking-tight text-foreground">{title}</h3>
+                        <p className="mt-1 text-sm text-muted-foreground">{isOffer ? `RFQ ${currentSelected.nomorRfq ?? "—"} · Revisi ${currentSelected.revisi ?? 1}` : "Informasi dan ketentuan tersimpan pada tahap pengadaan ini."}</p>
                       </div>
-                    );
-                  })}
-              </dl>
-            </section>
+                      {currentSelected.status ? (
+                        <span className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/80 px-3 py-1.5 text-xs font-semibold capitalize text-foreground shadow-sm">
+                          <span className="size-2 rounded-full bg-primary" />
+                          {String(currentSelected.status).replaceAll("_", " ")}
+                        </span>
+                      ) : null}
+                    </div>
+                  </section>
+                  <section className="space-y-4 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
+                    <header className="flex items-end justify-between gap-3 border-b pb-3">
+                      <div>
+                        <h3 className="font-semibold tracking-tight">Informasi record</h3>
+                        <p className="mt-1 text-xs text-muted-foreground">Ringkasan data dan atribut utama.</p>
+                      </div>
+                      <span className="text-xs tabular-nums text-muted-foreground">{isOffer ? "Ringkasan penawaran" : `${entries.length} field`}</span>
+                    </header>
+                    {isOffer && currentSelected.vendor ? (
+                      <div className="flex items-center gap-3 rounded-xl border bg-muted/20 px-4 py-3">
+                        <span className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                          {String(currentSelected.vendor.nama ?? "V")
+                            .slice(0, 1)
+                            .toUpperCase()}
+                        </span>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Vendor</p>
+                          <p className="text-sm font-semibold">{String(currentSelected.vendor.nama ?? "—")}</p>
+                        </div>
+                      </div>
+                    ) : null}
+                    {scalarEntries.length ? (
+                      <dl className={`grid gap-3 ${isOffer ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+                        {scalarEntries.map(([key, value]) => (
+                          <div key={key} className="group min-w-0 rounded-xl border bg-background p-3.5 transition-colors hover:bg-muted/20">
+                            <dt className="text-xs font-medium text-muted-foreground">{labelFor(key)}</dt>
+                            <dd className="mt-1.5 break-words text-sm font-medium leading-relaxed text-foreground">
+                              <DetailValue value={value} />
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : null}
+                    {isOffer && offerDetail?.catatan ? (
+                      <section className="rounded-xl border bg-background p-4">
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Catatan vendor</h4>
+                        <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed">{String(offerDetail.catatan)}</p>
+                      </section>
+                    ) : null}
+                    {isOffer && Array.isArray(currentSelected.dokumenPenawaran) && currentSelected.dokumenPenawaran.length ? (
+                      <section className="overflow-hidden rounded-xl border bg-background">
+                        <h4 className="border-b bg-muted/25 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dokumen yang diunggah</h4>
+                        <div className="space-y-2 p-4">
+                          {currentSelected.dokumenPenawaran.map((item: Record<string, any>, index: number) => {
+                            const doc = item.dokumen ?? item;
+                            return (
+                              <div key={String(doc.id ?? index)} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
+                                <div className="min-w-0">
+                                  <p className="break-words text-sm font-medium">{String(doc.nama ?? `Dokumen ${index + 1}`)}</p>
+                                  <p className="mt-0.5 text-xs text-muted-foreground">{String(item.requirementId ?? "Dokumen penawaran")}</p>
+                                </div>
+                                <Button type="button" size="sm" variant="outline" disabled={documentDownloadId === String(doc.id)} onClick={() => void downloadOfferDocument(String(doc.id), String(doc.nama ?? `dokumen-${index + 1}`))}>
+                                  <Download size={14} />
+                                  {documentDownloadId === String(doc.id) ? "Mengunduh…" : "Unduh"}
+                                </Button>
+                              </div>
+                            );
+                          })}
+                          {documentDownloadError ? (
+                            <p role="alert" className="text-sm text-destructive">
+                              {documentDownloadError}
+                            </p>
+                          ) : null}
+                        </div>
+                      </section>
+                    ) : null}
+                    {isOffer && (!Array.isArray(currentSelected.dokumenPenawaran) || currentSelected.dokumenPenawaran.length === 0) ? (
+                      <p className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">Belum ada dokumen yang diunggah untuk penawaran ini.</p>
+                    ) : null}
+                    {rfqBaseline ? (
+                      <section className="overflow-hidden rounded-xl border bg-background">
+                        <h4 className="border-b bg-muted/25 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acuan kebutuhan RFQ</h4>
+                        <div className="space-y-4 p-4">
+                          <dl className="grid gap-3 sm:grid-cols-2">
+                            {(
+                              [
+                                ["volume", "Volume"],
+                                ["satuan", "Satuan"],
+                                ["titikSerah", "Titik serah"],
+                                ["syaratPenyerahan", "Syarat penyerahan"],
+                                ["syaratPembayaran", "Syarat pembayaran"],
+                              ] as Array<[string, string]>
+                            )
+                              .filter(([key]) => rfqBaseline[key] != null && rfqBaseline[key] !== "")
+                              .map(([key, label]) => (
+                                <div key={key} className="rounded-lg bg-muted/25 p-3">
+                                  <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+                                  <dd className="mt-1 whitespace-pre-wrap break-words text-sm">{typeof rfqBaseline[key] === "object" ? <DetailValue value={rfqBaseline[key]} /> : String(rfqBaseline[key])}</dd>
+                                </div>
+                              ))}
+                          </dl>
+                          {rfqBaseline.spesifikasi ? (
+                            <div>
+                              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Spesifikasi</p>
+                              <DetailValue value={rfqBaseline.spesifikasi} />
+                            </div>
+                          ) : null}
+                          {Array.isArray(rfqBaseline.dokumenDiminta) && rfqBaseline.dokumenDiminta.length ? (
+                            <div>
+                              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dokumen diminta</p>
+                              <div className="space-y-2">
+                                {rfqBaseline.dokumenDiminta.map((document: Record<string, unknown>, index: number) => {
+                                  const attachedDocument = list(currentSelected.dokumenPenawaran).find((item) => String(item.requirementId) === String(document.id));
+                                  const uploadedFile = attachedDocument?.dokumen ?? attachedDocument;
+                                  return (
+                                    <div key={String(document.id ?? index)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                                      <span className="text-sm font-medium">{String(document.nama ?? `Dokumen ${index + 1}`)}</span>
+                                      <span className="rounded-full bg-muted px-2 py-1 text-xs">{document.wajib ? "Wajib" : "Opsional"}</span>
+                                      {document.keterangan ? <p className="w-full text-xs text-muted-foreground">{String(document.keterangan)}</p> : null}
+                                      {uploadedFile?.id ? (
+                                        <div className="flex w-full items-center justify-between gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                                          <span className="min-w-0 truncate">Terunggah: {String(uploadedFile.nama ?? "Dokumen")}</span>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={documentDownloadId === String(uploadedFile.id)}
+                                            onClick={() => void downloadOfferDocument(String(uploadedFile.id), String(uploadedFile.nama ?? `dokumen-${index + 1}`))}
+                                          >
+                                            <Download size={14} />
+                                            {documentDownloadId === String(uploadedFile.id) ? "Mengunduh…" : "Unduh"}
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <p className="w-full text-xs text-muted-foreground">Belum ada berkas yang diunggah</p>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </section>
+                    ) : null}
+                    {complexEntries.length ? (
+                      <div className="space-y-3">
+                        {complexEntries.map(([key, value]) => (
+                          <section key={key} className="overflow-hidden rounded-xl border bg-background">
+                            <h4 className="border-b bg-muted/25 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{labelFor(key)}</h4>
+                            <div className="p-4">
+                              <DetailValue value={value} />
+                            </div>
+                          </section>
+                        ))}
+                      </div>
+                    ) : null}
+                  </section>
+                </>
+              );
+            })()}
           </div>
         ) : null}
       </Modal>

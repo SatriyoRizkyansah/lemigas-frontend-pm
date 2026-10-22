@@ -7,7 +7,20 @@ import Logo from "@/components/Logo";
 import { Button } from "@/components/ui/Button";
 
 const API = process.env.NEXT_PUBLIC_LEMIGAS_API_URL ?? "http://localhost:3001";
-type Rfq = { id: string; nomor: string; batasRespons?: string | null; ketentuan?: Record<string, unknown> | null; pengadaan: { nomorSurat: string; judul: string; deskripsi?: string | null; prioritas?: string | null } };
+type Rfq = {
+  id: string;
+  nomor: string;
+  batasRespons?: string | null;
+  volume?: number | string | null;
+  satuan?: string | null;
+  titikSerah?: string | null;
+  syaratPembayaran?: string | null;
+  syaratPenyerahan?: string | null;
+  spesifikasi?: Record<string, unknown> | null;
+  dokumenDiminta?: Array<{ id: string; nama: string; wajib?: boolean; keterangan?: string }> | null;
+  ketentuan?: Record<string, unknown> | null;
+  pengadaan: { nomorSurat: string; judul: string; deskripsi?: string | null; prioritas?: string | null };
+};
 
 const TERM_LABELS: Record<string, string> = {
   volume: "Volume",
@@ -61,9 +74,20 @@ export default function PublicRfqDetail({ params }: { params: { rfqId: string } 
       </main>
     );
   if (!rfq) return <main className="grid min-h-screen place-items-center bg-slate-50 text-slate-500">Memuat RFQ…</main>;
-  const terms = Object.entries(rfq.ketentuan ?? {})
-    .map(([key, value]) => [key, normalizeTerm(key, value)] as const)
-    .filter(([, value]) => value !== null && value !== undefined && value !== "");
+  const canonicalTerms: Array<[string, unknown]> = [
+    ["volume", rfq.volume],
+    ["satuan", rfq.satuan],
+    ["titikSerah", rfq.titikSerah],
+    ["syaratPembayaran", rfq.syaratPembayaran],
+    ["syaratPenyerahan", rfq.syaratPenyerahan],
+    ["spesifikasi", rfq.spesifikasi],
+    ["dokumenDiminta", rfq.dokumenDiminta],
+  ];
+  const terms = canonicalTerms.some(([, value]) => value !== null && value !== undefined && value !== "")
+    ? canonicalTerms.filter(([, value]) => value !== null && value !== undefined && value !== "")
+    : Object.entries(rfq.ketentuan ?? {})
+        .map(([key, value]) => [key, normalizeTerm(key, value)] as const)
+        .filter(([, value]) => value !== null && value !== undefined && value !== "");
   const basicTerms = terms.filter(([, value]) => !isRecord(value) && !Array.isArray(value));
   const structuredTerms = terms.filter(([, value]) => isRecord(value) || Array.isArray(value));
   return (

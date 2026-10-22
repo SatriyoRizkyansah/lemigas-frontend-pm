@@ -38,7 +38,7 @@ const num = (name: string, label: string, min?: number, required = false, intege
 const json = (name: string, label: string, required = false): Field => ({ name, label, kind: "json", required });
 const detailText = (name: string, label: string, payloadPath: string, required = false): Field => ({ name, label, payloadPath, required });
 const detailJson = (name: string, label: string, payloadPath: string): Field => ({ name, label, kind: "json", payloadPath });
-const documentList = (name: string, label: string, payloadPath: string): Field => ({ name, label, kind: "document-list", payloadPath });
+const documentList = (name: string, label: string, payloadPath?: string): Field => ({ name, label, kind: "document-list", payloadPath });
 const date = (name: string, label: string, required = false): Field => ({ name, label, kind: "date", required });
 const select = (name: string, label: string, options: readonly string[], required = true): Field => ({ name, label, options, required });
 const rel = (name: string, label: string, relation: string, required = false): Field => ({ name, label, relation, required });
@@ -154,13 +154,13 @@ export const lifecycleOperations: Operation[] = [
       nomor,
       text("alasanPerubahan", "Alasan revisi", false, 1000),
       date("batasRespons", "Batas respons"),
-      detailJson("spesifikasi", "Spesifikasi kebutuhan", "ketentuan.spesifikasi"),
-      detailText("volume", "Volume yang diminta", "ketentuan.volume"),
-      detailText("satuan", "Satuan", "ketentuan.satuan"),
-      detailText("titikSerah", "Titik serah", "ketentuan.titikSerah"),
-      detailText("syaratPenyerahan", "Syarat penyerahan", "ketentuan.syaratPenyerahan"),
-      detailText("syaratPembayaran", "Syarat pembayaran", "ketentuan.syaratPembayaran"),
-      documentList("dokumenDiminta", "Dokumen yang diminta", "ketentuan.dokumenDiminta"),
+      json("spesifikasi", "Spesifikasi kebutuhan"),
+      num("volume", "Volume yang diminta", 0),
+      text("satuan", "Satuan", false, 30),
+      text("titikSerah", "Titik serah", false, 200),
+      textarea("syaratPenyerahan", "Syarat penyerahan"),
+      textarea("syaratPembayaran", "Syarat pembayaran"),
+      documentList("dokumenDiminta", "Dokumen yang diminta"),
     ]),
     stages: ["pemilihan_penyedia", "permintaan_penawaran", "sourcing"],
   },
@@ -458,30 +458,39 @@ export function operationPayload(fields: Field[], values: Record<string, string>
     if (field.maxLength && value.length > field.maxLength) throw new Error(`${field.label}: maksimal ${field.maxLength} karakter.`);
     if (field.relation && !options(field).some((item) => item.value === value)) throw new Error(`${field.label}: pilih relasi yang tersedia.`);
     if (field.options && !field.options.includes(value)) throw new Error(`${field.label}: pilihan tidak valid.`);
-    if (field.payloadPath) {
+    if (field.kind === "document-list") {
+      const entries = value
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line, index) => {
+          const separator = line.indexOf(":");
+          const nama = (separator < 0 ? line : line.slice(0, separator)).trim();
+          const keterangan = (separator < 0 ? "" : line.slice(separator + 1)).trim();
+          if (!nama) throw new Error(`${field.label}: nama dokumen wajib diisi.`);
+          return { id: `dokumen-${index + 1}`, nama, wajib: /\bwajib\b/i.test(keterangan), ...(keterangan ? { keterangan } : {}) };
+        });
+      if (new Set(entries.map((item) => item.nama.toLowerCase())).size !== entries.length) throw new Error(`${field.label}: nama dokumen tidak boleh berulang.`);
+      body[field.name] = entries;
+    } else if (field.payloadPath) {
       const path = field.payloadPath.split(".");
       const target = path.slice(0, -1).reduce<Entity>((node, key) => {
         const child = node[key];
         if (!child || typeof child !== "object" || Array.isArray(child)) node[key] = {};
         return node[key] as Entity;
       }, body);
-      if (field.kind === "json" || field.kind === "document-list") {
+      if (field.kind === "json") {
         const entries = value
           .split(/\r?\n/)
           .map((line) => line.trim())
           .filter(Boolean)
           .map((line) => {
             const separator = line.indexOf(":");
-            if (separator < 1 || !line.slice(0, separator).trim() || !line.slice(separator + 1).trim()) {
-              throw new Error(`${field.label}: isi setiap baris dengan format “Nama: nilai”.`);
-            }
+            if (separator < 1 || !line.slice(0, separator).trim() || !line.slice(separator + 1).trim()) throw new Error(`${field.label}: isi setiap baris dengan format “Nama: nilai”.`);
             return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
           });
-        if (new Set(entries.map(([key]) => key)).size !== entries.length) throw new Error(`${field.label}: nama parameter tidak boleh berulang.`);
         target[path.at(-1)!] = Object.fromEntries(entries);
-      } else {
-        target[path.at(-1)!] = value;
-      }
+      } else target[path.at(-1)!] = value;
     } else if (field.kind === "number") {
       const number = Number(value);
       if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) || !Number.isFinite(number) || (field.integer && !Number.isInteger(number)) || (field.min !== undefined && number < field.min))
