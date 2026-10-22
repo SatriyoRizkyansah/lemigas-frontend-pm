@@ -113,12 +113,14 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const submitting = useRef(false);
   const revisionSeedKey = useRef("");
   const uninitialized = stage === "perencanaan" && Array.isArray(detail.tahapan) && detail.tahapan.length === 0;
+  const isPublicDirectPurchase = String(detail.metode) === "pengadaan_langsung";
   const available = lifecycleOperations.filter((op) => op.stages.includes(stage) && op.roles.includes(role) && (!uninitialized || op.key === "perencanaan") && (!op.available || op.available(detail)));
   const fields =
     selected?.fields
       .filter((field) => {
         if (role === "vendor" && field.name === "vendorId") return false;
         if (selected.key === "tutupRfq" || selected.key === "bukaKembaliRfq") return false;
+        if (selected.key === "rfq" && isPublicDirectPurchase) return !["mode", "vendorIds", "rfqId", "rfqIds", "alasanPerubahan"].includes(field.name);
         if (selected.key !== "rfq") return true;
         const mode = values.mode || "baru";
         if (mode === "baru") return field.name !== "rfqId" && field.name !== "alasanPerubahan";
@@ -155,7 +157,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       // Full directory remains source of status; detail-only rows fill gaps, never replace fetched rows.
       const all = new Map<string, Entity>();
       for (const row of [...related, ...(vendors.data ?? [])]) if (typeof row.id === "string") all.set(row.id, row);
-      return choices([...all.values()].filter((row) => selected?.key !== "penawaran" || row.status === "aktif"));
+      const winnerId = String(object(detail.pemilihanPenyedia).vendorTerpilihId ?? "");
+      const winnerApproved = object(detail.pemilihanPenyedia).status === "disetujui";
+      return choices([...all.values()].filter((row) => (selected?.key !== "penawaran" || row.status === "aktif") && (selected?.key !== "kontrak" || !winnerApproved || !winnerId || String(row.id) === winnerId)));
     }
     if (field.relation === "rfqAktif" || field.relation === "rfqTertutup") {
       const rows = records(detail.rfq).filter((row) => row.status === (field.relation === "rfqAktif" ? "aktif" : "selesai"));
@@ -165,7 +169,10 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         const current = unique.get(key);
         if (!current || Number(row.revisi ?? 1) > Number(current.revisi ?? 1)) unique.set(key, row);
       }
-      return [...unique.values()].map((row) => ({ value: String(row.id ?? ""), label: `${String(row.nomor ?? "RFQ")} · ${String(object(row.vendor).nama ?? "vendor")} · R${String(row.revisi ?? 1)}` }));
+      return [...unique.values()].map((row) => ({
+        value: String(row.id ?? ""),
+        label: row.isPublic ? `${String(row.nomor ?? "RFQ")} · RFQ publik · R${String(row.revisi ?? 1)}` : `${String(row.nomor ?? "RFQ")} · ${String(object(row.vendor).nama ?? "vendor")} · R${String(row.revisi ?? 1)}`,
+      }));
     }
     if (field.relation) return choices(field.relation === "laporanDraft" ? records(detail.laporan).filter((row) => row.status === "draft") : records(detail[field.relation]));
     if (field.kind === "boolean")
@@ -240,6 +247,10 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
             ? String(seedValue).slice(0, 10)
             : String(seedValue);
     }
+    if (operation.key === "kontrak") {
+      const selection = object(detail.pemilihanPenyedia);
+      if (selection.status === "disetujui" && typeof selection.vendorTerpilihId === "string") initial.vendorId = selection.vendorTerpilihId;
+    }
     revisionSeedKey.current = "";
     setValues(initial);
     setSelected(operation);
@@ -268,7 +279,13 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       const body = operationPayload(fields, payloadValues, options);
       submitting.current = true;
       await mutation.mutateAsync({ operation: selected, body });
-      setSuccess(selected.key === "rfq" ? `RFQ berhasil diterbitkan kepada ${(body.vendorIds as string[] | undefined)?.length ?? 1} vendor.` : `${selected.title}: berhasil.`);
+      setSuccess(
+        selected.key === "rfq"
+          ? isPublicDirectPurchase
+            ? "RFQ publik berhasil diterbitkan. Vendor yang telah disetujui dapat mengirim penawaran hingga batas respons."
+            : `RFQ berhasil diterbitkan kepada ${(body.vendorIds as string[] | undefined)?.length ?? 1} vendor.`
+          : `${selected.title}: berhasil.`,
+      );
       setSelected(null);
     } catch (cause) {
       setError(getApiErrorMessage(cause));
@@ -279,7 +296,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const operationPresentation: Record<string, { description: string; icon: typeof ClipboardList }> = {
     perencanaan: { description: "Catat kebutuhan transaksi dan jadwal pengadaan.", icon: ClipboardList },
     strategi: { description: "Tentukan metode seleksi dan pendekatan transaksi.", icon: Settings2 },
-    rfq: { description: "Kirim atau perbarui permintaan penawaran kepada vendor.", icon: Send },
+    rfq: { description: isPublicDirectPurchase ? "Terbitkan RFQ publik untuk vendor yang telah disetujui." : "Kirim atau perbarui permintaan penawaran kepada vendor.", icon: Send },
     tutupRfq: { description: "Akhiri penerimaan penawaran untuk RFQ aktif.", icon: FileCheck2 },
     bukaKembaliRfq: { description: "Aktifkan kembali RFQ yang telah ditutup.", icon: FileText },
     verifikasi: { description: "Periksa legalitas, kepatuhan, dan rekening vendor.", icon: FileCheck2 },
@@ -428,7 +445,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                             </li>
                           ))}
                         </ul>
-                        {documents.some((doc) => doc.jenis === "Surat Kuasa / Penunjukan Penandatangan") ? null : (
+                        {documents.some((doc) => doc.jenis === "SURAT_KUASA_PENUNJUKAN_PENANDATANGAN") ? null : (
                           <p className="text-xs text-muted-foreground">Surat Kuasa diperlukan bila kewenangan penandatangan tidak tercantum dalam Akta.</p>
                         )}
                       </div>
@@ -447,11 +464,13 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           <fieldset disabled={locked || !permitted} className="space-y-4">
             {selected?.key === "rfq" ? (
               <p className="text-sm text-muted-foreground">
-                {values.mode === "baru"
-                  ? "Terbitkan RFQ baru kepada vendor pilihan."
-                  : values.mode === "tambah_vendor"
-                    ? "Pilih RFQ aktif dan vendor baru. Ketentuan akan disalin dari RFQ acuan."
-                    : "Nilai awal disalin dari RFQ pertama yang dipilih. Perubahan akan diterapkan ke seluruh vendor dan RFQ acuan terpilih sebagai revisi baru."}
+                {isPublicDirectPurchase
+                  ? "Terbitkan RFQ publik. Vendor yang telah disetujui dapat mengirim penawaran hingga batas respons."
+                  : values.mode === "baru"
+                    ? "Terbitkan RFQ baru kepada vendor pilihan."
+                    : values.mode === "tambah_vendor"
+                      ? "Pilih RFQ aktif dan vendor baru. Ketentuan akan disalin dari RFQ acuan."
+                      : "Nilai awal disalin dari RFQ pertama yang dipilih. Perubahan akan diterapkan ke seluruh vendor dan RFQ acuan terpilih sebagai revisi baru."}
               </p>
             ) : null}
             {selected?.key === "penawaran" ? <p className="text-sm text-muted-foreground">Catat satu penawaran per vendor dan nomor RFQ. Ulangi hanya untuk vendor yang sudah menyampaikan penawaran.</p> : null}
@@ -626,6 +645,74 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               ))}
                             </SelectContent>
                           </Select>
+                        ) : field.kind === "document-list" ? (
+                          <div className="space-y-3" aria-describedby={`${fieldId}-hint`}>
+                            <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
+                              Cantumkan dokumen yang wajib disampaikan vendor beserta ketentuannya.
+                            </p>
+                            <div className="space-y-2">
+                              {parseParameterRows(values[field.name] ?? "").map((row, index, rows) => (
+                                <div key={`${fieldId}-row-${index}`} className="grid gap-2 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-end">
+                                  <div className="space-y-1.5">
+                                    <Label htmlFor={`${fieldId}-name-${index}`} className="text-xs">
+                                      Nama dokumen
+                                    </Label>
+                                    <Input
+                                      id={`${fieldId}-name-${index}`}
+                                      aria-label={`${field.label}: nama dokumen ${index + 1}`}
+                                      placeholder="Contoh: Surat penawaran harga"
+                                      value={row.name}
+                                      onChange={(event) => {
+                                        const next = [...rows];
+                                        next[index] = { ...row, name: event.target.value };
+                                        setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label htmlFor={`${fieldId}-detail-${index}`} className="text-xs">
+                                      Ketentuan / keterangan
+                                    </Label>
+                                    <Input
+                                      id={`${fieldId}-detail-${index}`}
+                                      aria-label={`${field.label}: ketentuan dokumen ${index + 1}`}
+                                      placeholder="Contoh: Wajib, ditandatangani pejabat berwenang"
+                                      value={row.value}
+                                      onChange={(event) => {
+                                        const next = [...rows];
+                                        next[index] = { ...row, value: event.target.value };
+                                        setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                      }}
+                                    />
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    aria-label={`Hapus dokumen ${index + 1}`}
+                                    disabled={rows.length === 1}
+                                    onClick={() => {
+                                      const next = rows.filter((_, rowIndex) => rowIndex !== index);
+                                      setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                    }}
+                                  >
+                                    Hapus
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const next = [...parseParameterRows(values[field.name] ?? ""), { name: "", value: "" }];
+                                setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                              }}
+                            >
+                              Tambah dokumen
+                            </Button>
+                          </div>
                         ) : field.kind === "json" ? (
                           <div className="space-y-3" aria-describedby={`${fieldId}-hint`}>
                             <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">

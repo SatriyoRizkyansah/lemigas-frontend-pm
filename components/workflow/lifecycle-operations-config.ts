@@ -1,11 +1,12 @@
 import { browserApi } from "@/lib/api/browser-client";
 import { ContentType, type RequestParams, type UpdateStatusTahapDto } from "@/lib/api/generated/api-generated";
+import { ACTIVE_PROCUREMENT_METHODS } from "@/lib/procurement-methods";
 
 export type Entity = Record<string, unknown>;
 export type Field = {
   name: string;
   label: string;
-  kind?: "number" | "json" | "date" | "boolean" | "textarea";
+  kind?: "number" | "json" | "document-list" | "date" | "boolean" | "textarea";
   required?: boolean;
   min?: number;
   integer?: boolean;
@@ -29,7 +30,7 @@ const api = browserApi.siklusTransaksiKomoditas;
 const AO = ["admin", "operator"];
 const AOV = [...AO, "verifikator"];
 const ALL = [...AOV, "pimpinan"];
-const methods = ["tender", "pengadaan_langsung", "penunjukan_langsung", "e_procurement"];
+const methods = ACTIVE_PROCUREMENT_METHODS.map(([method]) => method);
 const statuses: UpdateStatusTahapDto["status"][] = ["draft", "menunggu_persetujuan", "aktif", "selesai", "revisi", "ditolak", "gagal", "dibatalkan"];
 const text = (name: string, label: string, required = false, maxLength?: number): Field => ({ name, label, required, maxLength });
 const textarea = (name: string, label: string, required = false): Field => ({ name, label, kind: "textarea", required });
@@ -37,6 +38,7 @@ const num = (name: string, label: string, min?: number, required = false, intege
 const json = (name: string, label: string, required = false): Field => ({ name, label, kind: "json", required });
 const detailText = (name: string, label: string, payloadPath: string, required = false): Field => ({ name, label, payloadPath, required });
 const detailJson = (name: string, label: string, payloadPath: string): Field => ({ name, label, kind: "json", payloadPath });
+const documentList = (name: string, label: string, payloadPath: string): Field => ({ name, label, kind: "document-list", payloadPath });
 const date = (name: string, label: string, required = false): Field => ({ name, label, kind: "date", required });
 const select = (name: string, label: string, options: readonly string[], required = true): Field => ({ name, label, options, required });
 const rel = (name: string, label: string, relation: string, required = false): Field => ({ name, label, relation, required });
@@ -127,25 +129,45 @@ export const lifecycleOperations: Operation[] = [
     AO,
     "strategi",
   ),
-  create("rfq", "Terbitkan RFQ", "sourcing", api.transaksiControllerCreateRfq, [
-    select("mode", "Mode penerbitan", ["baru", "tambah_vendor", "revisi"]),
-    { ...rel("rfqId", "RFQ acuan", "rfqAktif"), required: false, multiple: true },
-    vendorMultiple,
-    nomor,
-    text("alasanPerubahan", "Alasan revisi", false, 1000),
-    date("batasRespons", "Batas respons"),
-    detailJson("spesifikasi", "Spesifikasi kebutuhan", "ketentuan.spesifikasi"),
-    detailText("volume", "Volume yang diminta", "ketentuan.volume"),
-    detailText("satuan", "Satuan", "ketentuan.satuan"),
-    detailText("titikSerah", "Titik serah", "ketentuan.titikSerah"),
-    detailText("syaratPenyerahan", "Syarat penyerahan", "ketentuan.syaratPenyerahan"),
-    detailText("syaratPembayaran", "Syarat pembayaran", "ketentuan.syaratPembayaran"),
-    detailJson("dokumenDiminta", "Dokumen yang diminta", "ketentuan.dokumenDiminta"),
-  ]),
+  {
+    key: "pemilihan-penyedia",
+    title: "Inisialisasi penunjukan penyedia",
+    stages: ["justifikasi_penunjukan", "permintaan_penawaran"],
+    roles: AO,
+    fields: [vendorMultiple, textarea("justifikasiPenunjukan", "Justifikasi penunjukan langsung", true)],
+    available: (d) => String(d.metode) === "penunjukan_langsung",
+    run: (id, body) =>
+      browserApi.request<unknown, unknown>({
+        path: `/api/pengadaan/${encodeURIComponent(id)}/pemilihan-penyedia`,
+        method: "POST",
+        body,
+        type: ContentType.Json,
+        format: "json",
+        secure: true,
+      }),
+  },
+  {
+    ...create("rfq", "Terbitkan RFQ", "sourcing", api.transaksiControllerCreateRfq, [
+      select("mode", "Mode penerbitan", ["baru", "tambah_vendor", "revisi"]),
+      { ...rel("rfqId", "RFQ acuan", "rfqAktif"), required: false, multiple: true },
+      vendorMultiple,
+      nomor,
+      text("alasanPerubahan", "Alasan revisi", false, 1000),
+      date("batasRespons", "Batas respons"),
+      detailJson("spesifikasi", "Spesifikasi kebutuhan", "ketentuan.spesifikasi"),
+      detailText("volume", "Volume yang diminta", "ketentuan.volume"),
+      detailText("satuan", "Satuan", "ketentuan.satuan"),
+      detailText("titikSerah", "Titik serah", "ketentuan.titikSerah"),
+      detailText("syaratPenyerahan", "Syarat penyerahan", "ketentuan.syaratPenyerahan"),
+      detailText("syaratPembayaran", "Syarat pembayaran", "ketentuan.syaratPembayaran"),
+      documentList("dokumenDiminta", "Dokumen yang diminta", "ketentuan.dokumenDiminta"),
+    ]),
+    stages: ["pemilihan_penyedia", "permintaan_penawaran", "sourcing"],
+  },
   ...(["tutup", "buka-kembali"] as const).map((action) => ({
     key: action === "tutup" ? "tutupRfq" : "bukaKembaliRfq",
     title: action === "tutup" ? "Tutup RFQ" : "Buka kembali RFQ",
-    stages: ["sourcing"],
+    stages: ["pemilihan_penyedia", "permintaan_penawaran", "sourcing"],
     roles: AO,
     fields: [rel("rfqId", "RFQ", action === "tutup" ? "rfqAktif" : "rfqTertutup", true), textarea("alasan", "Alasan perubahan", true)],
     run: (id: string, body: Entity) =>
@@ -158,56 +180,65 @@ export const lifecycleOperations: Operation[] = [
         secure: true,
       }),
   })),
-  create(
-    "penawaran",
-    "Catat penawaran",
-    "sourcing",
-    api.transaksiControllerCreatePenawaran,
-    [
-      vendor(true),
-      text("nomorRfq", "Nomor RFQ", false, 100),
-      text("hargaAcuan", "Harga acuan", false, 100),
-      num("diferensialHarga", "Diferensial harga"),
-      num("hargaPenawaran", "Harga penawaran", 0),
-      currency,
-      date("berlakuSampai", "Berlaku sampai"),
-      text("ketentuanPengangkutan", "Ketentuan pengangkutan"),
-      text("syaratPembayaran", "Syarat pembayaran"),
-      detailText("spesifikasi", "Spesifikasi produk", "spesifikasi"),
-      detailText("volume", "Volume yang ditawarkan", "volume"),
-      detailText("satuan", "Satuan", "satuan"),
-      detailText("asalProduk", "Asal produk", "asalProduk"),
-      detailText("pelabuhanMuat", "Pelabuhan muat", "pelabuhanMuat"),
-      detailText("waktuPengiriman", "Waktu pengiriman", "waktuPengiriman"),
-      detailText("masaBerlakuPenawaran", "Masa berlaku penawaran", "masaBerlaku"),
-      detailText("catatan", "Catatan tambahan", "catatan"),
-    ],
-    [...AO, "vendor"],
-  ),
-  create(
-    "verifikasi",
-    "Simpan verifikasi vendor",
-    "evaluasi_negosiasi",
-    api.transaksiControllerCreateVerifikasi,
-    [
-      vendor(true),
-      select("kewenangan", "Kewenangan penandatangan", ["selesai", "ditolak", "revisi"]),
-      select("kepatuhan", "Kepatuhan terhadap persyaratan pengadaan", ["selesai", "ditolak", "revisi"]),
-      select("hasil", "Hasil verifikasi keseluruhan", ["selesai", "ditolak", "revisi"]),
-      text("catatan", "Catatan"),
-    ],
-    ["admin", "verifikator"],
-  ),
-  create("negosiasi", "Catat negosiasi", "evaluasi_negosiasi", api.transaksiControllerCreateNegosiasi, [
-    rel("penawaranId", "Penawaran", "penawaran", true),
-    num("putaran", "Putaran", 1, true, true),
-    num("batasNegosiasi", "Batas negosiasi"),
-    text("hargaAcuan", "Harga acuan"),
-    num("alphaAwal", "Alpha awal"),
-    num("alphaAkhir", "Alpha akhir"),
-    num("totalBiayaPerolehan", "Total biaya perolehan"),
-    text("hasil", "Hasil"),
-  ]),
+  {
+    ...create(
+      "penawaran",
+      "Catat penawaran",
+      "sourcing",
+      api.transaksiControllerCreatePenawaran,
+      [
+        vendor(true),
+        text("nomorRfq", "Nomor RFQ", false, 100),
+        text("hargaAcuan", "Harga acuan", false, 100),
+        num("diferensialHarga", "Diferensial harga"),
+        num("hargaPenawaran", "Harga penawaran", 0),
+        currency,
+        date("berlakuSampai", "Berlaku sampai"),
+        text("ketentuanPengangkutan", "Ketentuan pengangkutan"),
+        text("syaratPembayaran", "Syarat pembayaran"),
+        detailText("spesifikasi", "Spesifikasi produk", "spesifikasi"),
+        detailText("volume", "Volume yang ditawarkan", "volume"),
+        detailText("satuan", "Satuan", "satuan"),
+        detailText("asalProduk", "Asal produk", "asalProduk"),
+        detailText("pelabuhanMuat", "Pelabuhan muat", "pelabuhanMuat"),
+        detailText("waktuPengiriman", "Waktu pengiriman", "waktuPengiriman"),
+        detailText("masaBerlakuPenawaran", "Masa berlaku penawaran", "masaBerlaku"),
+        detailText("catatan", "Catatan tambahan", "catatan"),
+      ],
+      [...AO, "vendor"],
+    ),
+    stages: ["penawaran_vendor", "verifikasi_evaluasi", "permintaan_penawaran", "sourcing"],
+  },
+  {
+    ...create(
+      "verifikasi",
+      "Simpan verifikasi vendor",
+      "evaluasi_negosiasi",
+      api.transaksiControllerCreateVerifikasi,
+      [
+        vendor(true),
+        select("kewenangan", "Kewenangan penandatangan", ["selesai", "ditolak", "revisi"]),
+        select("kepatuhan", "Kepatuhan terhadap persyaratan pengadaan", ["selesai", "ditolak", "revisi"]),
+        select("hasil", "Hasil verifikasi keseluruhan", ["selesai", "ditolak", "revisi"]),
+        text("catatan", "Catatan"),
+      ],
+      ["admin", "verifikator"],
+    ),
+    stages: ["verifikasi_evaluasi", "verifikasi_vendor", "evaluasi_negosiasi"],
+  },
+  {
+    ...create("negosiasi", "Catat negosiasi", "evaluasi_negosiasi", api.transaksiControllerCreateNegosiasi, [
+      rel("penawaranId", "Penawaran", "penawaran", true),
+      num("putaran", "Putaran", 1, true, true),
+      num("batasNegosiasi", "Batas negosiasi"),
+      text("hargaAcuan", "Harga acuan"),
+      num("alphaAwal", "Alpha awal"),
+      num("alphaAkhir", "Alpha akhir"),
+      num("totalBiayaPerolehan", "Total biaya perolehan"),
+      text("hasil", "Hasil"),
+    ]),
+    stages: ["klarifikasi_negosiasi", "uji_kewajaran_negosiasi", "evaluasi_negosiasi"],
+  },
   {
     ...create(
       "memorandum",
@@ -229,12 +260,13 @@ export const lifecycleOperations: Operation[] = [
       AO,
       "memorandum",
     ),
+    stages: ["memorandum_keputusan", "approval"],
     available: (d) => !d.memorandum || ["draft", "revisi"].includes(String((d.memorandum as Entity).status)),
   },
   {
     key: "submit-memorandum",
     title: "Ajukan memorandum",
-    stages: ["approval"],
+    stages: ["memorandum_keputusan", "approval"],
     roles: AO,
     fields: [],
     available: (d) => !!d.memorandum && ["draft", "revisi"].includes(String((d.memorandum as Entity).status)),
@@ -427,12 +459,13 @@ export function operationPayload(fields: Field[], values: Record<string, string>
     if (field.relation && !options(field).some((item) => item.value === value)) throw new Error(`${field.label}: pilih relasi yang tersedia.`);
     if (field.options && !field.options.includes(value)) throw new Error(`${field.label}: pilihan tidak valid.`);
     if (field.payloadPath) {
-      const target = field.payloadPath.split(".").reduce<Entity>((node, key) => {
+      const path = field.payloadPath.split(".");
+      const target = path.slice(0, -1).reduce<Entity>((node, key) => {
         const child = node[key];
         if (!child || typeof child !== "object" || Array.isArray(child)) node[key] = {};
         return node[key] as Entity;
       }, body);
-      if (field.kind === "json") {
+      if (field.kind === "json" || field.kind === "document-list") {
         const entries = value
           .split(/\r?\n/)
           .map((line) => line.trim())
@@ -445,9 +478,9 @@ export function operationPayload(fields: Field[], values: Record<string, string>
             return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
           });
         if (new Set(entries.map(([key]) => key)).size !== entries.length) throw new Error(`${field.label}: nama parameter tidak boleh berulang.`);
-        target[field.payloadPath.split(".").at(-1)!] = Object.fromEntries(entries);
+        target[path.at(-1)!] = Object.fromEntries(entries);
       } else {
-        target[field.payloadPath.split(".").at(-1)!] = value;
+        target[path.at(-1)!] = value;
       }
     } else if (field.kind === "number") {
       const number = Number(value);

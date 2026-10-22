@@ -25,8 +25,25 @@ type Entity = Record<string, unknown>;
 type Requirement = Entity & { id: string; jenisDokumen: string };
 type UploadBody = Parameters<typeof browserApi.dokumen.dokumenPostControllerUpload>[0];
 type Action = { mode: "upload" | "fulfill"; requirementId: string };
-const uploadStages: NonNullable<UploadBody["tahap"]>[] = ["perencanaan", "sourcing", "evaluasi_negosiasi", "approval", "kontrak", "delivery", "settlement"];
-const stages: PenuhiDokumenTahapDto["tahap"][] = [...uploadStages, "selesai", "gagal", "dibatalkan"];
+const uploadStages: string[] = [
+  "perencanaan",
+  "pemilihan_penyedia",
+  "penawaran_vendor",
+  "verifikasi_evaluasi",
+  "klarifikasi_negosiasi",
+  "rekomendasi_pemenang",
+  "verifikasi_vendor",
+  "permintaan_penawaran",
+  "uji_kewajaran_negosiasi",
+  "memorandum_keputusan",
+  "sourcing",
+  "evaluasi_negosiasi",
+  "approval",
+  "kontrak",
+  "delivery",
+  "settlement",
+];
+const stages: string[] = [...uploadStages, "selesai", "gagal", "dibatalkan"];
 function object(value: unknown): Entity {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Entity) : {};
 }
@@ -138,7 +155,7 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
             pengadaanId,
             nama: name.trim(),
             tipePenyimpanan: "upload_lokal",
-            tahap: uploadStage,
+            tahap: uploadStage as UploadBody["tahap"],
             jenisDokumen: requirement.jenisDokumen,
             ...(stage === "delivery" && shipmentId ? { pengirimanId: shipmentId } : {}),
             ...(stage === "delivery" && number.trim() ? { nomorDokumen: number.trim() } : {}),
@@ -149,7 +166,7 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
         const tahap = stages.find((value) => value === stage);
         if (!tahap) throw new Error("Tahap tidak valid.");
         submitting.current = true;
-        await mutation.mutateAsync({ mode: "fulfill", body: { tahap, jenisDokumen: requirement.jenisDokumen, dokumenId: documentId, ...(notes.trim() ? { catatan: notes.trim() } : {}) } });
+        await mutation.mutateAsync({ mode: "fulfill", body: { tahap: tahap as PenuhiDokumenTahapDto["tahap"], jenisDokumen: requirement.jenisDokumen, dokumenId: documentId, ...(notes.trim() ? { catatan: notes.trim() } : {}) } });
       }
       setSuccess(action.mode === "upload" ? "Dokumen diunggah; persyaratan otomatis terpenuhi." : "Persyaratan dokumen terpenuhi.");
       setAction(null);

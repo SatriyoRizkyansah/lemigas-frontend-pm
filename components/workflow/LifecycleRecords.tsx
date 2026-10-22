@@ -7,6 +7,8 @@ import { useCurrentUser } from "@/lib/api/hooks";
 import { DataTable } from "@/components/table/DataTable";
 import { Modal } from "@/components/modal/Modal";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/loading/EmptyState";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken } from "@/lib/api/hooks";
@@ -44,6 +46,21 @@ const sections: Record<string, Array<[string, string]>> = {
     ["perencanaan", "Kebutuhan transaksi"],
     ["strategi", "Strategi sourcing"],
   ],
+  pemilihan_penyedia: [["rfq", "RFQ"]],
+  penawaran_vendor: [["penawaran", "Penawaran vendor"]],
+  verifikasi_evaluasi: [
+    ["penawaran", "Penawaran vendor"],
+    ["verifikasi", "Verifikasi vendor"],
+  ],
+  klarifikasi_negosiasi: [["negosiasi", "Hasil negosiasi"]],
+  rekomendasi_pemenang: [],
+  verifikasi_vendor: [["verifikasi", "Verifikasi vendor"]],
+  permintaan_penawaran: [
+    ["rfq", "RFQ"],
+    ["penawaran", "Penawaran vendor"],
+  ],
+  uji_kewajaran_negosiasi: [["negosiasi", "Hasil negosiasi"]],
+  memorandum_keputusan: [["memorandum", "Memorandum"]],
   sourcing: [
     ["rfq", "RFQ"],
     ["penawaran", "Penawaran vendor"],
@@ -159,6 +176,10 @@ function DetailValue({ value }: { value: any }) {
 export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage: string; active: boolean; pengadaanId: string; detail: RecordData }) {
   const [selected, setSelected] = useState<RecordData | null>(null);
   const [jenisDraft, setJenisDraft] = useState<Record<string, string>>({});
+  const [evaluating, setEvaluating] = useState<RecordData | null>(null);
+  const [recommending, setRecommending] = useState(false);
+  const [evaluation, setEvaluation] = useState({ administrasi: false, teknis: false, komersial: false, skor: "", peringkat: "", alasan: "", catatanEvaluasi: "" });
+  const [recommendation, setRecommendation] = useState("");
   const user = useCurrentUser();
   const canManageRfq = user.isSuccess && !user.isRefetchError && ["admin", "operator"].includes(user.data.role.toLowerCase());
   const [rfqActionError, setRfqActionError] = useState("");
@@ -201,6 +222,18 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
     },
   });
   const canAudit = user.isSuccess && !user.isRefetchError && ["admin", "pimpinan"].includes(user.data.role.toLowerCase());
+  const canManageSelection = user.isSuccess && !user.isRefetchError && ["admin", "operator", "verifikator"].includes(user.data.role.toLowerCase());
+  const selectionMutation = use_mutation<unknown, Error, { path: string; method: "PUT" | "POST"; body: RecordData }>({
+    tag: "siklusTransaksiKomoditas",
+    method: "pemilihanPenyedia",
+    invalidateKeys: [apiQueryKeys.resource("siklusTransaksiKomoditas"), apiQueryKeys.resource("lifecycleHistory"), apiQueryKeys.resource("lifecycleEvidence"), apiQueryKeys.resource("approval")],
+    mutationFn: async ({ path, method, body }) => {
+      setBrowserToken();
+      return apiData(browserApi.request({ path, method, body, secure: true, type: ContentType.Json, format: "json" }) as Promise<{ data: unknown }>);
+    },
+  });
+  const selection = detail.pemilihanPenyedia as RecordData | undefined;
+  const selectionParticipants = list(selection?.peserta);
   const derived: RecordData = {
     ...detail,
     negosiasi: list(detail.penawaran).flatMap((offer) => list(offer.negosiasi).map((row) => ({ ...row, vendor: offer.vendor, penawaranId: offer.id }))),
@@ -238,7 +271,73 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           <AlertDescription>{rfqActionError}</AlertDescription>
         </Alert>
       ) : null}
-      {(stage === "sourcing" || stage === "evaluasi_negosiasi") && (
+      {selection ? (
+        <details className="group rounded-lg border px-4" open>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
+            Pemilihan penyedia
+            <span className="text-xs font-normal text-muted-foreground">{String(selection.status ?? "draft").replaceAll("_", " ")}</span>
+          </summary>
+          <div className="space-y-3 border-t py-4">
+            {selection.justifikasiPenunjukan ? (
+              <p className="rounded-md bg-muted/50 p-3 text-sm">
+                <strong>Justifikasi:</strong> {String(selection.justifikasiPenunjukan)}
+              </p>
+            ) : null}
+            <DataTable
+              rows={selectionParticipants}
+              rowKey={(row) => row.id}
+              emptyMessage="Belum ada peserta pemilihan."
+              columns={[
+                { key: "vendor", header: "Vendor", render: (row) => text(row.vendor?.nama ?? row.vendorId) },
+                { key: "status", header: "Status", render: (row) => text(row.status) },
+                { key: "skor", header: "Skor", render: (row) => text(row.skor) },
+                { key: "peringkat", header: "Peringkat", render: (row) => text(row.peringkat) },
+                { key: "kelulusan", header: "Kelulusan", render: (row) => `${row.lulusAdministrasi ? "A" : "-"} / ${row.lulusTeknis ? "T" : "-"} / ${row.lulusKomersial ? "K" : "-"}` },
+                {
+                  key: "aksi",
+                  header: "Aksi",
+                  render: (row) => (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!active || !canManageSelection || selectionMutation.isPending}
+                      onClick={() => {
+                        setEvaluation({
+                          administrasi: Boolean(row.lulusAdministrasi),
+                          teknis: Boolean(row.lulusTeknis),
+                          komersial: Boolean(row.lulusKomersial),
+                          skor: row.skor == null ? "" : String(row.skor),
+                          peringkat: row.peringkat == null ? "" : String(row.peringkat),
+                          alasan: String(row.alasan ?? ""),
+                          catatanEvaluasi: String(row.catatanEvaluasi ?? ""),
+                        });
+                        setEvaluating(row);
+                      }}
+                    >
+                      Nilai
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+            {canManageSelection && active && stage === "rekomendasi_pemenang" ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
+                <p className="text-sm text-muted-foreground">Pilih peserta lulus sebagai pemenang rekomendasi sebelum memorandum.</p>
+                <Button size="sm" disabled={selectionMutation.isPending || !selectionParticipants.some((row) => row.status === "lulus")} onClick={() => setRecommending(true)}>
+                  Rekomendasikan pemenang
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+      {(stage === "pemilihan_penyedia" ||
+        stage === "permintaan_penawaran" ||
+        stage === "verifikasi_evaluasi" ||
+        stage === "klarifikasi_negosiasi" ||
+        stage === "uji_kewajaran_negosiasi" ||
+        stage === "sourcing" ||
+        stage === "evaluasi_negosiasi") && (
         <details className="group rounded-lg border px-4">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
             Perbandingan penawaran
@@ -400,6 +499,116 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           </details>
         );
       })}
+      <Modal
+        open={Boolean(evaluating)}
+        onClose={() => !selectionMutation.isPending && setEvaluating(null)}
+        title="Evaluasi peserta"
+        description={evaluating ? `Nilai ${String(evaluating.vendor?.nama ?? evaluating.vendorId)}` : undefined}
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" disabled={selectionMutation.isPending} onClick={() => setEvaluating(null)}>
+              Batal
+            </Button>
+            <Button
+              disabled={selectionMutation.isPending}
+              onClick={() => {
+                if (!evaluating) return;
+                selectionMutation.mutate(
+                  {
+                    path: `/api/pengadaan/${encodeURIComponent(pengadaanId)}/pemilihan-penyedia/peserta/${encodeURIComponent(String(evaluating.id))}`,
+                    method: "PUT",
+                    body: {
+                      lulusAdministrasi: evaluation.administrasi,
+                      lulusTeknis: evaluation.teknis,
+                      lulusKomersial: evaluation.komersial,
+                      ...(evaluation.skor ? { skor: Number(evaluation.skor) } : {}),
+                      ...(evaluation.peringkat ? { peringkat: Number(evaluation.peringkat) } : {}),
+                      ...(evaluation.alasan.trim() ? { alasan: evaluation.alasan.trim() } : {}),
+                      ...(evaluation.catatanEvaluasi.trim() ? { catatanEvaluasi: evaluation.catatanEvaluasi.trim() } : {}),
+                    },
+                  },
+                  { onSuccess: () => setEvaluating(null), onError: (error) => setRfqActionError(getApiErrorMessage(error)) },
+                );
+              }}
+            >
+              {selectionMutation.isPending ? "Menyimpan…" : "Simpan evaluasi"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">Peserta lulus bila administrasi, teknis, dan komersial seluruhnya memenuhi.</p>
+          {(
+            [
+              ["administrasi", "Lulus administrasi"],
+              ["teknis", "Lulus teknis"],
+              ["komersial", "Lulus komersial"],
+            ] as const
+          ).map(([key, label]) => (
+            <Label key={key} className="flex items-center gap-2">
+              <input type="checkbox" checked={evaluation[key]} onChange={(event) => setEvaluation((value) => ({ ...value, [key]: event.target.checked }))} />
+              {label}
+            </Label>
+          ))}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="selection-score">Skor</Label>
+              <Input id="selection-score" type="number" value={evaluation.skor} onChange={(event) => setEvaluation((value) => ({ ...value, skor: event.target.value }))} />
+            </div>
+            <div>
+              <Label htmlFor="selection-rank">Peringkat</Label>
+              <Input id="selection-rank" type="number" min="1" value={evaluation.peringkat} onChange={(event) => setEvaluation((value) => ({ ...value, peringkat: event.target.value }))} />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="selection-reason">Alasan evaluasi</Label>
+            <Input id="selection-reason" value={evaluation.alasan} onChange={(event) => setEvaluation((value) => ({ ...value, alasan: event.target.value }))} />
+          </div>
+          <div>
+            <Label htmlFor="selection-notes">Catatan evaluasi</Label>
+            <Input id="selection-notes" value={evaluation.catatanEvaluasi} onChange={(event) => setEvaluation((value) => ({ ...value, catatanEvaluasi: event.target.value }))} />
+          </div>
+        </div>
+      </Modal>
+      <Modal
+        open={recommending}
+        onClose={() => !selectionMutation.isPending && setRecommending(false)}
+        title="Rekomendasikan pemenang"
+        description="Hanya peserta yang lulus evaluasi dapat direkomendasikan."
+        size="md"
+        footer={
+          <Button variant="outline" disabled={selectionMutation.isPending} onClick={() => setRecommending(false)}>
+            Batal
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          <Label htmlFor="selection-winner">Vendor pemenang</Label>
+          {selectionParticipants
+            .filter((row) => row.status === "lulus")
+            .map((row) => (
+              <Button
+                key={row.id}
+                className="w-full justify-start"
+                variant="outline"
+                disabled={selectionMutation.isPending || !recommendation.trim()}
+                onClick={() =>
+                  selectionMutation.mutate(
+                    { path: `/api/pengadaan/${encodeURIComponent(pengadaanId)}/pemilihan-penyedia/rekomendasi`, method: "POST", body: { vendorTerpilihId: row.vendorId, rekomendasi: recommendation.trim() } },
+                    { onSuccess: () => setRecommending(false), onError: (error) => setRfqActionError(getApiErrorMessage(error)) },
+                  )
+                }
+              >
+                {String(row.vendor?.nama ?? row.vendorId)}
+              </Button>
+            ))}
+          <div>
+            <Label htmlFor="selection-recommendation">Dasar rekomendasi</Label>
+            <Input id="selection-recommendation" value={recommendation} onChange={(event) => setRecommendation(event.target.value)} placeholder="Ringkasan dasar pemilihan pemenang" />
+          </div>
+        </div>
+      </Modal>
       <Modal
         open={Boolean(selected)}
         onClose={() => setSelected(null)}

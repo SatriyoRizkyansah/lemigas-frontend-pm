@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Modal, ModalSection } from "@/components/modal/Modal";
 import { EmptyData } from "@/components/loading/EmptyData";
+import { ACTIVE_PROCUREMENT_METHODS } from "@/lib/procurement-methods";
 
 type Plan = {
   id: string;
@@ -454,10 +455,11 @@ export default function RencanaTransaksiPage() {
                   <option value="" disabled>
                     Pilih metode seleksi
                   </option>
-                  <option value="tender">Tender</option>
-                  <option value="pengadaan_langsung">Pembelian langsung</option>
-                  <option value="penunjukan_langsung">Penunjukan langsung</option>
-                  <option value="e_procurement">E-procurement</option>
+                  {ACTIVE_PROCUREMENT_METHODS.map(([value, method]) => (
+                    <option key={value} value={value}>
+                      {method.label}
+                    </option>
+                  ))}
                 </select>
                 <span className="mt-2 flex items-center justify-between gap-2 text-xs font-normal normal-case tracking-normal text-muted-foreground">
                   Alur tahapan pengadaan mengikuti metode yang dipilih.

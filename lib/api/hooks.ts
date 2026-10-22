@@ -122,7 +122,7 @@ export function useSwitchRoleMutation() {
   return use_mutation<{ token: string; role: { id: string; kode: string; nama: string } }, Error, { data: { roleId: string }; params?: RequestParams }>({
     tag: "auth",
     method: "switchRole",
-    mutationFn: async ({ data, params }) => apiData(browserApi.auth.switchRole(data, { ...params, format: "json" }) as unknown as Promise<{ data: { token: string; role: { id: string; kode: string; nama: string } } }>),
+    mutationFn: async ({ data, params }) => apiData(browserApi.auth.authControllerSwitchRole({ ...params, format: "json" }) as unknown as Promise<{ data: { token: string; role: { id: string; kode: string; nama: string } } }>),
     invalidateKeys: [apiQueryKeys.resource("auth"), apiQueryKeys.resource("dashboard")],
   });
 }

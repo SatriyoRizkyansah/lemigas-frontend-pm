@@ -149,6 +149,12 @@ export default function LoginPage() {
                   "Masuk"
                 )}
               </Button>
+              <p className="text-center text-sm text-muted-foreground">
+                Belum punya akun vendor?{" "}
+                <a href="/vendor/daftar" className="font-semibold text-primary hover:underline">
+                  Daftar sebagai vendor
+                </a>
+              </p>
             </form>
           </CardContent>
         </Card>

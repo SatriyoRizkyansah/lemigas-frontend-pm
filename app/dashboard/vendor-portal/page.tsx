@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FileUp, Send, Clock3, FileText, CircleCheck } from "lucide-react";
 import { readSession, SESSION_COOKIE } from "@/lib/auth";
+import { Modal } from "@/components/modal/Modal";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { LoadingState } from "@/components/loading/LoadingState";
@@ -45,7 +46,16 @@ type Rfq = {
   ketentuan?: Record<string, unknown> | null;
   pengadaan: { id: string; nomorSurat: string; judul: string; status: string };
 };
-const DOCUMENT_TYPES = ["NIB", "LEGALITAS", "NPWP", "Akta Perusahaan", "Surat Domisili", "Rekening Bank", "Surat Kuasa / Penunjukan Penandatangan"] as const;
+const DOCUMENT_TYPES = [
+  { value: "NIB", label: "NIB" },
+  { value: "LEGALITAS", label: "LEGALITAS" },
+  { value: "NPWP", label: "NPWP" },
+  { value: "AKTA_PERUSAHAAN", label: "Akta Perusahaan" },
+  { value: "SURAT_DOMISILI", label: "Surat Domisili" },
+  { value: "REKENING_BANK", label: "Rekening Bank" },
+  { value: "SURAT_KUASA_PENUNJUKAN_PENANDATANGAN", label: "Surat Kuasa / Penunjukan Penandatangan" },
+] as const;
+const DOCUMENT_TYPE_VALUES = DOCUMENT_TYPES.map(({ value }) => value);
 
 type Negotiation = {
   id: string;
@@ -161,6 +171,7 @@ function VendorPortalView() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [quoteCurrency, setQuoteCurrency] = useState("USD");
+  const [quoteModalRfqId, setQuoteModalRfqId] = useState<string | null>(null);
   const currencyConfig: Record<string, { prefix: string; locale: string; currency: string }> = {
     IDR: { prefix: "Rp", locale: "id-ID", currency: "IDR" },
     USD: { prefix: "$", locale: "en-US", currency: "USD" },
@@ -312,6 +323,7 @@ function VendorPortalView() {
         }),
       });
       setNotice(`Penawaran untuk ${rfq.nomor} berhasil dikirim.`);
+      setQuoteModalRfqId(null);
       event.currentTarget.reset();
       setQuoteAmount("");
       await refresh();
@@ -475,13 +487,13 @@ function VendorPortalView() {
                       <div>
                         <h3 className="text-sm font-semibold">Daftar dan unggah dokumen</h3>
                         <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                          {DOCUMENT_TYPES.map((type) => {
-                            const docs = profile.vendor.vendorDocuments.filter((doc) => doc.jenis === type);
+                          {DOCUMENT_TYPES.map(({ value, label }) => {
+                            const docs = profile.vendor.vendorDocuments.filter((doc) => doc.jenis === value);
                             return (
-                              <li key={type} className="space-y-3 rounded-lg border border-border/70 bg-background p-4">
+                              <li key={value} className="space-y-3 rounded-lg border border-border/70 bg-background p-4">
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="min-w-0 text-sm">
-                                    <p className="font-semibold">{type}</p>
+                                    <p className="font-semibold">{label}</p>
                                     {docs.length ? (
                                       docs.map((doc) => (
                                         <div key={doc.id} className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -502,13 +514,13 @@ function VendorPortalView() {
                                 <form
                                   onSubmit={(event) => {
                                     event.preventDefault();
-                                    void uploadDocument(type);
+                                    void uploadDocument(value);
                                   }}
                                   className="space-y-2 border-t border-border/60 pt-3"
                                 >
-                                  <UploadDocumentField id={`vendor-document-${DOCUMENT_TYPES.indexOf(type)}`} required={false} onFileChange={(selected) => setFilesByType((current) => ({ ...current, [type]: selected }))} disabled={busy} />
-                                  <Button type="submit" variant="outline" disabled={busy || !filesByType[type]} className="w-full">
-                                    <FileUp size={16} /> Unggah {type}
+                                  <UploadDocumentField id={`vendor-document-${value}`} required={false} onFileChange={(selected) => setFilesByType((current) => ({ ...current, [value]: selected }))} disabled={busy} />
+                                  <Button type="submit" variant="outline" disabled={busy || !filesByType[value]} className="w-full">
+                                    <FileUp size={16} /> Unggah {label}
                                   </Button>
                                 </form>
                               </li>
@@ -516,12 +528,12 @@ function VendorPortalView() {
                           })}
                         </ul>
                       </div>
-                      {profile.vendor.vendorDocuments.some((doc) => !DOCUMENT_TYPES.includes(doc.jenis as (typeof DOCUMENT_TYPES)[number])) && (
+                      {profile.vendor.vendorDocuments.some((doc) => !DOCUMENT_TYPE_VALUES.includes(doc.jenis as (typeof DOCUMENT_TYPE_VALUES)[number])) && (
                         <div className="rounded-lg border border-amber-300/60 bg-amber-50/50 p-3 text-sm">
                           <p className="font-medium">Dokumen lama perlu dipetakan</p>
                           <p className="mt-1 text-xs text-muted-foreground">Dokumen lama tetap tersimpan dan dapat dibuka. Unggah penggantinya pada kategori resmi di atas.</p>
                           {profile.vendor.vendorDocuments
-                            .filter((doc) => !DOCUMENT_TYPES.includes(doc.jenis as (typeof DOCUMENT_TYPES)[number]))
+                            .filter((doc) => !DOCUMENT_TYPE_VALUES.includes(doc.jenis as (typeof DOCUMENT_TYPE_VALUES)[number]))
                             .map((doc) => (
                               <div key={doc.id} className="mt-2 flex justify-between gap-2 text-muted-foreground">
                                 <span>
@@ -687,20 +699,20 @@ function VendorPortalView() {
                           </p>
                           {rfq.alasanPerubahan && <p className="mt-2 rounded-md bg-amber-50 p-2 text-sm text-amber-900">Perubahan: {rfq.alasanPerubahan}</p>}
                         </header>
-                        <div className="grid gap-5 p-5 lg:grid-cols-[1.1fr_0.9fr]">
+                        <div className="space-y-5 p-5">
                           <section className="space-y-3">
                             <h3 className="flex items-center gap-2 font-semibold">
                               <FileText size={17} /> Ketentuan dan kebutuhan
                             </h3>
                             {terms.length ? (
                               <div className="space-y-3">
-                                <dl className="grid gap-2 sm:grid-cols-2">
+                                <dl className="divide-y rounded-lg border bg-background px-3">
                                   {terms
                                     .filter(([, value]) => !structuredRows(value))
                                     .map(([key, value]) => (
-                                      <div key={key} className="min-w-0 rounded-lg border bg-background px-3 py-2.5">
-                                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{rfqTermLabel(key)}</dt>
-                                        <dd className="mt-1 break-words whitespace-pre-wrap text-sm leading-6">{formatRfqValue(value)}</dd>
+                                      <div key={key} className="grid gap-1 py-2.5 sm:grid-cols-[minmax(8rem,0.8fr)_minmax(0,1.2fr)] sm:gap-4">
+                                        <dt className="text-xs font-medium text-muted-foreground">{rfqTermLabel(key)}</dt>
+                                        <dd className="break-words whitespace-pre-wrap text-sm leading-5">{formatRfqValue(value)}</dd>
                                       </div>
                                     ))}
                                 </dl>
@@ -735,7 +747,7 @@ function VendorPortalView() {
                               <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">Ketentuan belum disertakan pada RFQ.</p>
                             )}
                           </section>
-                          <section className="space-y-3 rounded-xl border bg-muted/10 p-4">
+                          <section className="flex flex-col gap-4 rounded-xl border bg-muted/10 p-4 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                               <h3 className="font-semibold">{priorOffer ? "Revisi penawaran" : "Kirim penawaran"}</h3>
                               <p className="mt-1 text-xs text-muted-foreground">
@@ -762,79 +774,97 @@ function VendorPortalView() {
                             {expired ? (
                               <p className="text-sm text-destructive">Tenggat lewat. Pengiriman tidak tersedia.</p>
                             ) : (
-                              <form key={priorOffer?.id ?? rfq.id} onSubmit={(e) => void submitQuote(e, rfq)} className="space-y-3">
-                                <label className="block space-y-1 text-sm">
-                                  Harga penawaran *
-                                  <span className="flex overflow-hidden rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring/40">
-                                    <span className="flex min-w-14 items-center justify-center border-r bg-muted/40 px-3 text-sm font-medium text-muted-foreground">{currencyConfig[quoteCurrency]?.prefix ?? quoteCurrency}</span>
-                                    <input
-                                      name="hargaPenawaran"
-                                      type="text"
-                                      required
-                                      inputMode="numeric"
-                                      value={quoteAmount}
-                                      onChange={(event) => setQuoteAmount(formatMoneyInput(event.target.value, quoteCurrency))}
-                                      placeholder="Masukkan jumlah"
-                                      className="w-full min-w-0 bg-transparent px-3 py-2 text-sm outline-none"
-                                    />
-                                  </span>
-                                </label>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                  <label className="space-y-1 text-sm">
-                                    Mata uang
-                                    <select
-                                      name="mataUang"
-                                      value={quoteCurrency}
-                                      onChange={(event) => {
-                                        const nextCurrency = event.target.value;
-                                        setQuoteCurrency(nextCurrency);
-                                        setQuoteAmount((current) => formatMoneyInput(current, nextCurrency));
-                                      }}
-                                      className="w-full rounded-md border bg-background p-2"
-                                    >
-                                      <option value="IDR">IDR — Rupiah (Rp)</option>
-                                      <option value="USD">USD — Dolar AS ($)</option>
-                                      <option value="RUB">RUB — Rubel Rusia (₽)</option>
-                                    </select>
-                                  </label>
-                                  <label className="space-y-1 text-sm">
-                                    Berlaku sampai
-                                    <input name="berlakuSampai" type="date" defaultValue={dateInputValue} className="w-full rounded-md border bg-background p-2" />
-                                  </label>
-                                </div>
-                                <label className="block space-y-1 text-sm">
-                                  Spesifikasi
-                                  <input name="spesifikasi" defaultValue={String(priorDetail.spesifikasi ?? "")} className="w-full rounded-md border bg-background p-2" />
-                                </label>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                  <label className="space-y-1 text-sm">
-                                    Volume
-                                    <input name="volume" defaultValue={String(priorDetail.volume ?? "")} className="w-full rounded-md border bg-background p-2" />
-                                  </label>
-                                  <label className="space-y-1 text-sm">
-                                    Satuan
-                                    <input name="satuan" defaultValue={String(priorDetail.satuan ?? "")} className="w-full rounded-md border bg-background p-2" />
-                                  </label>
-                                </div>
-                                <label className="block space-y-1 text-sm">
-                                  Syarat pembayaran
-                                  <input name="syaratPembayaran" defaultValue={priorOffer?.syaratPembayaran ?? ""} className="w-full rounded-md border bg-background p-2" />
-                                </label>
-                                <label className="block space-y-1 text-sm">
-                                  Ketentuan pengangkutan
-                                  <input name="ketentuanPengangkutan" defaultValue={priorOffer?.ketentuanPengangkutan ?? ""} className="w-full rounded-md border bg-background p-2" />
-                                </label>
-                                <label className="block space-y-1 text-sm">
-                                  Catatan
-                                  <textarea name="catatan" rows={2} defaultValue={String(priorDetail.catatan ?? "")} className="w-full rounded-md border bg-background p-2" />
-                                </label>
-                                <Button type="submit" disabled={busy} className="w-full">
-                                  <Send size={16} /> {priorOffer ? "Kirim revisi penawaran" : "Kirim penawaran"}
-                                </Button>
-                              </form>
+                              <Button type="button" className="w-full sm:w-auto" onClick={() => setQuoteModalRfqId(rfq.id)}>
+                                <Send size={16} /> {priorOffer ? "Ubah penawaran" : "Buat penawaran"}
+                              </Button>
                             )}
                           </section>
                         </div>
+                        <Modal
+                          open={quoteModalRfqId === rfq.id}
+                          onClose={() => setQuoteModalRfqId(null)}
+                          title={priorOffer ? "Kirim revisi penawaran" : "Kirim penawaran"}
+                          description={`RFQ ${rfq.nomor} · Revisi ${rfq.revisi ?? 1}`}
+                          size="md"
+                          footer={
+                            <>
+                              <Button type="button" variant="outline" disabled={busy} onClick={() => setQuoteModalRfqId(null)}>
+                                Batal
+                              </Button>
+                              <Button type="submit" form={`quote-form-${rfq.id}`} disabled={busy}>
+                                <Send size={16} /> {busy ? "Mengirim…" : priorOffer ? "Kirim revisi" : "Kirim penawaran"}
+                              </Button>
+                            </>
+                          }
+                        >
+                          <form id={`quote-form-${rfq.id}`} key={priorOffer?.id ?? rfq.id} onSubmit={(e) => void submitQuote(e, rfq)} className="space-y-3">
+                            <label className="block space-y-1 text-sm">
+                              Harga penawaran *
+                              <span className="flex overflow-hidden rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring/40">
+                                <span className="flex min-w-14 items-center justify-center border-r bg-muted/40 px-3 text-sm font-medium text-muted-foreground">{currencyConfig[quoteCurrency]?.prefix ?? quoteCurrency}</span>
+                                <input
+                                  name="hargaPenawaran"
+                                  type="text"
+                                  required
+                                  inputMode="numeric"
+                                  value={quoteAmount}
+                                  onChange={(event) => setQuoteAmount(formatMoneyInput(event.target.value, quoteCurrency))}
+                                  placeholder="Masukkan jumlah"
+                                  className="w-full min-w-0 bg-transparent px-3 py-2 text-sm outline-none"
+                                />
+                              </span>
+                            </label>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <label className="space-y-1 text-sm">
+                                Mata uang
+                                <select
+                                  name="mataUang"
+                                  value={quoteCurrency}
+                                  onChange={(event) => {
+                                    const nextCurrency = event.target.value;
+                                    setQuoteCurrency(nextCurrency);
+                                    setQuoteAmount((current) => formatMoneyInput(current, nextCurrency));
+                                  }}
+                                  className="w-full rounded-md border bg-background p-2"
+                                >
+                                  <option value="IDR">IDR — Rupiah (Rp)</option>
+                                  <option value="USD">USD — Dolar AS ($)</option>
+                                  <option value="RUB">RUB — Rubel Rusia (₽)</option>
+                                </select>
+                              </label>
+                              <label className="space-y-1 text-sm">
+                                Berlaku sampai
+                                <input name="berlakuSampai" type="date" defaultValue={dateInputValue} className="w-full rounded-md border bg-background p-2" />
+                              </label>
+                            </div>
+                            <label className="block space-y-1 text-sm">
+                              Spesifikasi
+                              <input name="spesifikasi" defaultValue={String(priorDetail.spesifikasi ?? "")} className="w-full rounded-md border bg-background p-2" />
+                            </label>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <label className="space-y-1 text-sm">
+                                Volume
+                                <input name="volume" defaultValue={String(priorDetail.volume ?? "")} className="w-full rounded-md border bg-background p-2" />
+                              </label>
+                              <label className="space-y-1 text-sm">
+                                Satuan
+                                <input name="satuan" defaultValue={String(priorDetail.satuan ?? "")} className="w-full rounded-md border bg-background p-2" />
+                              </label>
+                            </div>
+                            <label className="block space-y-1 text-sm">
+                              Syarat pembayaran
+                              <input name="syaratPembayaran" defaultValue={priorOffer?.syaratPembayaran ?? ""} className="w-full rounded-md border bg-background p-2" />
+                            </label>
+                            <label className="block space-y-1 text-sm">
+                              Ketentuan pengangkutan
+                              <input name="ketentuanPengangkutan" defaultValue={priorOffer?.ketentuanPengangkutan ?? ""} className="w-full rounded-md border bg-background p-2" />
+                            </label>
+                            <label className="block space-y-1 text-sm">
+                              Catatan
+                              <textarea name="catatan" rows={2} defaultValue={String(priorDetail.catatan ?? "")} className="w-full rounded-md border bg-background p-2" />
+                            </label>
+                          </form>
+                        </Modal>
                       </article>
                     </div>
                   );
