@@ -175,7 +175,7 @@ export default function RencanaTransaksiPage() {
         control.value = draft[key] ?? "";
       }
     }
-  }, [draft, draftLoaded, createOpen]);
+  }, [draftLoaded, createOpen, selectedDraftId]);
   const refresh = useCallback(async () => {
     try {
       setBrowserToken();
