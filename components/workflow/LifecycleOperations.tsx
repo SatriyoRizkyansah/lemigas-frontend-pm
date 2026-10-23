@@ -171,7 +171,19 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       for (const row of [...related, ...(vendors.data ?? [])]) if (typeof row.id === "string") all.set(row.id, row);
       const winnerId = String(object(detail.pemilihanPenyedia).vendorTerpilihId ?? "");
       const winnerApproved = object(detail.pemilihanPenyedia).status === "disetujui";
-      return choices([...all.values()].filter((row) => (selected?.key !== "penawaran" || row.status === "aktif") && (selected?.key !== "kontrak" || !winnerApproved || !winnerId || String(row.id) === winnerId)));
+      const biddingVendorIds = new Set(
+        records(detail.penawaran)
+          .filter((offer) => offer.isCurrent !== false && offer.submittedAt)
+          .map((offer) => String(offer.vendorId)),
+      );
+      return choices(
+        [...all.values()].filter(
+          (row) =>
+            (selected?.key !== "penawaran" || row.status === "aktif") &&
+            (selected?.key !== "verifikasi" || biddingVendorIds.has(String(row.id))) &&
+            (selected?.key !== "kontrak" || !winnerApproved || !winnerId || String(row.id) === winnerId),
+        ),
+      );
     }
     if (field.relation === "rfqAktif" || field.relation === "rfqTertutup") {
       const rows = records(detail.rfq).filter((row) => row.status === (field.relation === "rfqAktif" ? "aktif" : "selesai"));

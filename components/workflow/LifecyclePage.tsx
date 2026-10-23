@@ -21,6 +21,56 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { PageHeader } from "@/components/common/PageHeader";
 
 type WorkflowStage = { key: string; label: string; urutan?: number; assignments?: { tanggungJawab?: string; userId?: string; user?: { id?: string; nama?: string } }[] };
+const stageSections: Record<string, Array<[string, string]>> = {
+  perencanaan: [
+    ["perencanaan", "Kebutuhan transaksi"],
+    ["strategi", "Strategi sourcing"],
+  ],
+  pemilihan_penyedia: [["rfq", "RFQ"]],
+  sourcing: [
+    ["rfq", "RFQ"],
+    ["penawaran", "Penawaran vendor"],
+  ],
+  permintaan_penawaran: [
+    ["rfq", "RFQ"],
+    ["penawaran", "Penawaran vendor"],
+  ],
+  penawaran_vendor: [["penawaran", "Penawaran vendor"]],
+  verifikasi_evaluasi: [
+    ["penawaran", "Penawaran vendor"],
+    ["verifikasi", "Verifikasi vendor"],
+    ["pemilihanPenyedia.peserta", "Evaluasi peserta"],
+  ],
+  verifikasi_vendor: [["verifikasi", "Verifikasi vendor"]],
+  evaluasi_negosiasi: [
+    ["verifikasi", "Verifikasi vendor"],
+    ["negosiasi", "Hasil negosiasi"],
+  ],
+  klarifikasi_negosiasi: [["negosiasi", "Hasil negosiasi"]],
+  uji_kewajaran_negosiasi: [["negosiasi", "Hasil negosiasi"]],
+  rekomendasi_pemenang: [["pemilihanPenyedia.peserta", "Evaluasi peserta"]],
+  memorandum_keputusan: [["memorandum", "Memorandum"]],
+  approval: [
+    ["memorandum", "Memorandum"],
+    ["approvalSteps", "Riwayat approval"],
+  ],
+  kontrak: [["kontrak", "Kontrak"]],
+  delivery: [
+    ["pengiriman", "Pengiriman"],
+    ["pemeriksaan", "Pemeriksaan"],
+    ["penerimaan", "Penerimaan"],
+    ["penyimpanan", "Penyimpanan"],
+    ["dokumenOperasional", "Dokumen operasional"],
+    ["risiko", "Risiko dan tindak lanjut"],
+  ],
+  settlement: [
+    ["tagihan", "Tagihan"],
+    ["pembayaran", "Pembayaran"],
+    ["rekonsiliasi", "Rekonsiliasi"],
+    ["klaim", "Klaim"],
+  ],
+  selesai: [["laporan", "Laporan transaksi"]],
+};
 function unwrap(value: unknown): any {
   let data = value as any;
   for (let i = 0; i < 3 && data && typeof data === "object" && "data" in data; i += 1) data = data.data;
@@ -90,6 +140,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
     },
   });
   const stagesStatusMap = useMemo(() => new Map(stageStatus.map((item: any) => [item.tahap, item.status])), [stageStatus]);
+  const selectedStageComplete = stagesStatusMap.get(selectedStage) === "selesai";
   return (
     <section className="space-y-5 py-1">
       <PageHeader
@@ -228,6 +279,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                           <strong className="block text-sm font-semibold">Operasi tahap</strong>
                           <span className="mt-0.5 block text-xs text-muted-foreground">Perbarui data transaksi</span>
                         </span>
+                        {selectedStageComplete ? <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">Tahap selesai</span> : null}
                         <ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                       </summary>
                       <div className="border-t bg-muted/10 px-4 py-4">
@@ -243,6 +295,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                           <strong className="block text-sm font-semibold">Catatan tahap</strong>
                           <span className="mt-0.5 block text-xs text-muted-foreground">Riwayat dan catatan proses</span>
                         </span>
+                        {selectedStageComplete ? <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">Tahap selesai</span> : null}
                         <ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                       </summary>
                       <div className="border-t bg-muted/10 px-4 py-4">
@@ -258,6 +311,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                           <strong className="block text-sm font-semibold">Dokumen pengadaan</strong>
                           <span className="mt-0.5 block text-xs text-muted-foreground">Persyaratan dan berkas terkait</span>
                         </span>
+                        {selectedStageComplete ? <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">Tahap selesai</span> : null}
                         <ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                       </summary>
                       <div className="border-t bg-muted/10 px-4 py-4">

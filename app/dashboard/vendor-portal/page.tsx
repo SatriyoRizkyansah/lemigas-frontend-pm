@@ -325,22 +325,10 @@ function VendorPortalView() {
         method: "POST",
         body: JSON.stringify({
           rfqId: rfq.id,
-          nomorRfq: rfq.nomor,
           hargaPenawaran: amount,
           mataUang: String(form.get("mataUang") || "USD"),
           berlakuSampai: form.get("berlakuSampai") || undefined,
-          detail: {
-            catatan: form.get("catatan") || undefined,
-            rfqBaseline: {
-              volume: rfq.volume,
-              satuan: rfq.satuan,
-              titikSerah: rfq.titikSerah,
-              syaratPenyerahan: rfq.syaratPenyerahan,
-              syaratPembayaran: rfq.syaratPembayaran,
-              spesifikasi: rfq.spesifikasi,
-              dokumenDiminta: rfq.dokumenDiminta,
-            },
-          },
+          catatan: form.get("catatan") || undefined,
         }),
       });
       await Promise.all(
