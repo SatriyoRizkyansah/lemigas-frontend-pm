@@ -155,6 +155,15 @@ export interface CreateStrategiDto {
   strategiPembiayaan?: string;
 }
 
+export interface RfqDokumenRequirementDto {
+  /** ID stabil untuk menghubungkan respons vendor */
+  id?: string;
+  nama: string;
+  /** @default false */
+  wajib?: boolean;
+  keterangan?: string;
+}
+
 export interface CreateRfqDto {
   vendorIds?: string[];
   mode?: string;
@@ -163,6 +172,14 @@ export interface CreateRfqDto {
   nomor: string;
   batasRespons?: string;
   alasanPerubahan?: string;
+  volume?: number;
+  satuan?: string;
+  titikSerah?: string;
+  syaratPembayaran?: string;
+  syaratPenyerahan?: string;
+  spesifikasi?: object;
+  dokumenDiminta?: RfqDokumenRequirementDto[];
+  /** @deprecated */
   ketentuan?: object;
 }
 
@@ -174,13 +191,13 @@ export interface CreatePenawaranDto {
   rfqId?: string;
   vendorId?: string;
   nomorRfq?: string;
-  hargaAcuan?: string;
-  diferensialHarga?: number;
-  hargaPenawaran?: number;
+  /** Harga penawaran per satuan sesuai satuan pada RFQ */
+  hargaPenawaran: number;
   mataUang?: string;
   berlakuSampai?: string;
   ketentuanPengangkutan?: string;
   syaratPembayaran?: string;
+  catatan?: string;
   detail?: object;
 }
 
@@ -218,18 +235,16 @@ export interface CreateVerifikasiDto {
 
 export interface CreateNegosiasiDto {
   penawaranId: string;
-  /** Nomor putaran negosiasi */
-  putaran: number;
+  /** Target harga internal per satuan; tidak ditampilkan kepada vendor */
   batasNegosiasi?: number;
-  hargaAcuan?: string;
-  alphaAwal?: number;
-  alphaAkhir?: number;
-  totalBiayaPerolehan?: number;
+  /** Harga per satuan yang diajukan pada putaran negosiasi */
+  hargaHasilNegosiasi: number;
+  /** Catatan hasil dan kesepakatan */
   hasil?: string;
 }
 
 export interface CreatePemilihanPenyediaDto {
-  vendorIds: string[];
+  vendorIds?: string[];
   minimumPeserta?: number;
   justifikasiPenunjukan?: string;
 }
@@ -238,10 +253,20 @@ export interface UpdatePesertaPemilihanDto {
   rfqId?: string;
   penawaranId?: string;
   lulusAdministrasi?: boolean;
+  lulusDokumen?: boolean;
   lulusTeknis?: boolean;
+  lulusLegal?: boolean;
   lulusKomersial?: boolean;
+  lulusDelivery?: boolean;
+  lulusTerms?: boolean;
+  sumberHargaAcuan?: string;
+  nilaiHargaAcuan?: number;
+  totalBiayaPerolehan?: number;
+  /**
+   * @min 0
+   * @max 100
+   */
   skor?: number;
-  peringkat?: number;
   alasan?: string;
   catatanEvaluasi?: string;
 }
@@ -1280,6 +1305,54 @@ export class Api<
      * No description
      *
      * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerUploadOfferDocument
+     * @summary Unggah bukti persyaratan penawaran (VENDOR)
+     * @request POST:/api/vendor-onboarding/me/offers/{offerId}/documents
+     * @secure
+     */
+    vendorOnboardingControllerUploadOfferDocument: (
+      offerId: string,
+      data: {
+        /** @format binary */
+        file: File;
+        requirementId: string;
+        nama: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding/me/offers/${offerId}/documents`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
+     * @name VendorOnboardingControllerDownloadOfferDocument
+     * @summary Unduh dokumen persyaratan penawaran (Admin, Operator, Verifikator, VENDOR)
+     * @request GET:/api/vendor-onboarding/me/offers/documents/{id}/file
+     * @secure
+     */
+    vendorOnboardingControllerDownloadOfferDocument: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/vendor-onboarding/me/offers/documents/${id}/file`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Vendor Onboarding
      * @name VendorOnboardingControllerDownloadDocument
      * @summary Unduh dokumen onboarding vendor (Admin, Verifikator, VENDOR)
      * @request GET:/api/vendor-onboarding/documents/{id}/file
@@ -1333,6 +1406,57 @@ export class Api<
         body: data,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+  };
+  portalPublik = {
+    /**
+     * No description
+     *
+     * @tags Portal Publik
+     * @name VendorPublicControllerRegisterVendor
+     * @summary Daftar akun vendor mandiri
+     * @request POST:/api/public/vendor-registration
+     */
+    vendorPublicControllerRegisterVendor: (
+      data: CreateVendorAccountDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/public/vendor-registration`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Portal Publik
+     * @name VendorPublicControllerListRfqs
+     * @summary Daftar RFQ publik aktif
+     * @request GET:/api/public/rfqs
+     */
+    vendorPublicControllerListRfqs: (params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/public/rfqs`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Portal Publik
+     * @name VendorPublicControllerDetailRfq
+     * @summary Detail RFQ publik aktif
+     * @request GET:/api/public/rfqs/{id}
+     */
+    vendorPublicControllerDetailRfq: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/public/rfqs/${id}`,
+        method: "GET",
         ...params,
       }),
   };

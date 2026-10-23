@@ -127,7 +127,7 @@ const fieldLabels: Record<string, string> = {
   createdAt: "Dicatat pada",
   updatedAt: "Diperbarui pada",
   nomorRfq: "Nomor RFQ",
-  hargaPenawaran: "Harga penawaran",
+  hargaPenawaran: "Harga penawaran per satuan",
   mataUang: "Mata uang",
   berlakuSampai: "Berlaku sampai",
   submittedAt: "Dikirim pada",
@@ -187,7 +187,21 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
   const [jenisDraft, setJenisDraft] = useState<Record<string, string>>({});
   const [evaluating, setEvaluating] = useState<RecordData | null>(null);
   const [recommending, setRecommending] = useState(false);
-  const [evaluation, setEvaluation] = useState({ administrasi: false, teknis: false, komersial: false, skor: "", alasan: "", catatanEvaluasi: "" });
+  const [evaluation, setEvaluation] = useState({
+    administrasi: false,
+    dokumen: false,
+    teknis: false,
+    legal: false,
+    komersial: false,
+    delivery: false,
+    terms: false,
+    sumberHargaAcuan: "",
+    nilaiHargaAcuan: "",
+    totalBiayaPerolehan: "",
+    skor: "",
+    alasan: "",
+    catatanEvaluasi: "",
+  });
   const [recommendation, setRecommendation] = useState("");
   const [documentDownloadId, setDocumentDownloadId] = useState("");
   const [documentDownloadError, setDocumentDownloadError] = useState("");
@@ -275,9 +289,9 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
   const selection = detail.pemilihanPenyedia as RecordData | undefined;
   const currentOffers = list(detail.penawaran).filter((offer) => offer.isCurrent !== false && offer.submittedAt);
   const bidByVendor = new Map<string, RecordData>(currentOffers.map((offer) => [String(offer.vendorId), offer]));
-  const selectionParticipants: RecordData[] = list(selection?.peserta)
+  const selectionParticipants = list(selection?.peserta)
     .filter((participant) => bidByVendor.has(String(participant.vendorId)))
-    .map((participant) => ({ ...participant, penawaran: bidByVendor.get(String(participant.vendorId)) }))
+    .map<RecordData>((participant) => ({ ...participant, penawaran: bidByVendor.get(String(participant.vendorId)) }))
     .sort((a, b) => {
       const rankA = Number(a.peringkat);
       const rankB = Number(b.peringkat);
@@ -322,14 +336,29 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
         vendorName: offer.vendor?.nama ?? offer.vendorId,
         verification: verificationRecord?.hasil ?? "Belum diverifikasi",
         evaluationStatus: participant?.status ?? "Belum dievaluasi",
-        kelulusan: participant ? `${participant.lulusAdministrasi ? "A" : "-"} / ${participant.lulusTeknis ? "T" : "-"} / ${participant.lulusKomersial ? "K" : "-"}` : "Belum dievaluasi",
+        kelulusan: participant
+          ? [
+              ["A", participant.lulusAdministrasi],
+              ["D", participant.lulusDokumen],
+              ["T", participant.lulusTeknis],
+              ["L", participant.lulusLegal],
+              ["K", participant.lulusKomersial],
+              ["P", participant.lulusDelivery],
+              ["S", participant.lulusTerms],
+            ]
+              .map(([label, passed]) => (passed ? label : "-"))
+              .join(" / ")
+          : "Belum dievaluasi",
+        sumberHargaAcuan: participant?.sumberHargaAcuan,
+        nilaiHargaAcuan: participant?.nilaiHargaAcuan,
+        totalBiayaPerolehanEvaluasi: participant?.totalBiayaPerolehan,
         skor: participant?.skor,
         peringkat: participant?.peringkat,
         documentStatus: requiredDocuments.length ? `${uploadedRequiredDocumentCount}/${requiredDocuments.length} wajib` : `${list(offer.dokumenPenawaran).length} lampiran`,
         negotiationCount: negotiations.length,
         putaran: latest?.putaran,
         batasNegosiasi: latest?.batasNegosiasi,
-        hargaAcuanNegosiasi: latest?.hargaAcuan,
+        hargaHasilNegosiasi: latest?.hargaHasilNegosiasi,
         totalBiayaPerolehan: latest?.totalBiayaPerolehan,
         negotiationStatus: latest?.status ?? "Belum dinegosiasikan",
         tanggapanVendor: latest?.tanggapanVendor ?? "Belum ada tanggapan",
@@ -343,7 +372,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
   const comparisonColumns = [
     { key: "vendorName", header: "Vendor", render: (row: RecordData) => text(row.vendorName) },
     { key: "nomorRfq", header: "RFQ", render: (row: RecordData) => text(row.nomorRfq) },
-    { key: "hargaPenawaran", header: "Penawaran", render: (row: RecordData) => text(row.hargaPenawaran) },
+    { key: "hargaPenawaran", header: "Harga per satuan", render: (row: RecordData) => text(row.hargaPenawaran) },
     { key: "mataUang", header: "Mata uang", render: (row: RecordData) => text(row.mataUang) },
     ...(offerComparisonStages.has(stage)
       ? [
@@ -357,7 +386,10 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
       ? [
           { key: "documentStatus", header: "Dokumen", render: (row: RecordData) => text(row.documentStatus) },
           { key: "verification", header: "Verifikasi", render: (row: RecordData) => text(row.verification) },
-          { key: "kelulusan", header: "Kelulusan A / T / K", render: (row: RecordData) => text(row.kelulusan) },
+          { key: "kelulusan", header: "Kelulusan A/D/T/L/K/P/S", render: (row: RecordData) => text(row.kelulusan) },
+          { key: "sumberHargaAcuan", header: "Sumber harga acuan", render: (row: RecordData) => text(row.sumberHargaAcuan) },
+          { key: "nilaiHargaAcuan", header: "Harga acuan per satuan", render: (row: RecordData) => text(row.nilaiHargaAcuan) },
+          { key: "totalBiayaPerolehanEvaluasi", header: "Total biaya perolehan evaluasi", render: (row: RecordData) => text(row.totalBiayaPerolehanEvaluasi) },
           { key: "evaluationStatus", header: "Status evaluasi", render: (row: RecordData) => text(row.evaluationStatus) },
           { key: "skor", header: "Skor", render: (row: RecordData) => text(row.skor) },
           { key: "peringkat", header: "Peringkat", render: (row: RecordData) => text(row.peringkat) },
@@ -366,9 +398,9 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
     ...(negotiationComparisonStages.has(stage)
       ? [
           { key: "putaran", header: "Putaran terbaru", render: (row: RecordData) => (row.putaran ? `${text(row.putaran)} dari ${text(row.negotiationCount)}` : "Belum dinegosiasikan") },
-          { key: "batasNegosiasi", header: "Batas negosiasi", render: (row: RecordData) => text(row.batasNegosiasi) },
-          { key: "hargaAcuanNegosiasi", header: "Harga acuan", render: (row: RecordData) => text(row.hargaAcuanNegosiasi) },
-          { key: "totalBiayaPerolehan", header: "Total biaya perolehan", render: (row: RecordData) => text(row.totalBiayaPerolehan) },
+          { key: "batasNegosiasi", header: "Target internal per satuan", render: (row: RecordData) => text(row.batasNegosiasi) },
+          { key: "hargaHasilNegosiasi", header: "Harga negosiasi per satuan", render: (row: RecordData) => text(row.hargaHasilNegosiasi) },
+          { key: "totalBiayaPerolehan", header: "Total biaya perolehan evaluasi", render: (row: RecordData) => text(row.totalBiayaPerolehan) },
           { key: "negotiationStatus", header: "Status negosiasi", render: (row: RecordData) => text(row.negotiationStatus) },
           { key: "tanggapanVendor", header: "Tanggapan vendor", render: (row: RecordData) => text(row.tanggapanVendor) },
           { key: "hasil", header: "Hasil", render: (row: RecordData) => text(row.hasil ?? "Belum ada hasil") },
@@ -432,9 +464,13 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                   header: "Kelulusan",
                   render: (row) => {
                     const criteria = [
-                      ["A", row.lulusAdministrasi],
-                      ["T", row.lulusTeknis],
-                      ["K", row.lulusKomersial],
+                      ["Administrasi", row.lulusAdministrasi],
+                      ["Dokumen", row.lulusDokumen],
+                      ["Teknis", row.lulusTeknis],
+                      ["Legal", row.lulusLegal],
+                      ["Komersial", row.lulusKomersial],
+                      ["Delivery", row.lulusDelivery],
+                      ["Terms", row.lulusTerms],
                     ] as const;
                     return (
                       <span className="inline-flex gap-1.5">
@@ -458,8 +494,15 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                       onClick={() => {
                         setEvaluation({
                           administrasi: Boolean(row.lulusAdministrasi),
+                          dokumen: Boolean(row.lulusDokumen),
                           teknis: Boolean(row.lulusTeknis),
+                          legal: Boolean(row.lulusLegal),
                           komersial: Boolean(row.lulusKomersial),
+                          delivery: Boolean(row.lulusDelivery),
+                          terms: Boolean(row.lulusTerms),
+                          sumberHargaAcuan: String(row.sumberHargaAcuan ?? ""),
+                          nilaiHargaAcuan: row.nilaiHargaAcuan == null ? "" : String(row.nilaiHargaAcuan),
+                          totalBiayaPerolehan: row.totalBiayaPerolehan == null ? "" : String(row.totalBiayaPerolehan),
                           skor: row.skor == null ? "" : String(row.skor),
                           alasan: String(row.alasan ?? ""),
                           catatanEvaluasi: String(row.catatanEvaluasi ?? ""),
@@ -642,7 +685,17 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
               Batal
             </Button>
             <Button
-              disabled={selectionMutation.isPending || (evaluation.skor !== "" && (!Number.isFinite(Number(evaluation.skor)) || Number(evaluation.skor) < 0 || Number(evaluation.skor) > 100))}
+              disabled={
+                selectionMutation.isPending ||
+                !evaluation.sumberHargaAcuan.trim() ||
+                evaluation.nilaiHargaAcuan === "" ||
+                !Number.isFinite(Number(evaluation.nilaiHargaAcuan)) ||
+                Number(evaluation.nilaiHargaAcuan) < 0 ||
+                evaluation.totalBiayaPerolehan === "" ||
+                !Number.isFinite(Number(evaluation.totalBiayaPerolehan)) ||
+                Number(evaluation.totalBiayaPerolehan) < 0 ||
+                (evaluation.skor !== "" && (!Number.isFinite(Number(evaluation.skor)) || Number(evaluation.skor) < 0 || Number(evaluation.skor) > 100))
+              }
               onClick={() => {
                 if (!evaluating) return;
                 selectionMutation.mutate(
@@ -651,8 +704,15 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                     method: "PUT",
                     body: {
                       lulusAdministrasi: evaluation.administrasi,
+                      lulusDokumen: evaluation.dokumen,
                       lulusTeknis: evaluation.teknis,
+                      lulusLegal: evaluation.legal,
                       lulusKomersial: evaluation.komersial,
+                      lulusDelivery: evaluation.delivery,
+                      lulusTerms: evaluation.terms,
+                      sumberHargaAcuan: evaluation.sumberHargaAcuan.trim(),
+                      nilaiHargaAcuan: Number(evaluation.nilaiHargaAcuan),
+                      totalBiayaPerolehan: Number(evaluation.totalBiayaPerolehan),
                       ...(evaluation.skor !== "" ? { skor: Number(evaluation.skor) } : {}),
                       ...(evaluation.alasan.trim() ? { alasan: evaluation.alasan.trim() } : {}),
                       ...(evaluation.catatanEvaluasi.trim() ? { catatanEvaluasi: evaluation.catatanEvaluasi.trim() } : {}),
@@ -676,21 +736,26 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                 RFQ {String(evaluating.penawaran?.nomorRfq ?? evaluating.rfq?.nomor ?? "—")} · Revisi {String(evaluating.penawaran?.revisi ?? "—")}
               </p>
               <p className="mt-1 text-sm">
-                Nilai penawaran: {text(evaluating.penawaran?.hargaPenawaran)} {text(evaluating.penawaran?.mataUang)}
+                Harga penawaran per satuan: {text(evaluating.penawaran?.mataUang)} {text(evaluating.penawaran?.hargaPenawaran)}
+                {evaluating.penawaran?.detail?.rfqBaseline?.satuan ? ` / ${text(evaluating.penawaran.detail.rfqBaseline.satuan)}` : ""}
               </p>
             </section>
           ) : null}
           <section className="space-y-3">
             <div>
               <h3 className="font-semibold">1. Pemeriksaan kelulusan</h3>
-              <p className="mt-1 text-sm text-muted-foreground">Peserta dinyatakan lulus hanya bila ketiga persyaratan terpenuhi.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Peserta lulus hanya bila seluruh aspek pemeriksaan terpenuhi.</p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2">
               {(
                 [
                   ["administrasi", "Administrasi"],
+                  ["dokumen", "Dokumen"],
                   ["teknis", "Teknis"],
+                  ["legal", "Legal"],
                   ["komersial", "Komersial"],
+                  ["delivery", "Kemampuan delivery"],
+                  ["terms", "Ketentuan komersial"],
                 ] as const
               ).map(([key, label]) => (
                 <label key={key} className="flex min-h-11 items-center gap-2 rounded-lg border bg-background px-3 text-sm font-medium">
@@ -702,7 +767,88 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           </section>
           <section className="space-y-3 rounded-xl border p-4">
             <div>
-              <Label htmlFor="selection-score">2. Skor evaluasi (0–100)</Label>
+              <h3 className="font-semibold">2. Uji kewajaran harga</h3>
+              <p className="mt-1 text-xs text-muted-foreground">Bandingkan nilai per satuan dalam mata uang dan satuan sama. Total biaya perolehan memuat seluruh biaya sampai barang diterima.</p>
+            </div>
+            {evaluating ? (
+              <div className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-950">
+                Konteks pembanding: <strong>{text(evaluating.penawaran?.mataUang)}</strong>
+                {evaluating.penawaran?.detail?.rfqBaseline?.satuan ? (
+                  <>
+                    {" "}
+                    per <strong>{text(evaluating.penawaran.detail.rfqBaseline.satuan)}</strong>
+                  </>
+                ) : null}
+                {evaluating.penawaran?.detail?.rfqBaseline?.volume ? (
+                  <>
+                    {" "}
+                    · volume{" "}
+                    <strong>
+                      {text(evaluating.penawaran.detail.rfqBaseline.volume)} {text(evaluating.penawaran.detail.rfqBaseline.satuan)}
+                    </strong>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+            {evaluating?.penawaran?.hargaPenawaran != null && evaluating.penawaran?.detail?.rfqBaseline?.volume != null ? (
+              <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                Subtotal barang dari penawaran:{" "}
+                <strong>
+                  {text(evaluating.penawaran.mataUang)} {new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(Number(evaluating.penawaran.hargaPenawaran) * Number(evaluating.penawaran.detail.rfqBaseline.volume))}
+                </strong>
+                <p className="mt-0.5 text-xs text-muted-foreground">Harga penawaran per satuan × volume RFQ. Nilai ini belum termasuk komponen biaya perolehan lain.</p>
+              </div>
+            ) : null}
+            <div className="space-y-1">
+              <Label htmlFor="selection-reference-source">Sumber harga acuan *</Label>
+              <p className="text-xs leading-4 text-muted-foreground">Cantumkan nama sumber serta tanggal atau periode harga agar dapat diaudit.</p>
+              <Input
+                id="selection-reference-source"
+                value={evaluation.sumberHargaAcuan}
+                onChange={(event) => setEvaluation((value) => ({ ...value, sumberHargaAcuan: event.target.value }))}
+                placeholder="Contoh: Platts MOPS, publikasi 23 Oktober 2026"
+              />
+            </div>
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <Label htmlFor="selection-reference-value">Harga acuan per satuan *</Label>
+                <p className="text-xs leading-4 text-muted-foreground">Mata uang dan satuan harus sama dengan harga penawaran.</p>
+                <Input
+                  id="selection-reference-value"
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  value={evaluation.nilaiHargaAcuan}
+                  onChange={(event) => setEvaluation((value) => ({ ...value, nilaiHargaAcuan: event.target.value }))}
+                  placeholder="Contoh: 92.50"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="selection-acquisition-cost">Total biaya perolehan untuk volume RFQ *</Label>
+                <p className="text-xs leading-4 text-muted-foreground">Subtotal barang + freight + asuransi + pajak/bea + inspeksi + biaya lain − diskon. Isi total akhir, bukan harga per satuan.</p>
+                <Input
+                  id="selection-acquisition-cost"
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  value={evaluation.totalBiayaPerolehan}
+                  onChange={(event) => setEvaluation((value) => ({ ...value, totalBiayaPerolehan: event.target.value }))}
+                  placeholder="Jumlah akhir dalam mata uang penawaran"
+                />
+              </div>
+            </div>
+            {evaluation.nilaiHargaAcuan !== "" && evaluating?.penawaran?.hargaPenawaran != null && Number(evaluation.nilaiHargaAcuan) > 0 ? (
+              <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
+                Selisih harga penawaran terhadap acuan:{" "}
+                <strong>
+                  {new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2, signDisplay: "always" }).format(((Number(evaluating.penawaran.hargaPenawaran) - Number(evaluation.nilaiHargaAcuan)) / Number(evaluation.nilaiHargaAcuan)) * 100)}%
+                </strong>
+              </p>
+            ) : null}
+          </section>
+          <section className="space-y-3 rounded-xl border p-4">
+            <div>
+              <Label htmlFor="selection-score">3. Skor evaluasi (0–100)</Label>
               <p className="mt-1 text-xs text-muted-foreground">Masukkan nilai akhir berbobot. Peringkat dihitung otomatis dari skor peserta yang lulus.</p>
             </div>
             <Input
@@ -723,7 +869,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           </section>
           <section className="space-y-3">
             <div>
-              <h3 className="font-semibold">3. Catatan evaluasi</h3>
+              <h3 className="font-semibold">4. Catatan evaluasi</h3>
               <p className="mt-1 text-sm text-muted-foreground">Alasan dan catatan membantu audit keputusan.</p>
             </div>
             <div>
@@ -811,7 +957,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                   : (currentSelected.nomor ?? currentSelected.nomorRfq ?? currentSelected.jenisKargo ?? currentSelected.namaKapal ?? currentSelected.jenis ?? "Detail transaksi"),
               );
               const hasCanonicalRfq = ["volume", "satuan", "titikSerah", "spesifikasi", "dokumenDiminta", "syaratPembayaran", "syaratPenyerahan"].some((key) => currentSelected[key] != null);
-              const offerInternalFields = new Set(["hargaAcuan", "diferensialHarga", "ketentuanPengangkutan", "syaratPembayaran", "isCurrent", "revisiDariId", "nomorRfq", "vendor", "detail", "submittedAt", "updatedAt"]);
+              const offerInternalFields = new Set(["ketentuanPengangkutan", "syaratPembayaran", "isCurrent", "revisiDariId", "nomorRfq", "vendor", "detail", "submittedAt", "updatedAt"]);
               const entries = Object.entries(currentSelected).filter(
                 ([key, value]) => !isIdField(key) && value !== undefined && value !== null && value !== "" && !(hasCanonicalRfq && key === "ketentuan") && !(isOffer && offerInternalFields.has(key)),
               );

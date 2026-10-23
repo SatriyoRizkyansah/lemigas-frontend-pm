@@ -7,24 +7,24 @@ import { openDocument } from "@/lib/api/download";
 
 type UploadDocumentFieldProps = {
   id: string;
+  name?: string;
   required?: boolean;
   disabled?: boolean;
-  onFileChange: (file: File | null) => void;
+  onFileChange?: (file: File | null) => void;
 };
 
-export function UploadDocumentField({ id, required = true, disabled, onFileChange }: UploadDocumentFieldProps) {
+export function UploadDocumentField({ id, name, required = true, disabled, onFileChange }: UploadDocumentFieldProps) {
   const [file, setFile] = useState<File | null>(null);
 
   function selectFile(nextFile: File | null) {
     setFile(nextFile);
-    onFileChange(nextFile);
+    onFileChange?.(nextFile);
   }
 
   return (
     <div className="space-y-2">
       <label
-        htmlFor={id}
-        className={`group flex min-h-[104px] cursor-pointer items-center gap-4 rounded-xl border border-dashed px-4 py-4 transition-colors ${
+        className={`group relative flex min-h-[104px] cursor-pointer items-center gap-4 rounded-xl border border-dashed px-4 py-4 transition-colors ${
           disabled ? "cursor-not-allowed border-border bg-muted/30 opacity-60" : "border-primary/30 bg-primary/[0.025] hover:border-primary/60 hover:bg-primary/[0.05]"
         }`}
       >
@@ -44,8 +44,17 @@ export function UploadDocumentField({ id, required = true, disabled, onFileChang
           <span className="mt-1 block text-xs text-muted-foreground">{file ? `${(file.size / (1024 * 1024)).toFixed(2)} MB · Klik untuk mengganti file` : "PDF, DOC, DOCX, XLS, XLSX atau gambar · Maksimal 10 MB"}</span>
         </span>
         <span className="shrink-0 rounded-lg border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition-colors group-hover:border-primary/30 group-hover:text-primary">{file ? "Ganti file" : "Telusuri"}</span>
+        <input
+          id={id}
+          name={name}
+          type="file"
+          required={required}
+          disabled={disabled}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          aria-label="Pilih file dokumen"
+          onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+        />
       </label>
-      <input id={id} type="file" required={required} disabled={disabled} className="sr-only" aria-label="Pilih file dokumen" onChange={(event) => selectFile(event.target.files?.[0] ?? null)} />
       {file ? (
         <button type="button" className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" onClick={() => selectFile(null)}>
           Hapus pilihan

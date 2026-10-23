@@ -71,13 +71,17 @@ const DOCUMENT_TYPE_VALUES = DOCUMENT_TYPES.map(({ value }) => value);
 type Negotiation = {
   id: string;
   putaran: number;
-  batasNegosiasi?: string | number | null;
-  hargaAcuan?: string | null;
-  totalBiayaPerolehan?: string | number | null;
+  hargaHasilNegosiasi?: string | number | null;
   hasil?: string | null;
   tanggapanVendor?: string | null;
   catatanVendor?: string | null;
-  penawaran: { mataUang: string; nomorRfq?: string | null; pengadaan: { id: string; nomorSurat: string; judul: string } };
+  penawaran: {
+    hargaPenawaran?: string | number | null;
+    mataUang: string;
+    nomorRfq?: string | null;
+    detail?: { rfqBaseline?: { volume?: string | number | null; satuan?: string | null } } | null;
+    pengadaan: { id: string; nomorSurat: string; judul: string };
+  };
 };
 const API = process.env.NEXT_PUBLIC_LEMIGAS_API_URL ?? "http://localhost:3001";
 function token() {
@@ -188,13 +192,12 @@ function VendorPortalView() {
     USD: { prefix: "$", locale: "en-US", currency: "USD" },
     RUB: { prefix: "₽", locale: "ru-RU", currency: "RUB" },
   };
-  const formatMoneyInput = (raw: string, code: string) => {
-    const digits = raw.replace(/\D/g, "");
-    if (!digits) return "";
-    return new Intl.NumberFormat(currencyConfig[code]?.locale ?? "en-US", { maximumFractionDigits: 0 }).format(Number(digits));
-  };
+  const formatAmount = (value: number, code: string) =>
+    new Intl.NumberFormat(currencyConfig[code]?.locale ?? "en-US", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 4,
+    }).format(value);
   const [quoteAmount, setQuoteAmount] = useState("");
-  const [offerFiles, setOfferFiles] = useState<Record<string, File | null>>({});
   const refresh = useCallback(async () => {
     try {
       const result = await request<{ data: Portal }>("/api/vendor-onboarding/me");
@@ -219,7 +222,7 @@ function VendorPortalView() {
   useEffect(() => {
     const prior = rfqs.find((item) => item.id === selectedRfqId)?.penawaran?.[0];
     setQuoteCurrency(prior?.mataUang ?? "USD");
-    setQuoteAmount(prior?.hargaPenawaran == null ? "" : formatMoneyInput(String(prior.hargaPenawaran), prior.mataUang));
+    setQuoteAmount(prior?.hargaPenawaran == null ? "" : String(prior.hargaPenawaran));
   }, [rfqs, selectedRfqId]);
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -319,7 +322,12 @@ function VendorPortalView() {
     setBusy(true);
     setNotice("");
     const form = new FormData(event.currentTarget);
-    const amount = Number(String(form.get("hargaPenawaran") ?? "").replace(/[^\d]/g, ""));
+    const amount = Number(form.get("hargaPenawaran"));
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast({ title: "Harga tidak valid", description: "Masukkan harga per satuan berupa angka nol atau lebih.", variant: "destructive" });
+      setBusy(false);
+      return;
+    }
     try {
       const offerResult = await request<{ data: VendorOffer }>(`/api/pengadaan/${rfq.pengadaan.id}/penawaran`, {
         method: "POST",
@@ -331,18 +339,19 @@ function VendorPortalView() {
           catatan: form.get("catatan") || undefined,
         }),
       });
+      const selectedDocuments = (rfq.dokumenDiminta ?? []).flatMap((requirement) => {
+        const file = form.get(`dokumen-${requirement.id}`);
+        return file instanceof File && file.size > 0 ? [{ requirementId: requirement.id, file }] : [];
+      });
       await Promise.all(
-        Object.entries(offerFiles)
-          .filter((entry): entry is [string, File] => entry[1] instanceof File)
-          .map(async ([requirementId, file]) => {
-            const upload = new FormData();
-            upload.append("file", file);
-            upload.append("requirementId", requirementId);
-            upload.append("nama", file.name);
-            await request(`/api/vendor-onboarding/me/offers/${offerResult.data.id}/documents`, { method: "POST", body: upload });
-          }),
+        selectedDocuments.map(async ({ requirementId, file }) => {
+          const upload = new FormData();
+          upload.append("file", file);
+          upload.append("requirementId", requirementId);
+          upload.append("nama", file.name);
+          await request(`/api/vendor-onboarding/me/offers/${offerResult.data.id}/documents`, { method: "POST", body: upload });
+        }),
       );
-      setOfferFiles({});
       const message = `Penawaran untuk ${rfq.nomor} berhasil dikirim.`;
       window.dispatchEvent(new CustomEvent("api:success", { detail: { message } }));
       setQuoteModalRfqId(null);
@@ -594,19 +603,21 @@ function VendorPortalView() {
                     </div>
                     <dl className="grid gap-2 text-sm sm:grid-cols-2">
                       <div>
-                        <dt className="text-muted-foreground">Batas negosiasi</dt>
+                        <dt className="text-muted-foreground">Harga penawaran awal per satuan</dt>
                         <dd>
-                          {item.batasNegosiasi ?? "-"} {item.penawaran.mataUang}
+                          {item.penawaran.mataUang} {item.penawaran.hargaPenawaran ?? "-"}
+                          {item.penawaran.detail?.rfqBaseline?.satuan ? ` / ${item.penawaran.detail.rfqBaseline.satuan}` : ""}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground">Total biaya perolehan</dt>
-                        <dd>
-                          {item.totalBiayaPerolehan ?? "-"} {item.penawaran.mataUang}
+                        <dt className="text-muted-foreground">Harga negosiasi per satuan</dt>
+                        <dd className="font-medium">
+                          {item.penawaran.mataUang} {item.hargaHasilNegosiasi ?? "-"}
+                          {item.penawaran.detail?.rfqBaseline?.satuan ? ` / ${item.penawaran.detail.rfqBaseline.satuan}` : ""}
                         </dd>
                       </div>
                       <div className="sm:col-span-2">
-                        <dt className="text-muted-foreground">Hasil/catatan</dt>
+                        <dt className="text-muted-foreground">Catatan negosiasi</dt>
                         <dd>{item.hasil || "Tidak ada catatan"}</dd>
                       </div>
                     </dl>
@@ -815,7 +826,7 @@ function VendorPortalView() {
                                       {index === 0 ? "Terbaru" : `Penawaran ${index + 1}`} · {offer.nomorRfq ?? rfq.nomor}
                                     </span>
                                     <span className="font-medium">
-                                      {offer.mataUang} {Number(offer.hargaPenawaran ?? 0).toLocaleString("id-ID")} · {offer.status}
+                                      {offer.mataUang} {Number(offer.hargaPenawaran ?? 0).toLocaleString("id-ID", { maximumFractionDigits: 4 })} / {rfq.satuan || "satuan"} · {offer.status}
                                     </span>
                                   </div>
                                 ))}
@@ -836,8 +847,8 @@ function VendorPortalView() {
                           title={priorOffer ? "Kirim revisi penawaran" : "Kirim penawaran"}
                           description={`RFQ ${rfq.nomor} · Revisi ${rfq.revisi ?? 1}`}
                           size="md"
-                          contentClassName="!grid-rows-[auto_minmax(0,auto)_auto]"
-                          bodyClassName="!max-h-[calc(90dvh-10rem)] space-y-5"
+                          contentClassName="!h-[90dvh]"
+                          bodyClassName="min-h-0 space-y-5 overflow-y-auto"
                           footer={
                             <>
                               <Button type="button" variant="outline" disabled={busy} onClick={() => setQuoteModalRfqId(null)}>
@@ -919,38 +930,47 @@ function VendorPortalView() {
                             </section>
                             <section className="space-y-3 rounded-xl border bg-background p-4">
                               <div>
-                                <h3 className="font-semibold">Nilai penawaran</h3>
-                                <p className="mt-1 text-xs text-muted-foreground">Masukkan harga dan masa berlaku penawaran.</p>
+                                <h3 className="font-semibold">Harga penawaran per satuan</h3>
+                                <p className="mt-1 text-xs text-muted-foreground">Masukkan harga untuk satu {rfq.satuan || "satuan"}, bukan total seluruh volume.</p>
+                              </div>
+                              <div className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-950">
+                                Volume acuan RFQ:{" "}
+                                <strong>
+                                  {rfq.volume == null ? "—" : Number(rfq.volume).toLocaleString("id-ID", { maximumFractionDigits: 4 })} {rfq.satuan || ""}
+                                </strong>
                               </div>
                               <label className="block space-y-1 text-sm">
-                                Harga penawaran *
+                                Harga per {rfq.satuan || "satuan"} *
                                 <span className="flex overflow-hidden rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring/40">
                                   <span className="flex min-w-14 items-center justify-center border-r bg-muted/40 px-3 text-sm font-medium text-muted-foreground">{currencyConfig[quoteCurrency]?.prefix ?? quoteCurrency}</span>
                                   <input
                                     name="hargaPenawaran"
-                                    type="text"
+                                    type="number"
                                     required
-                                    inputMode="numeric"
+                                    min="0"
+                                    step="0.0001"
+                                    inputMode="decimal"
                                     value={quoteAmount}
-                                    onChange={(event) => setQuoteAmount(formatMoneyInput(event.target.value, quoteCurrency))}
-                                    placeholder="Masukkan jumlah"
+                                    onChange={(event) => setQuoteAmount(event.target.value)}
+                                    placeholder="Contoh: 92.50"
                                     className="w-full min-w-0 bg-transparent px-3 py-2 text-sm outline-none"
                                   />
+                                  <span className="flex items-center border-l bg-muted/40 px-3 text-sm text-muted-foreground">/ {rfq.satuan || "satuan"}</span>
                                 </span>
                               </label>
+                              {quoteAmount !== "" && Number.isFinite(Number(quoteAmount)) && rfq.volume != null && Number.isFinite(Number(rfq.volume)) ? (
+                                <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                                  Perkiraan subtotal barang:{" "}
+                                  <strong>
+                                    {quoteCurrency} {formatAmount(Number(quoteAmount) * Number(rfq.volume), quoteCurrency)}
+                                  </strong>
+                                  <p className="mt-0.5 text-xs text-muted-foreground">Harga per satuan × volume RFQ. Belum termasuk freight, asuransi, pajak/bea, inspeksi, atau biaya lain.</p>
+                                </div>
+                              ) : null}
                               <div className="grid gap-3 sm:grid-cols-2">
                                 <label className="space-y-1 text-sm">
                                   Mata uang
-                                  <select
-                                    name="mataUang"
-                                    value={quoteCurrency}
-                                    onChange={(event) => {
-                                      const nextCurrency = event.target.value;
-                                      setQuoteCurrency(nextCurrency);
-                                      setQuoteAmount((current) => formatMoneyInput(current, nextCurrency));
-                                    }}
-                                    className="w-full rounded-md border bg-background p-2"
-                                  >
+                                  <select name="mataUang" value={quoteCurrency} onChange={(event) => setQuoteCurrency(event.target.value)} className="w-full rounded-md border bg-background p-2">
                                     <option value="IDR">IDR — Rupiah (Rp)</option>
                                     <option value="USD">USD — Dolar AS ($)</option>
                                     <option value="RUB">RUB — Rubel Rusia (₽)</option>
@@ -987,12 +1007,7 @@ function VendorPortalView() {
                                           </div>
                                           {existingDocument ? <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700">Sudah terlampir</span> : null}
                                         </div>
-                                        <UploadDocumentField
-                                          id={`offer-document-${rfq.id}-${requirement.id}`}
-                                          required={required}
-                                          disabled={busy}
-                                          onFileChange={(file) => setOfferFiles((current) => ({ ...current, [requirement.id]: file }))}
-                                        />
+                                        <UploadDocumentField id={`offer-document-${rfq.id}-${requirement.id}`} name={`dokumen-${requirement.id}`} required={required} disabled={busy} />
                                       </div>
                                     );
                                   })}

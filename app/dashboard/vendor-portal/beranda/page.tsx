@@ -54,7 +54,7 @@ const stages = [
     icon: Handshake,
     status: "approved",
     detail:
-      "Tim pengadaan dapat membuka putaran negosiasi atas penawaran. Tinjau harga acuan, batas negosiasi, total biaya, catatan, dan tenggat. Berikan tanggapan terima atau tolak sesuai kewenangan perusahaan. Periksa kembali keputusan sebelum dikirim.",
+      "Tim pengadaan dapat membuka putaran negosiasi atas penawaran yang lulus evaluasi. Bandingkan harga penawaran awal dengan harga hasil negosiasi, lalu tinjau catatan dan total biaya. Berikan tanggapan terima atau tolak sesuai kewenangan perusahaan.",
     action: "Buka Negosiasi",
     href: "/dashboard/vendor-portal?section=negotiation",
   },

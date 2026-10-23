@@ -96,6 +96,7 @@ function operationFieldSections(operationKey: string | undefined, fields: Field[
       { title: "Metode transaksi", fields: ["jenisTransaksi", "metodeSeleksi"] },
       { title: "Analisis dan strategi", fields: ["analisisPasar", "dasarPemilihan", "strategiPengiriman", "strategiPembiayaan"] },
     ],
+    negosiasi: [{ title: "Detail negosiasi", fields: ["penawaranId", "batasNegosiasi", "hargaHasilNegosiasi", "hasil"] }],
   };
   const configured = sections[operationKey ?? ""];
   if (!configured) return [{ title: "Informasi", fields }];
@@ -184,6 +185,27 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
             (selected?.key !== "kontrak" || !winnerApproved || !winnerId || String(row.id) === winnerId),
         ),
       );
+    }
+    if (field.relation === "penawaran" && selected?.key === "negosiasi") {
+      const passedOfferIds = new Set(
+        records(object(detail.pemilihanPenyedia).peserta)
+          .filter((participant) => participant.status === "lulus")
+          .map((participant) => String(participant.penawaranId ?? "")),
+      );
+      return records(detail.penawaran)
+        .filter((offer) => offer.isCurrent !== false && offer.submittedAt && passedOfferIds.has(String(offer.id ?? "")))
+        .map((offer) => {
+          const vendorName = plainText(object(offer.vendor).nama) || "Vendor";
+          const rfqNumber = plainText(offer.nomorRfq) || plainText(object(offer.rfq).nomor);
+          const revision = offer.revisi == null ? "R1" : `R${String(offer.revisi)}`;
+          const unit = plainText(object(object(offer.detail).rfqBaseline).satuan);
+          const amount = offer.hargaPenawaran == null ? "" : `${plainText(offer.mataUang)} ${String(offer.hargaPenawaran)}${unit ? ` / ${unit}` : ""}`.trim();
+          return {
+            value: String(offer.id ?? ""),
+            label: [vendorName, rfqNumber ? `RFQ ${rfqNumber}` : "Penawaran", revision, amount].filter(Boolean).join(" · "),
+          };
+        })
+        .filter((choice) => choice.value);
     }
     if (field.relation === "rfqAktif" || field.relation === "rfqTertutup") {
       const rows = records(detail.rfq).filter((row) => row.status === (field.relation === "rfqAktif" ? "aktif" : "selesai"));
@@ -325,7 +347,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     tutupRfq: { description: "Akhiri penerimaan penawaran untuk RFQ aktif.", icon: FileCheck2 },
     bukaKembaliRfq: { description: "Aktifkan kembali RFQ yang telah ditutup.", icon: FileText },
     verifikasi: { description: "Periksa legalitas, kepatuhan, dan rekening vendor.", icon: FileCheck2 },
-    negosiasi: { description: "Catat putaran negosiasi dan hasil komersial.", icon: Handshake },
+    negosiasi: { description: "Pilih penawaran lulus evaluasi. Sistem menentukan nomor putaran dan memakai biaya perolehan hasil evaluasi.", icon: Handshake },
     memorandum: { description: "Susun rekomendasi transaksi untuk persetujuan.", icon: FileText },
     kontrak: { description: "Catat kesepakatan dan dokumen kontrak.", icon: FileCheck2 },
     pengiriman: { description: "Pantau pengapalan dan status pengiriman kargo.", icon: Ship },
@@ -395,7 +417,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           </>
         }
       >
-        <form id={`${id}-form`} onSubmit={submit} className="max-h-[60vh] space-y-4 overflow-y-auto px-1" aria-busy={locked}>
+        <form id={`${id}-form`} onSubmit={submit} className="space-y-4 px-1" aria-busy={locked}>
           {!permitted && selected ? (
             <Alert variant="destructive">
               <AlertDescription>Peran, status, atau tahap berubah. Operasi tidak tersedia.</AlertDescription>
@@ -498,7 +520,89 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                       : "Nilai awal disalin dari RFQ pertama yang dipilih. Perubahan akan diterapkan ke seluruh vendor dan RFQ acuan terpilih sebagai revisi baru."}
               </p>
             ) : null}
+            {selected?.key === "negosiasi" ? (
+              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm leading-5 text-sky-950">
+                Pilih penawaran lulus evaluasi. Nomor putaran dibuat sistem. Target harga bersifat internal dan tidak ditampilkan kepada vendor.
+              </div>
+            ) : null}
             {selected?.key === "penawaran" ? <p className="text-sm text-muted-foreground">Catat satu penawaran per vendor dan nomor RFQ. Ulangi hanya untuk vendor yang sudah menyampaikan penawaran.</p> : null}
+            {selected?.key === "negosiasi" && values.penawaranId
+              ? (() => {
+                  const offer = records(detail.penawaran).find((row) => String(row.id ?? "") === values.penawaranId);
+                  if (!offer) return null;
+                  const participant = records(object(detail.pemilihanPenyedia).peserta).find((row) => String(row.penawaranId ?? "") === values.penawaranId);
+                  const snapshot = object(object(offer.detail).rfqBaseline);
+                  const negotiations = records(offer.negosiasi);
+                  const nextRound = Math.max(0, ...negotiations.map((row) => Number(row.putaran) || 0)) + 1;
+                  const formatAmount = (value: unknown, currency = "") => {
+                    if (value == null || value === "") return "—";
+                    const amount = Number(value);
+                    const formatted = Number.isFinite(amount) ? new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(amount) : String(value);
+                    return [currency, formatted].filter(Boolean).join(" ");
+                  };
+                  const currency = plainText(offer.mataUang);
+                  const unit = plainText(snapshot.satuan) || plainText(object(detail.perencanaan).satuan);
+                  const volume = plainText(snapshot.volume);
+                  const offerNote = plainText(object(offer.detail).catatan);
+                  return (
+                    <section className="overflow-hidden rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 to-white shadow-sm" aria-label="Rincian penawaran terpilih">
+                      <div className="space-y-3 px-4 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Penawaran terpilih</p>
+                            <h3 className="text-base font-semibold text-slate-900">{plainText(object(offer.vendor).nama) || "Vendor"}</h3>
+                          </div>
+                          <span className="rounded-full border border-sky-200 bg-white px-2.5 py-1 text-xs font-semibold text-sky-800">Putaran {nextRound} · otomatis</span>
+                        </div>
+                        <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                          <div>
+                            <dt className="text-slate-500">Harga penawaran awal per satuan</dt>
+                            <dd className="font-semibold text-slate-900">
+                              {formatAmount(offer.hargaPenawaran, currency)}
+                              {unit ? ` / ${unit}` : ""}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Harga acuan evaluasi per satuan</dt>
+                            <dd className="font-semibold text-slate-900">
+                              {formatAmount(participant?.nilaiHargaAcuan, currency)}
+                              {unit ? ` / ${unit}` : ""}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Subtotal barang awal</dt>
+                            <dd className="font-semibold text-slate-900">
+                              {offer.hargaPenawaran != null && volume && Number.isFinite(Number(offer.hargaPenawaran)) && Number.isFinite(Number(volume)) ? formatAmount(Number(offer.hargaPenawaran) * Number(volume), currency) : "—"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Total biaya perolehan evaluasi</dt>
+                            <dd className="font-semibold text-slate-900">{formatAmount(participant?.totalBiayaPerolehan, currency)}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Volume acuan RFQ</dt>
+                            <dd className="font-semibold text-slate-900">{[volume, unit].filter(Boolean).join(" ") || "—"}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Sumber harga acuan</dt>
+                            <dd className="font-semibold text-slate-900">{plainText(participant?.sumberHargaAcuan) || "—"}</dd>
+                          </div>
+                        </dl>
+                        {offer.berlakuSampai ? (
+                          <p className="text-sm text-slate-600">
+                            Berlaku sampai: <strong className="font-medium text-slate-900">{new Date(String(offer.berlakuSampai)).toLocaleDateString("id-ID", { dateStyle: "long" })}</strong>
+                          </p>
+                        ) : null}
+                        {offerNote ? (
+                          <p className="break-words text-sm text-slate-600">
+                            Catatan: <span className="text-slate-800">{offerNote}</span>
+                          </p>
+                        ) : null}
+                      </div>
+                    </section>
+                  );
+                })()
+              : null}
             {operationFieldSections(selected?.key, fields).map((section) => (
               <section key={section.title} className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
                 <h3 className="text-sm font-semibold">{section.title}</h3>
@@ -508,11 +612,20 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                     const isSelect = !!field.relation || !!field.options || field.kind === "boolean";
                     const isLongText = field.payloadPath !== undefined;
                     return (
-                      <div key={field.name} className={`min-w-0 space-y-1.5${selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "dokumenDiminta"].includes(field.name) ? " sm:col-span-2" : ""}`}>
-                        <Label htmlFor={fieldId} className="min-h-8 leading-4">
-                          {field.label}
+                      <div
+                        key={field.name}
+                        className={`min-w-0 space-y-1.5${(selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "dokumenDiminta"].includes(field.name)) || (selected?.key === "negosiasi" && ["penawaranId", "hasil"].includes(field.name)) ? " sm:col-span-2" : ""}`}
+                      >
+                        <Label htmlFor={fieldId} className="block min-h-0 leading-5">
+                          {selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi" ? "Harga negosiasi per satuan" : field.label}
                           {field.required ? " *" : ""}
                         </Label>
+                        {selected?.key === "negosiasi" && field.name === "batasNegosiasi" ? (
+                          <p className="min-h-8 text-xs leading-4 text-muted-foreground">Opsional. Harga per satuan untuk acuan internal; tidak dikirim kepada vendor.</p>
+                        ) : null}
+                        {selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi" ? (
+                          <p className="min-h-8 text-xs leading-4 text-muted-foreground">Isi harga per satuan, bukan total volume. Mata uang dan satuan mengikuti penawaran.</p>
+                        ) : null}
                         {field.multiple && field.relation && field.relation !== "vendor" ? (
                           <div className="space-y-2">
                             <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border bg-background p-2">
@@ -658,8 +771,15 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                           />
                         ) : isSelect ? (
                           <Select value={values[field.name] || ""} onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: String(value ?? "") }))} disabled={locked || !permitted}>
-                            <SelectTrigger id={fieldId} aria-required={field.required}>
-                              <SelectValue placeholder="Pilih…" />
+                            <SelectTrigger id={fieldId} aria-required={field.required} className={selected?.key === "negosiasi" && field.name === "penawaranId" ? "min-w-0" : undefined}>
+                              {selected?.key === "negosiasi" && field.name === "penawaranId" ? (
+                                <>
+                                  <span className="min-w-0 flex-1 truncate text-left">{options(field).find((option) => option.value === values[field.name])?.label ?? "Pilih penawaran vendor…"}</span>
+                                  <SelectValue className="sr-only" />
+                                </>
+                              ) : (
+                                <SelectValue placeholder="Pilih penawaran…" />
+                              )}
                             </SelectTrigger>
                             <SelectContent>
                               {!field.required ? <SelectItem value="">Tidak diisi</SelectItem> : null}
