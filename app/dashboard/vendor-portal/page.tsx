@@ -459,131 +459,125 @@ function VendorPortalView() {
                   </ol>
                 </div>
               </article>
-              {["draft", "requires_revision", "rejected"].includes(profile.status) && (
-                <>
-                  <details id="profil-perusahaan" className="scroll-mt-6 rounded-xl border border-border/70 bg-card shadow-sm">
-                    <summary className="cursor-pointer px-5 py-4 text-lg font-semibold">
-                      Profil perusahaan <span className="ml-2 text-sm font-normal text-muted-foreground">Ubah data perusahaan</span>
-                    </summary>
-                    <form onSubmit={saveProfile} className="space-y-4 border-t px-5 py-4">
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <label className="space-y-1 text-sm">
-                          Email perusahaan
-                          <input name="email" type="email" defaultValue={profile.vendor.email ?? ""} className="w-full rounded-md border bg-background p-2" />
-                        </label>
-                        <label className="space-y-1 text-sm">
-                          Telepon
-                          <input name="telepon" defaultValue={profile.vendor.telepon ?? ""} className="w-full rounded-md border bg-background p-2" />
-                        </label>
-                        <label className="space-y-1 text-sm">
-                          NPWP
-                          <input name="npwp" defaultValue={profile.vendor.npwp ?? ""} className="w-full rounded-md border bg-background p-2" />
-                        </label>
-                        <label className="space-y-1 text-sm">
-                          Nama kontak
-                          <input name="contactPerson" defaultValue={profile.vendor.contactPerson ?? ""} className="w-full rounded-md border bg-background p-2" />
-                        </label>
-                        <label className="space-y-1 text-sm sm:col-span-2">
-                          Alamat
-                          <textarea name="alamat" defaultValue={profile.vendor.alamat ?? ""} rows={2} className="w-full rounded-md border bg-background p-2" />
-                        </label>
-                      </div>
-                      <Button type="submit" disabled={busy}>
-                        Simpan profil
-                      </Button>
-                    </form>
-                  </details>
-                  <section id="profil-dokumen" className="scroll-mt-6 overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
-                    <div className="border-b border-border/70 px-5 py-5 sm:px-6">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-primary">Langkah 2 dari 2</p>
-                          <h2 className="mt-1 text-xl font-semibold">Dokumen legalitas</h2>
-                          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Unggah file langsung pada bagian jenis dokumen yang sesuai. Format PDF, JPG, atau PNG; maksimal 10 MB.</p>
-                        </div>
-                        <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">{profile.vendor.vendorDocuments.length} dokumen diunggah</span>
-                      </div>
+              <details id="profil-perusahaan" className="scroll-mt-6 rounded-xl border border-border/70 bg-card shadow-sm">
+                <summary className="cursor-pointer px-5 py-4 text-lg font-semibold">
+                  Profil perusahaan <span className="ml-2 text-sm font-normal text-muted-foreground">Ubah data perusahaan</span>
+                </summary>
+                <form onSubmit={saveProfile} className="space-y-4 border-t px-5 py-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      Email perusahaan
+                      <input name="email" type="email" defaultValue={profile.vendor.email ?? ""} className="w-full rounded-md border bg-background p-2" />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      Telepon
+                      <input name="telepon" defaultValue={profile.vendor.telepon ?? ""} className="w-full rounded-md border bg-background p-2" />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      NPWP
+                      <input name="npwp" defaultValue={profile.vendor.npwp ?? ""} className="w-full rounded-md border bg-background p-2" />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      Nama kontak
+                      <input name="contactPerson" defaultValue={profile.vendor.contactPerson ?? ""} className="w-full rounded-md border bg-background p-2" />
+                    </label>
+                    <label className="space-y-1 text-sm sm:col-span-2">
+                      Alamat
+                      <textarea name="alamat" defaultValue={profile.vendor.alamat ?? ""} rows={2} className="w-full rounded-md border bg-background p-2" />
+                    </label>
+                  </div>
+                  <Button type="submit" disabled={busy}>
+                    Simpan profil
+                  </Button>
+                </form>
+              </details>
+              <section id="profil-dokumen" className="scroll-mt-6 overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+                <div className="border-b border-border/70 px-5 py-5 sm:px-6">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">Langkah 2 dari 2</p>
+                      <h2 className="mt-1 text-xl font-semibold">Dokumen legalitas</h2>
+                      <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Unggah file langsung pada bagian jenis dokumen yang sesuai. Format PDF, JPG, atau PNG; maksimal 10 MB.</p>
                     </div>
-                    <div className="space-y-6 p-5 sm:p-6">
-                      <div>
-                        <h3 className="text-sm font-semibold">Daftar dan unggah dokumen</h3>
-                        <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                          {DOCUMENT_TYPES.map(({ value, label }) => {
-                            const docs = profile.vendor.vendorDocuments.filter((doc) => doc.jenis === value);
-                            return (
-                              <li key={value} className="space-y-3 rounded-lg border border-border/70 bg-background p-4">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0 text-sm">
-                                    <p className="font-semibold">{label}</p>
-                                    {docs.length ? (
-                                      docs.map((doc) => (
-                                        <div key={doc.id} className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                          <StatusBadge status={doc.status === "approved" ? "ok" : doc.status === "rejected" ? "danger" : "warn"}>{doc.status}</StatusBadge>
-                                          <button type="button" onClick={() => void download(doc.id)} className="text-primary underline">
-                                            Lihat file
-                                          </button>
-                                        </div>
-                                      ))
-                                    ) : (
-                                      <p className="mt-1 text-xs text-muted-foreground">Belum diunggah</p>
-                                    )}
-                                  </div>
-                                  <span aria-hidden="true" className={`flex size-5 shrink-0 items-center justify-center rounded-full text-xs ${docs.length ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
-                                    {docs.length ? "✓" : "·"}
-                                  </span>
-                                </div>
-                                <form
-                                  onSubmit={(event) => {
-                                    event.preventDefault();
-                                    void uploadDocument(value);
-                                  }}
-                                  className="space-y-2 border-t border-border/60 pt-3"
-                                >
-                                  <UploadDocumentField id={`vendor-document-${value}`} required={false} onFileChange={(selected) => setFilesByType((current) => ({ ...current, [value]: selected }))} disabled={busy} />
-                                  <Button type="submit" variant="outline" disabled={busy || !filesByType[value]} className="w-full">
-                                    <FileUp size={16} /> Unggah {label}
-                                  </Button>
-                                </form>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                      {profile.vendor.vendorDocuments.some((doc) => !DOCUMENT_TYPE_VALUES.includes(doc.jenis as (typeof DOCUMENT_TYPE_VALUES)[number])) && (
-                        <div className="rounded-lg border border-amber-300/60 bg-amber-50/50 p-3 text-sm">
-                          <p className="font-medium">Dokumen lama perlu dipetakan</p>
-                          <p className="mt-1 text-xs text-muted-foreground">Dokumen lama tetap tersimpan dan dapat dibuka. Unggah penggantinya pada kategori resmi di atas.</p>
-                          {profile.vendor.vendorDocuments
-                            .filter((doc) => !DOCUMENT_TYPE_VALUES.includes(doc.jenis as (typeof DOCUMENT_TYPE_VALUES)[number]))
-                            .map((doc) => (
-                              <div key={doc.id} className="mt-2 flex justify-between gap-2 text-muted-foreground">
-                                <span>
-                                  {doc.jenis} · {doc.status}
-                                </span>
-                                <button type="button" onClick={() => void download(doc.id)} className="text-primary underline">
-                                  Lihat file
-                                </button>
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">{profile.vendor.vendorDocuments.length} dokumen diunggah</span>
+                  </div>
+                </div>
+                <div className="space-y-6 p-5 sm:p-6">
+                  <div>
+                    <h3 className="text-sm font-semibold">Daftar dan unggah dokumen</h3>
+                    <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {DOCUMENT_TYPES.map(({ value, label }) => {
+                        const docs = profile.vendor.vendorDocuments.filter((doc) => doc.jenis === value);
+                        return (
+                          <li key={value} className="space-y-3 rounded-lg border border-border/70 bg-background p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 text-sm">
+                                <p className="font-semibold">{label}</p>
+                                {docs.length ? (
+                                  docs.map((doc) => (
+                                    <div key={doc.id} className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                      <StatusBadge status={doc.status === "approved" ? "ok" : doc.status === "rejected" ? "danger" : "warn"}>{doc.status}</StatusBadge>
+                                      <button type="button" onClick={() => void download(doc.id)} className="text-primary underline">
+                                        Lihat file
+                                      </button>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <p className="mt-1 text-xs text-muted-foreground">Belum diunggah</p>
+                                )}
                               </div>
-                            ))}
-                        </div>
-                      )}
-                      <div className="border-t pt-4">
-                        <Button type="button" disabled={busy || profile.vendor.vendorDocuments.length === 0} onClick={() => void submitOnboarding()}>
-                          <Send size={16} /> Ajukan verifikasi
-                        </Button>
-                      </div>
+                              <span aria-hidden="true" className={`flex size-5 shrink-0 items-center justify-center rounded-full text-xs ${docs.length ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
+                                {docs.length ? "✓" : "·"}
+                              </span>
+                            </div>
+                            <form
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void uploadDocument(value);
+                              }}
+                              className="space-y-2 border-t border-border/60 pt-3"
+                            >
+                              <UploadDocumentField id={`vendor-document-${value}`} required={false} onFileChange={(selected) => setFilesByType((current) => ({ ...current, [value]: selected }))} disabled={busy} />
+                              <Button type="submit" variant="outline" disabled={busy || !filesByType[value]} className="w-full">
+                                <FileUp size={16} /> Unggah {label}
+                              </Button>
+                            </form>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                  {profile.vendor.vendorDocuments.some((doc) => !DOCUMENT_TYPE_VALUES.includes(doc.jenis as (typeof DOCUMENT_TYPE_VALUES)[number])) && (
+                    <div className="rounded-lg border border-amber-300/60 bg-amber-50/50 p-3 text-sm">
+                      <p className="font-medium">Dokumen lama perlu dipetakan</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Dokumen lama tetap tersimpan dan dapat dibuka. Unggah penggantinya pada kategori resmi di atas.</p>
+                      {profile.vendor.vendorDocuments
+                        .filter((doc) => !DOCUMENT_TYPE_VALUES.includes(doc.jenis as (typeof DOCUMENT_TYPE_VALUES)[number]))
+                        .map((doc) => (
+                          <div key={doc.id} className="mt-2 flex justify-between gap-2 text-muted-foreground">
+                            <span>
+                              {doc.jenis} · {doc.status}
+                            </span>
+                            <button type="button" onClick={() => void download(doc.id)} className="text-primary underline">
+                              Lihat file
+                            </button>
+                          </div>
+                        ))}
                     </div>
-                  </section>
-                </>
-              )}
+                  )}
+                  <div className="border-t pt-4">
+                    <Button type="button" disabled={busy || profile.vendor.vendorDocuments.length === 0} onClick={() => void submitOnboarding()}>
+                      <Send size={16} /> Ajukan verifikasi
+                    </Button>
+                  </div>
+                </div>
+              </section>
             </>
           )}
           {section === "rfq" && profile.status !== "approved" && (
-            <>
-              <section id="rfq-penawaran" className="scroll-mt-6 rounded-xl border border-border/70 bg-card p-5 shadow-sm">
-                <p className="text-sm text-muted-foreground">Fitur ini terbuka setelah verifikasi perusahaan disetujui. Setelah aktif, RFQ yang ditujukan kepada perusahaan Anda akan tampil di sini.</p>
-              </section>
-            </>
+            <section id="rfq-penawaran" className="scroll-mt-6 rounded-xl border border-border/70 bg-card p-5 shadow-sm">
+              <p className="text-sm text-muted-foreground">Fitur ini terbuka setelah verifikasi perusahaan disetujui. Setelah aktif, RFQ yang ditujukan kepada perusahaan Anda akan tampil di sini.</p>
+            </section>
           )}
           {section === "negotiation" && profile.status === "approved" && (
             <section id="negosiasi" className="space-y-4 scroll-mt-6">
