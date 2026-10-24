@@ -37,7 +37,7 @@ export function TeamAssignmentPanel({ pengadaanId, stages, canManage }: { pengad
   const [memberOpen, setMemberOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<Member | null>(null);
   const [userQuery, setUserQuery] = useState("");
-  const [memberUserId, setMemberUserId] = useState("");
+  const [memberUserIds, setMemberUserIds] = useState<string[]>([]);
   const [memberRole, setMemberRole] = useState<"pic_utama" | "pic" | "viewer">("pic");
   const [newMemberStage, setNewMemberStage] = useState("");
 
@@ -93,6 +93,7 @@ export function TeamAssignmentPanel({ pengadaanId, stages, canManage }: { pengad
     try {
       await action();
       await load();
+      setMemberUserIds([]);
       setMemberOpen(false);
       setRemoveTarget(null);
     } catch (cause) {
@@ -123,6 +124,9 @@ export function TeamAssignmentPanel({ pengadaanId, stages, canManage }: { pengad
               size="sm"
               onClick={() => {
                 setError("");
+                setMemberUserIds([]);
+                setMemberRole("pic");
+                setNewMemberStage("");
                 setMemberOpen(true);
               }}
             >
@@ -195,18 +199,18 @@ export function TeamAssignmentPanel({ pengadaanId, stages, canManage }: { pengad
               Batal
             </Button>
             <Button
-              disabled={busy || !memberUserId || (memberRole !== "viewer" && !newMemberStage)}
+              disabled={busy || memberUserIds.length === 0 || (memberRole !== "viewer" && !newMemberStage)}
               onClick={() =>
                 void mutate(async () => {
-                  await request(`/api/pengadaan/${pengadaanId}/team/members`, "POST", {
-                    userId: memberUserId,
+                  await request(`/api/pengadaan/${pengadaanId}/team/members/bulk`, "POST", {
+                    userIds: memberUserIds,
                     peran: memberRole,
                     ...(memberRole !== "viewer" ? { tahap: newMemberStage } : {}),
                   });
                 })
               }
             >
-              Simpan anggota
+              Tambahkan {memberUserIds.length || ""} anggota
             </Button>
           </>
         }
@@ -217,7 +221,31 @@ export function TeamAssignmentPanel({ pengadaanId, stages, canManage }: { pengad
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
-          <FilterCombobox options={availableUsers.map((user) => ({ label: `${user.nama} — ${user.email}`, value: user.id }))} value={memberUserId} onValueChange={setMemberUserId} label="Pilih pengguna" />
+          <FilterCombobox
+            options={availableUsers.map((user) => ({ label: `${user.nama} — ${user.email}`, value: user.id }))}
+            value=""
+            onValueChange={(userId) => {
+              if (userId && !memberUserIds.includes(userId)) setMemberUserIds((current) => [...current, userId]);
+            }}
+            label="Pilih pengguna (bisa tambah banyak)"
+          />
+          {memberUserIds.length > 0 ? (
+            <div className="space-y-2 rounded-lg border p-3">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{memberUserIds.length} pengguna dipilih</span>
+                <button type="button" className="font-medium text-primary hover:underline" onClick={() => setMemberUserIds([])}>Kosongkan</button>
+              </div>
+              <ul className="space-y-2">
+                {memberUserIds.map((userId) => {
+                  const selectedUser = users.find((user) => user.id === userId);
+                  return <li key={userId} className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2 text-sm">
+                    <span className="min-w-0 truncate">{selectedUser?.nama ?? selectedUser?.email ?? userId}<span className="ml-2 text-xs text-muted-foreground">{selectedUser?.email}</span></span>
+                    <button type="button" className="shrink-0 text-xs font-medium text-destructive hover:underline" onClick={() => setMemberUserIds((current) => current.filter((id) => id !== userId))}>Hapus</button>
+                  </li>;
+                })}
+              </ul>
+            </div>
+          ) : null}
           <label className="block space-y-2 text-sm">
             <span>Peran di workflow ini</span>
             <Select

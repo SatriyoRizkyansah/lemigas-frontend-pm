@@ -117,7 +117,9 @@ export function LifecycleOperations(props: LifecycleOperationsProps) {
 function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: LifecycleOperationsProps) {
   const detail = object(unwrap(rawDetail));
   const user = useCurrentUser();
-  const role = String(object(unwrap(user.data)).role ?? "").toLowerCase();
+  const currentUser = object(unwrap(user.data));
+  const role = String(currentUser.role ?? "").toLowerCase();
+  const isAssignedMember = role !== "member" || records(detail.tahapan).some((row) => String(row.tahap) === stage && records(row.assignments).some((assignment) => String(assignment.userId ?? object(assignment.user).id) === String(currentUser.id)));
   const id = useId();
   const [selected, setSelected] = useState<Operation | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -138,7 +140,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const closableNegotiations = latestNegotiations.filter((row) => ["menunggu_tanggapan", "ditolak"].includes(String(row.status)));
   const chosenNegotiation = latestNegotiations.find((row) => String(row.id) === selectedNegotiationId) ?? null;
   const chosenContinuation = chosenNegotiation?.status === "ditolak" ? chosenNegotiation : undefined;
-  const available = lifecycleOperations.filter((op) => op.stages.includes(stage) && op.roles.includes(role) && (!uninitialized || op.key === "perencanaan") && (!op.available || op.available(detail)));
+  const available = lifecycleOperations.filter((op) => op.stages.includes(stage) && op.roles.includes(role) && (op.key !== "verifikasi" || role !== "member" || isAssignedMember) && (!uninitialized || op.key === "perencanaan") && (!op.available || op.available(detail)));
+  const canManageRecommendation = active && stage === "rekomendasi_pemenang" && ["admin", "operator", "verifikator", "member"].includes(role) && (role !== "member" || isAssignedMember);
   const fields =
     selected?.fields
       .filter((field) => {
@@ -408,13 +411,19 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   };
   return (
     <section className="space-y-4" aria-label="Operasi bisnis tahap">
+      {canManageRecommendation ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
+          <p className="text-sm text-muted-foreground">Pilih peserta lulus sebagai pemenang rekomendasi sebelum memorandum.</p>
+          <Button size="sm" onClick={() => window.dispatchEvent(new Event("lifecycle:open-recommendation"))}>Kelola rekomendasi</Button>
+        </div>
+      ) : null}
       {user.isError ? (
         <Alert variant="destructive">
           <AlertDescription>{getApiErrorMessage(user.error)}</AlertDescription>
         </Alert>
       ) : null}
       {!active ? <p className="text-sm text-muted-foreground">Operasi dinonaktifkan: tahap ini tidak aktif.</p> : null}
-      {active && !user.isPending && !user.isError && !available.length ? (
+      {active && !user.isPending && !user.isError && !available.length && !canManageRecommendation ? (
         <p className="rounded-lg border border-dashed bg-background px-4 py-5 text-center text-sm text-muted-foreground">Belum ada operasi yang tersedia untuk peran atau status saat ini.</p>
       ) : null}
       <div className="space-y-4">

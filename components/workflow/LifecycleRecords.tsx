@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, Download } from "lucide-react";
 import { useCurrentUser } from "@/lib/api/hooks";
@@ -320,6 +320,18 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
     },
   });
   const recommendationData = recommendationState.data;
+  useEffect(() => {
+    const openRecommendation = () => {
+      if (stage === "rekomendasi_pemenang" && active) {
+        const ownVote = recommendationState.data?.myVote as RecordData | undefined;
+        setSelectedRecommendationParticipant(ownVote?.pesertaId == null ? "" : String(ownVote.pesertaId));
+        setRecommendation(ownVote?.alasan == null ? "" : String(ownVote.alasan));
+        setRecommending(true);
+      }
+    };
+    window.addEventListener("lifecycle:open-recommendation", openRecommendation);
+    return () => window.removeEventListener("lifecycle:open-recommendation", openRecommendation);
+  }, [active, recommendationState.data, stage]);
   const selectionMutation = use_mutation<unknown, Error, { path: string; method: "PUT" | "POST"; body: RecordData }>({
     tag: "siklusTransaksiKomoditas",
     method: "pemilihanPenyedia",
@@ -579,23 +591,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                 },
               ]}
             />
-            {canManageSelection && active && stage === "rekomendasi_pemenang" ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
-                <p className="text-sm text-muted-foreground">Pilih peserta lulus sebagai pemenang rekomendasi sebelum memorandum.</p>
-                <Button
-                  size="sm"
-                  disabled={selectionMutation.isPending || recommendationState.isLoading || list(recommendationData?.candidates).length === 0}
-                  onClick={() => {
-                    const ownVote = recommendationData?.myVote as RecordData | undefined;
-                    setSelectedRecommendationParticipant(ownVote?.pesertaId == null ? "" : String(ownVote.pesertaId));
-                    setRecommendation(ownVote?.alasan == null ? "" : String(ownVote.alasan));
-                    setRecommending(true);
-                  }}
-                >
-                  Kelola rekomendasi
-                </Button>
-              </div>
-            ) : null}
+
           </div>
         </details>
       ) : null}

@@ -220,7 +220,7 @@ export const lifecycleOperations: Operation[] = [
         select("hasil", "Hasil verifikasi keseluruhan", ["selesai", "ditolak", "revisi"]),
         text("catatan", "Catatan"),
       ],
-      ["admin", "verifikator"],
+      ["admin", "verifikator", "member"],
     ),
     stages: ["verifikasi_evaluasi", "verifikasi_vendor", "evaluasi_negosiasi"],
   },
