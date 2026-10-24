@@ -25,6 +25,7 @@ type Entity = Record<string, unknown>;
 type Requirement = Entity & { id: string; jenisDokumen: string };
 type UploadBody = Parameters<typeof browserApi.dokumen.dokumenPostControllerUpload>[0];
 type Action = { mode: "upload" | "fulfill"; requirementId: string };
+type GeneratedDocument = { id: string; nama: string };
 const uploadStages: string[] = [
   "perencanaan",
   "pemilihan_penyedia",
@@ -103,10 +104,11 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
   const stageValid = stages.some((value) => value === stage);
   const uploadStage = uploadStages.find((value) => value === stage);
   const permitted = active && detailMatches && !!requirement && stageValid && (action?.mode === "upload" ? canUpload && !!uploadStage : canFulfill);
+  const invalidateKeys = [apiQueryKeys.resource("siklusTransaksiKomoditas"), apiQueryKeys.resource("lifecycleHistory"), apiQueryKeys.resource("lifecycleEvidence"), apiQueryKeys.resource("dokumen"), apiQueryKeys.resource("pengadaan")];
   const mutation = use_mutation<unknown, Error, { mode: "upload"; body: UploadBody } | { mode: "fulfill"; body: PenuhiDokumenTahapDto }>({
     tag: "dokumen",
     method: "lifecycleDocuments",
-    invalidateKeys: [apiQueryKeys.resource("siklusTransaksiKomoditas"), apiQueryKeys.resource("lifecycleHistory"), apiQueryKeys.resource("lifecycleEvidence"), apiQueryKeys.resource("dokumen"), apiQueryKeys.resource("pengadaan")],
+    invalidateKeys,
     mutationFn: async (variables) => {
       setBrowserToken();
       return variables.mode === "upload"
@@ -114,7 +116,24 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
         : apiData(browserApi.siklusTransaksiKomoditas.transaksiControllerPenuhiDokumenTahap(pengadaanId, variables.body, { format: "json" }) as unknown as Promise<{ data: unknown }>);
     },
   });
-  const locked = mutation.isPending || submitting.current;
+  const generateMutation = use_mutation<GeneratedDocument, Error, void>({
+    tag: "dokumen",
+    method: "generateCatatanNegosiasiPdf",
+    invalidateKeys,
+    mutationFn: async () => {
+      setBrowserToken();
+      const response = await browserApi.request<{ data?: GeneratedDocument }, unknown>({
+        path: `/api/pengadaan/${encodeURIComponent(pengadaanId)}/negosiasi/catatan-pdf`,
+        method: "POST",
+        secure: true,
+        format: "json",
+      });
+      const generated = object(unwrap(response.data));
+      if (typeof generated.id !== "string" || typeof generated.nama !== "string") throw new Error("Respons dokumen hasil tidak valid.");
+      return { id: generated.id, nama: generated.nama };
+    },
+  });
+  const locked = mutation.isPending || generateMutation.isPending || submitting.current;
   function open(mode: Action["mode"], row: Requirement) {
     if (locked || !active || !detailMatches || (mode === "upload" ? !canUpload || !uploadStage : !canFulfill)) return;
     setAction({ mode, requirementId: row.id });
@@ -186,6 +205,18 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
       setDownloadFailure({ id, name, message: getApiErrorMessage(cause) });
     } finally {
       setDownloadId(null);
+    }
+  }
+  async function generateNegotiationNotes() {
+    if (locked || !active || !detailMatches || !canUpload || stage !== "klarifikasi_negosiasi") return;
+    setError("");
+    setSuccess("");
+    try {
+      const generated = await generateMutation.mutateAsync();
+      setSuccess("PDF catatan negosiasi dibuat dan persyaratan tahap terpenuhi.");
+      await download(generated.id, generated.nama);
+    } catch (cause) {
+      setError(getApiErrorMessage(cause));
     }
   }
   function link(document: Entity | undefined) {
@@ -264,6 +295,13 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
             render: (row) => (
               <TooltipProvider delay={150}>
                 <div className="flex items-center justify-center gap-1.5">
+                  {canUpload && stage === "klarifikasi_negosiasi" && row.jenisDokumen === "catatan_negosiasi" ? (
+                    <DocumentActionButton label={row.terpenuhi === true ? "Buat versi baru catatan negosiasi" : "Buat catatan negosiasi"} tone="primary" disabled={!active || locked} onClick={() => void generateNegotiationNotes()}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                        <path d="M7 3h7l4 4v14H7zM14 3v5h5M9.5 13h5M9.5 17h5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </DocumentActionButton>
+                  ) : null}
                   {canUpload && uploadStage ? (
                     <DocumentActionButton label={row.terpenuhi === true ? "Unggah dokumen pengganti" : "Unggah dokumen"} tone="primary" disabled={!active || locked} onClick={() => open("upload", row)}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">

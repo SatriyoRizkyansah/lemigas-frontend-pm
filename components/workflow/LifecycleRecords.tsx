@@ -13,11 +13,26 @@ import { EmptyState } from "@/components/loading/EmptyState";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken } from "@/lib/api/hooks";
 import { use_mutation } from "@/lib/api/use_mutation";
+import { use_query } from "@/lib/api/use_query";
 import { apiQueryKeys } from "@/lib/api/query-keys";
 import { ContentType } from "@/lib/api/generated/api-generated";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { getApiErrorMessage } from "@/lib/api/errors";
 type RecordData = Record<string, any>;
+type AcquisitionCostKey = "freight" | "asuransi" | "kepelabuhanan" | "penyimpanan" | "pajakKepabeanan" | "inspeksi" | "pembiayaan" | "biayaLain" | "diskon";
+type AcquisitionCostComponent = { nilai: string; includedInOffer: boolean; sumber: string; statusNilai: "estimasi" | "final" };
+const ACQUISITION_COST_FIELDS: Array<{ key: AcquisitionCostKey; label: string; subtract?: boolean }> = [
+  { key: "freight", label: "Pengangkutan / freight" },
+  { key: "asuransi", label: "Asuransi" },
+  { key: "kepelabuhanan", label: "Kepelabuhanan" },
+  { key: "penyimpanan", label: "Penyimpanan" },
+  { key: "pajakKepabeanan", label: "Pajak dan kepabeanan" },
+  { key: "inspeksi", label: "Inspeksi" },
+  { key: "pembiayaan", label: "Pembiayaan / perbankan" },
+  { key: "biayaLain", label: "Biaya langsung lain" },
+  { key: "diskon", label: "Diskon / kredit", subtract: true },
+];
+const emptyAcquisitionCosts = () => Object.fromEntries(ACQUISITION_COST_FIELDS.map(({ key }) => [key, { nilai: "", includedInOffer: false, sumber: "", statusNilai: "estimasi" }])) as Record<AcquisitionCostKey, AcquisitionCostComponent>;
 const auditTables: Record<string, string> = {
   perencanaan: "perencanaan_kebutuhan",
   strategi: "strategi_transaksi",
@@ -104,6 +119,14 @@ const text = (value: any): string =>
           .join(" · ")
       : String(value);
 const date = (value: any) => (value ? new Date(value).toLocaleString("id-ID") : "—");
+const negotiationStatus = (value: any): string =>
+  ({
+    menunggu_tanggapan: "Menunggu tanggapan vendor",
+    disepakati: "Disepakati",
+    ditolak: "Ditolak vendor",
+    digantikan: "Digantikan putaran baru",
+    dibatalkan: "Diakhiri tanpa kesepakatan",
+  })[String(value)] ?? text(value);
 const fieldLabels: Record<string, string> = {
   jenisTransaksi: "Jenis transaksi",
   metodeSeleksi: "Metode seleksi",
@@ -187,6 +210,8 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
   const [jenisDraft, setJenisDraft] = useState<Record<string, string>>({});
   const [evaluating, setEvaluating] = useState<RecordData | null>(null);
   const [recommending, setRecommending] = useState(false);
+  const [selectedRecommendationParticipant, setSelectedRecommendationParticipant] = useState("");
+  const [recommendation, setRecommendation] = useState("");
   const [evaluation, setEvaluation] = useState({
     administrasi: false,
     dokumen: false,
@@ -197,12 +222,11 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
     terms: false,
     sumberHargaAcuan: "",
     nilaiHargaAcuan: "",
-    totalBiayaPerolehan: "",
+    komponenBiayaPerolehan: emptyAcquisitionCosts(),
     skor: "",
     alasan: "",
     catatanEvaluasi: "",
   });
-  const [recommendation, setRecommendation] = useState("");
   const [documentDownloadId, setDocumentDownloadId] = useState("");
   const [documentDownloadError, setDocumentDownloadError] = useState("");
   const user = useCurrentUser();
@@ -277,6 +301,25 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
     }
   }
   const canManageSelection = user.isSuccess && !user.isRefetchError && ["admin", "operator", "verifikator"].includes(user.data.role.toLowerCase());
+  const recommendationState = use_query<RecordData, Error, string>({
+    tag: "siklusTransaksiKomoditas",
+    method: "recommendationState",
+    params: pengadaanId,
+    enabled: stage === "rekomendasi_pemenang",
+    queryFn: async (id) => {
+      setBrowserToken();
+      const response = await apiData(
+        browserApi.request({
+          path: `/api/pengadaan/${encodeURIComponent(id)}/pemilihan-penyedia/rekomendasi`,
+          method: "GET",
+          secure: true,
+          format: "json",
+        }) as Promise<{ data: unknown }>,
+      );
+      return (response as RecordData)?.data ?? response;
+    },
+  });
+  const recommendationData = recommendationState.data;
   const selectionMutation = use_mutation<unknown, Error, { path: string; method: "PUT" | "POST"; body: RecordData }>({
     tag: "siklusTransaksiKomoditas",
     method: "pemilihanPenyedia",
@@ -367,7 +410,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
     });
   const offerComparisonStages = new Set(["pemilihan_penyedia", "permintaan_penawaran", "penawaran_vendor", "sourcing"]);
   const evaluationComparisonStages = new Set(["verifikasi_evaluasi", "rekomendasi_pemenang"]);
-  const negotiationComparisonStages = new Set(["klarifikasi_negosiasi", "uji_kewajaran_negosiasi", "evaluasi_negosiasi"]);
+  const negotiationComparisonStages = new Set(["klarifikasi_negosiasi", "uji_kewajaran_negosiasi", "evaluasi_negosiasi", "rekomendasi_pemenang"]);
   const showOfferComparison = offerComparisonStages.has(stage) || evaluationComparisonStages.has(stage) || negotiationComparisonStages.has(stage);
   const comparisonColumns = [
     { key: "vendorName", header: "Vendor", render: (row: RecordData) => text(row.vendorName) },
@@ -401,7 +444,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           { key: "batasNegosiasi", header: "Target internal per satuan", render: (row: RecordData) => text(row.batasNegosiasi) },
           { key: "hargaHasilNegosiasi", header: "Harga negosiasi per satuan", render: (row: RecordData) => text(row.hargaHasilNegosiasi) },
           { key: "totalBiayaPerolehan", header: "Total biaya perolehan evaluasi", render: (row: RecordData) => text(row.totalBiayaPerolehan) },
-          { key: "negotiationStatus", header: "Status negosiasi", render: (row: RecordData) => text(row.negotiationStatus) },
+          { key: "negotiationStatus", header: "Status negosiasi", render: (row: RecordData) => negotiationStatus(row.negotiationStatus) },
           { key: "tanggapanVendor", header: "Tanggapan vendor", render: (row: RecordData) => text(row.tanggapanVendor) },
           { key: "hasil", header: "Hasil", render: (row: RecordData) => text(row.hasil ?? "Belum ada hasil") },
         ]
@@ -416,6 +459,13 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
       ),
     },
   ];
+  const offerSubtotal = evaluating?.penawaran?.hargaPenawaran != null && evaluating.penawaran?.detail?.rfqBaseline?.volume != null ? Number(evaluating.penawaran.hargaPenawaran) * Number(evaluating.penawaran.detail.rfqBaseline.volume) : 0;
+  const acquisitionTotal = ACQUISITION_COST_FIELDS.reduce((total, { key, subtract }) => {
+    const component = evaluation.komponenBiayaPerolehan[key];
+    const amount = component.nilai === "" || !Number.isFinite(Number(component.nilai)) ? 0 : Number(component.nilai);
+    if (subtract) return total - amount;
+    return component.includedInOffer ? total : total + amount;
+  }, offerSubtotal);
   return (
     <div className="space-y-6">
       {canAudit && detail.id && (
@@ -502,7 +552,20 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                           terms: Boolean(row.lulusTerms),
                           sumberHargaAcuan: String(row.sumberHargaAcuan ?? ""),
                           nilaiHargaAcuan: row.nilaiHargaAcuan == null ? "" : String(row.nilaiHargaAcuan),
-                          totalBiayaPerolehan: row.totalBiayaPerolehan == null ? "" : String(row.totalBiayaPerolehan),
+                          komponenBiayaPerolehan: Object.fromEntries(
+                            ACQUISITION_COST_FIELDS.map(({ key }) => {
+                              const saved = row.komponenBiayaPerolehan?.[key];
+                              return [
+                                key,
+                                {
+                                  nilai: saved?.nilai == null ? "" : String(saved.nilai),
+                                  includedInOffer: Boolean(saved?.includedInOffer),
+                                  sumber: String(saved?.sumber ?? ""),
+                                  statusNilai: saved?.statusNilai === "final" ? "final" : "estimasi",
+                                },
+                              ];
+                            }),
+                          ) as Record<AcquisitionCostKey, AcquisitionCostComponent>,
                           skor: row.skor == null ? "" : String(row.skor),
                           alasan: String(row.alasan ?? ""),
                           catatanEvaluasi: String(row.catatanEvaluasi ?? ""),
@@ -519,8 +582,17 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
             {canManageSelection && active && stage === "rekomendasi_pemenang" ? (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
                 <p className="text-sm text-muted-foreground">Pilih peserta lulus sebagai pemenang rekomendasi sebelum memorandum.</p>
-                <Button size="sm" disabled={selectionMutation.isPending || !selectionParticipants.some((row) => row.status === "lulus")} onClick={() => setRecommending(true)}>
-                  Rekomendasikan pemenang
+                <Button
+                  size="sm"
+                  disabled={selectionMutation.isPending || recommendationState.isLoading || list(recommendationData?.candidates).length === 0}
+                  onClick={() => {
+                    const ownVote = recommendationData?.myVote as RecordData | undefined;
+                    setSelectedRecommendationParticipant(ownVote?.pesertaId == null ? "" : String(ownVote.pesertaId));
+                    setRecommendation(ownVote?.alasan == null ? "" : String(ownVote.alasan));
+                    setRecommending(true);
+                  }}
+                >
+                  Kelola rekomendasi
                 </Button>
               </div>
             ) : null}
@@ -691,9 +763,10 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                 evaluation.nilaiHargaAcuan === "" ||
                 !Number.isFinite(Number(evaluation.nilaiHargaAcuan)) ||
                 Number(evaluation.nilaiHargaAcuan) < 0 ||
-                evaluation.totalBiayaPerolehan === "" ||
-                !Number.isFinite(Number(evaluation.totalBiayaPerolehan)) ||
-                Number(evaluation.totalBiayaPerolehan) < 0 ||
+                Object.values(evaluation.komponenBiayaPerolehan).some(
+                  (component) => component.nilai !== "" && (!Number.isFinite(Number(component.nilai)) || Number(component.nilai) < 0 || (Number(component.nilai) > 0 && !component.sumber.trim())),
+                ) ||
+                acquisitionTotal < 0 ||
                 (evaluation.skor !== "" && (!Number.isFinite(Number(evaluation.skor)) || Number(evaluation.skor) < 0 || Number(evaluation.skor) > 100))
               }
               onClick={() => {
@@ -712,7 +785,9 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                       lulusTerms: evaluation.terms,
                       sumberHargaAcuan: evaluation.sumberHargaAcuan.trim(),
                       nilaiHargaAcuan: Number(evaluation.nilaiHargaAcuan),
-                      totalBiayaPerolehan: Number(evaluation.totalBiayaPerolehan),
+                      komponenBiayaPerolehan: Object.fromEntries(
+                        Object.entries(evaluation.komponenBiayaPerolehan).map(([key, component]) => [key, { ...component, nilai: component.nilai === "" ? 0 : Number(component.nilai), sumber: component.sumber.trim() }]),
+                      ),
                       ...(evaluation.skor !== "" ? { skor: Number(evaluation.skor) } : {}),
                       ...(evaluation.alasan.trim() ? { alasan: evaluation.alasan.trim() } : {}),
                       ...(evaluation.catatanEvaluasi.trim() ? { catatanEvaluasi: evaluation.catatanEvaluasi.trim() } : {}),
@@ -768,7 +843,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           <section className="space-y-3 rounded-xl border p-4">
             <div>
               <h3 className="font-semibold">2. Uji kewajaran harga</h3>
-              <p className="mt-1 text-xs text-muted-foreground">Bandingkan nilai per satuan dalam mata uang dan satuan sama. Total biaya perolehan memuat seluruh biaya sampai barang diterima.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Bandingkan nilai per satuan dalam mata uang dan satuan sama. Total biaya perolehan memuat seluruh biaya langsung sampai Titik Serah.</p>
             </div>
             {evaluating ? (
               <div className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-950">
@@ -823,18 +898,74 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                   placeholder="Contoh: 92.50"
                 />
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="selection-acquisition-cost">Total biaya perolehan untuk volume RFQ *</Label>
-                <p className="text-xs leading-4 text-muted-foreground">Subtotal barang + freight + asuransi + pajak/bea + inspeksi + biaya lain − diskon. Isi total akhir, bukan harga per satuan.</p>
-                <Input
-                  id="selection-acquisition-cost"
-                  type="number"
-                  min="0"
-                  step="0.0001"
-                  value={evaluation.totalBiayaPerolehan}
-                  onChange={(event) => setEvaluation((value) => ({ ...value, totalBiayaPerolehan: event.target.value }))}
-                  placeholder="Jumlah akhir dalam mata uang penawaran"
-                />
+              <div className="space-y-3 rounded-lg border p-3">
+                <div>
+                  <Label>Rincian biaya langsung sampai Titik Serah</Label>
+                  <p className="mt-1 text-xs leading-4 text-muted-foreground">Isi hanya biaya yang relevan. Tandai “sudah termasuk” agar sistem tidak menghitung komponen dua kali.</p>
+                </div>
+                {ACQUISITION_COST_FIELDS.map(({ key, label, subtract }) => {
+                  const component = evaluation.komponenBiayaPerolehan[key];
+                  return (
+                    <div key={key} className="space-y-2 rounded-lg bg-muted/30 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-medium">
+                          {label}
+                          {subtract ? " (pengurang)" : ""}
+                        </span>
+                        {!subtract ? (
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={component.includedInOffer}
+                              onChange={(event) => setEvaluation((current) => ({ ...current, komponenBiayaPerolehan: { ...current.komponenBiayaPerolehan, [key]: { ...component, includedInOffer: event.target.checked } } }))}
+                            />
+                            Sudah termasuk harga penawaran
+                          </label>
+                        ) : null}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-[1fr_1.4fr_auto]">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.0001"
+                          value={component.nilai}
+                          onChange={(event) => setEvaluation((current) => ({ ...current, komponenBiayaPerolehan: { ...current.komponenBiayaPerolehan, [key]: { ...component, nilai: event.target.value } } }))}
+                          placeholder={`Nilai ${text(evaluating?.penawaran?.mataUang)}`}
+                        />
+                        <Input
+                          value={component.sumber}
+                          onChange={(event) => setEvaluation((current) => ({ ...current, komponenBiayaPerolehan: { ...current.komponenBiayaPerolehan, [key]: { ...component, sumber: event.target.value } } }))}
+                          placeholder={Number(component.nilai) > 0 ? "Sumber / dasar nilai *" : "Sumber / dasar nilai"}
+                          aria-invalid={Number(component.nilai) > 0 && !component.sumber.trim()}
+                        />
+                        <select
+                          value={component.statusNilai}
+                          onChange={(event) => setEvaluation((current) => ({ ...current, komponenBiayaPerolehan: { ...current.komponenBiayaPerolehan, [key]: { ...component, statusNilai: event.target.value as "estimasi" | "final" } } }))}
+                          className="h-9 rounded-md border bg-background px-2 text-sm"
+                        >
+                          <option value="estimasi">Estimasi</option>
+                          <option value="final">Final</option>
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="rounded-lg border bg-background px-3 py-3 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <span>Subtotal kargo</span>
+                    <strong>
+                      {text(evaluating?.penawaran?.mataUang)} {new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(offerSubtotal)}
+                    </strong>
+                  </div>
+                  <div className="mt-2 flex justify-between gap-3 border-t pt-2 text-base">
+                    <span>Total Biaya Perolehan</span>
+                    <strong>
+                      {text(evaluating?.penawaran?.mataUang)} {new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(acquisitionTotal)}
+                    </strong>
+                  </div>
+                  {acquisitionTotal < 0 ? <p className="mt-1 text-xs text-destructive">Diskon tidak boleh melebihi subtotal kargo dan biaya tambahan.</p> : null}
+                  <p className="mt-1 text-xs text-muted-foreground">Dihitung otomatis. Perhitungan final diverifikasi kembali oleh server saat evaluasi disimpan.</p>
+                </div>
               </div>
             </div>
             {evaluation.nilaiHargaAcuan !== "" && evaluating?.penawaran?.hargaPenawaran != null && Number(evaluation.nilaiHargaAcuan) > 0 ? (
@@ -898,40 +1029,167 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
       <Modal
         open={recommending}
         onClose={() => !selectionMutation.isPending && setRecommending(false)}
-        title="Rekomendasikan pemenang"
-        description="Hanya peserta yang lulus evaluasi dapat direkomendasikan."
-        size="md"
+        title="Rekomendasi kolektif calon pemenang"
+        description="Setiap petugas aktif memberikan satu suara beserta alasan. Rekomendasi bukan penetapan pemenang."
+        size="xl"
         footer={
-          <Button variant="outline" disabled={selectionMutation.isPending} onClick={() => setRecommending(false)}>
-            Batal
-          </Button>
-        }
-      >
-        <div className="space-y-3">
-          <Label htmlFor="selection-winner">Vendor pemenang</Label>
-          {selectionParticipants
-            .filter((row) => row.status === "lulus")
-            .map((row) => (
+          <>
+            <Button variant="outline" disabled={selectionMutation.isPending} onClick={() => setRecommending(false)}>
+              Tutup
+            </Button>
+            {Boolean(recommendationData?.canVote) && (
               <Button
-                key={row.id}
-                className="w-full justify-start"
-                variant="outline"
-                disabled={selectionMutation.isPending || !recommendation.trim()}
+                disabled={!selectedRecommendationParticipant || !recommendation.trim() || selectionMutation.isPending}
                 onClick={() =>
                   selectionMutation.mutate(
-                    { path: `/api/pengadaan/${encodeURIComponent(pengadaanId)}/pemilihan-penyedia/rekomendasi`, method: "POST", body: { vendorTerpilihId: row.vendorId, rekomendasi: recommendation.trim() } },
-                    { onSuccess: () => setRecommending(false), onError: (error) => setRfqActionError(getApiErrorMessage(error)) },
+                    { path: `/api/pengadaan/${encodeURIComponent(pengadaanId)}/pemilihan-penyedia/rekomendasi/me`, method: "PUT", body: { pesertaId: selectedRecommendationParticipant, alasan: recommendation.trim() } },
+                    {
+                      onSuccess: () => {
+                        setRecommendation("");
+                        void recommendationState.refetch();
+                      },
+                      onError: (error) => setRfqActionError(getApiErrorMessage(error)),
+                    },
                   )
                 }
               >
-                {String(row.vendor?.nama ?? row.vendorId)}
+                {recommendationData?.myVote ? "Perbarui suara" : "Simpan suara"}
               </Button>
-            ))}
-          <div>
-            <Label htmlFor="selection-recommendation">Dasar rekomendasi</Label>
-            <Input id="selection-recommendation" value={recommendation} onChange={(event) => setRecommendation(event.target.value)} placeholder="Ringkasan dasar pemilihan pemenang" />
+            )}
+            {Boolean(recommendationData?.canFinalize) && Boolean((recommendationData?.quorum as RecordData | undefined)?.complete) && text((recommendationData?.result as RecordData | undefined)?.state) === "unique_winner" && (
+              <Button
+                disabled={selectionMutation.isPending}
+                onClick={() =>
+                  selectionMutation.mutate(
+                    { path: `/api/pengadaan/${encodeURIComponent(pengadaanId)}/pemilihan-penyedia/rekomendasi/finalize`, method: "POST", body: {} },
+                    { onSuccess: () => void recommendationState.refetch(), onError: (error) => setRfqActionError(getApiErrorMessage(error)) },
+                  )
+                }
+              >
+                Finalisasi rekomendasi
+              </Button>
+            )}
+          </>
+        }
+      >
+        {recommendationState.isLoading ? (
+          <p className="text-sm text-muted-foreground">Memuat data rekomendasi...</p>
+        ) : recommendationState.isError ? (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">Data rekomendasi tidak dapat dimuat.</p>
+        ) : (
+          <div className="space-y-5">
+            {(() => {
+              const quorum = (recommendationData?.quorum ?? {}) as RecordData;
+              const resultValue = (recommendationData?.result as RecordData | undefined)?.state;
+              const resultState = resultValue == null ? "incomplete" : String(resultValue);
+              const labels: Record<string, string> = { incomplete: "Menunggu seluruh petugas", tie: "Hasil suara seri", unique_winner: "Kandidat unggul tersedia", finalized: "Rekomendasi telah difinalisasi" };
+              return (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border bg-muted/20 p-4">
+                    <p className="text-xs text-muted-foreground">Partisipasi</p>
+                    <p className="mt-1 text-lg font-semibold">
+                      {quorum.submitted == null ? "0" : String(quorum.submitted)} / {quorum.required == null ? "0" : String(quorum.required)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/20 p-4">
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    <p className="mt-1 font-semibold">{labels[resultState] ?? resultState}</p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/20 p-4">
+                    <p className="text-xs text-muted-foreground">Tahap berikutnya</p>
+                    <p className="mt-1 font-semibold">Persetujuan memorandum</p>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <section className="space-y-3">
+              <div>
+                <h3 className="font-semibold">Pilih kandidat</h3>
+                <p className="text-xs text-muted-foreground">Hanya peserta lulus dengan penawaran aktif dan negosiasi terakhir disepakati.</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {list(recommendationData?.candidates).map((candidate) => {
+                  const vendor = candidate.vendor as RecordData | undefined;
+                  const offer = candidate.penawaran as RecordData | undefined;
+                  const latestNegotiation = offer?.latestNegotiation as RecordData | undefined;
+                  const selectedCandidate = selectedRecommendationParticipant === String(candidate.id);
+                  return (
+                    <button
+                      type="button"
+                      key={String(candidate.id)}
+                      disabled={!recommendationData?.canVote}
+                      onClick={() => setSelectedRecommendationParticipant(String(candidate.id))}
+                      className={`rounded-lg border p-4 text-left transition ${selectedCandidate ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "hover:border-primary/40"} disabled:cursor-not-allowed disabled:opacity-70`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="font-semibold">{vendor?.nama == null ? "Vendor" : String(vendor.nama)}</span>
+                        <span className="rounded-full bg-muted px-2 py-1 text-xs">Peringkat {text(candidate.peringkat)}</span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                        <span>Skor: {text(candidate.skor)}</span>
+                        <span>
+                          Harga akhir: {offer?.mataUang == null ? "IDR" : String(offer.mataUang)} {new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(Number(latestNegotiation?.hargaPenawaran ?? offer?.hargaPenawaran ?? 0))}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            {Boolean(recommendationData?.canVote) && (
+              <label className="grid gap-2 text-sm font-medium" htmlFor="selection-recommendation">
+                Alasan rekomendasi
+                <textarea
+                  id="selection-recommendation"
+                  rows={4}
+                  className="min-h-24 rounded-md border bg-background px-3 py-2 text-sm font-normal outline-none focus:ring-2 focus:ring-ring/40"
+                  value={recommendation}
+                  onChange={(event) => setRecommendation(event.target.value)}
+                  placeholder="Jelaskan pertimbangan harga, kualitas, kepastian pasok, waktu pengiriman, dan risiko."
+                />
+              </label>
+            )}
+
+            <section className="space-y-3">
+              <div>
+                <h3 className="font-semibold">Petugas rekomendasi</h3>
+                <p className="text-xs text-muted-foreground">Jumlah petugas mengikuti assignment aktif tahap ini.</p>
+              </div>
+              <div className="divide-y rounded-lg border">
+                {list(recommendationData?.assignments).map((assignment) => {
+                  const assignmentUser = assignment.user as RecordData | undefined;
+                  const assignmentName = assignmentUser?.nama ?? assignmentUser?.email ?? "Petugas";
+                  return (
+                    <div key={String(assignment.id)} className="flex items-center justify-between gap-3 p-3">
+                      <span className="text-sm font-medium">{String(assignmentName)}</span>
+                      <span className={`rounded-full px-2 py-1 text-xs font-medium ${assignment.submitted ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{assignment.submitted ? "Sudah memilih" : "Belum memilih"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {list(recommendationData?.aggregate).length > 0 && (
+              <section className="space-y-3">
+                <h3 className="font-semibold">Rekap suara</h3>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {list(recommendationData?.aggregate).map((item) => (
+                    <div key={String(item.pesertaId)} className="flex items-center justify-between rounded-lg border px-4 py-3">
+                      <span>{(item.vendor as RecordData | undefined)?.nama == null ? "Vendor" : String((item.vendor as RecordData).nama)}</span>
+                      <strong>{item.voteCount == null ? "0" : String(item.voteCount)} suara</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">
+              Peserta lain belum dieliminasi pada tahap ini. Status tidak terpilih baru diterapkan setelah memorandum pemenang disetujui final.
+            </p>
           </div>
-        </div>
+        )}
       </Modal>
       <Modal
         open={Boolean(selected)}
@@ -1006,11 +1264,11 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                       </div>
                     ) : null}
                     {scalarEntries.length ? (
-                      <dl className={`grid gap-3 ${isOffer ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
-                        {scalarEntries.map(([key, value]) => (
-                          <div key={key} className="group min-w-0 rounded-xl border bg-background p-3.5 transition-colors hover:bg-muted/20">
+                      <dl className="overflow-hidden rounded-xl border bg-background">
+                        {scalarEntries.map(([key, value], index) => (
+                          <div key={key} className={`grid min-w-0 gap-1.5 px-4 py-3 sm:grid-cols-[minmax(11rem,0.34fr)_minmax(0,1fr)] sm:gap-5 ${index > 0 ? "border-t border-border/70" : ""}`}>
                             <dt className="text-xs font-medium text-muted-foreground">{labelFor(key)}</dt>
-                            <dd className="mt-1.5 break-words text-sm font-medium leading-relaxed text-foreground">
+                            <dd className="min-w-0 break-words text-sm font-medium leading-relaxed text-foreground">
                               <DetailValue value={value} />
                             </dd>
                           </div>
@@ -1057,7 +1315,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                       <section className="overflow-hidden rounded-xl border bg-background">
                         <h4 className="border-b bg-muted/25 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acuan kebutuhan RFQ</h4>
                         <div className="space-y-4 p-4">
-                          <dl className="grid gap-3 sm:grid-cols-2">
+                          <dl className="overflow-hidden rounded-lg border bg-background">
                             {(
                               [
                                 ["volume", "Volume"],
@@ -1068,10 +1326,10 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                               ] as Array<[string, string]>
                             )
                               .filter(([key]) => rfqBaseline[key] != null && rfqBaseline[key] !== "")
-                              .map(([key, label]) => (
-                                <div key={key} className="rounded-lg bg-muted/25 p-3">
+                              .map(([key, label], index) => (
+                                <div key={key} className={`grid min-w-0 gap-1.5 px-3 py-2.5 sm:grid-cols-[minmax(9rem,0.32fr)_minmax(0,1fr)] sm:gap-4 ${index > 0 ? "border-t border-border/70" : ""}`}>
                                   <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-                                  <dd className="mt-1 whitespace-pre-wrap break-words text-sm">{typeof rfqBaseline[key] === "object" ? <DetailValue value={rfqBaseline[key]} /> : String(rfqBaseline[key])}</dd>
+                                  <dd className="min-w-0 whitespace-pre-wrap break-words text-sm">{typeof rfqBaseline[key] === "object" ? <DetailValue value={rfqBaseline[key]} /> : String(rfqBaseline[key])}</dd>
                                 </div>
                               ))}
                           </dl>

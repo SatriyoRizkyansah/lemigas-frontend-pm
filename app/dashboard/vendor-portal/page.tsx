@@ -73,16 +73,38 @@ type Negotiation = {
   putaran: number;
   hargaHasilNegosiasi?: string | number | null;
   hasil?: string | null;
+  status: "menunggu_tanggapan" | "disepakati" | "ditolak" | "digantikan" | "dibatalkan";
   tanggapanVendor?: string | null;
   catatanVendor?: string | null;
+  alasanPenutupan?: string | null;
   penawaran: {
+    id?: string;
     hargaPenawaran?: string | number | null;
     mataUang: string;
     nomorRfq?: string | null;
-    detail?: { rfqBaseline?: { volume?: string | number | null; satuan?: string | null } } | null;
+    syaratPembayaran?: string | null;
+    ketentuanPengangkutan?: string | null;
+    berlakuSampai?: string | null;
+    status?: string;
+    detail?: Record<string, unknown> | null;
     pengadaan: { id: string; nomorSurat: string; judul: string };
   };
 };
+const NEGOTIATION_STATUS_LABELS: Record<Negotiation["status"], string> = {
+  menunggu_tanggapan: "Menunggu tanggapan",
+  disepakati: "Disepakati",
+  ditolak: "Ditolak",
+  digantikan: "Digantikan putaran baru",
+  dibatalkan: "Diakhiri tanpa kesepakatan",
+};
+const negotiationStatusClass = (status: Negotiation["status"]) =>
+  status === "menunggu_tanggapan"
+    ? "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+    : status === "disepakati"
+      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+      : status === "ditolak"
+        ? "bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300"
+        : "bg-muted text-muted-foreground";
 const API = process.env.NEXT_PUBLIC_LEMIGAS_API_URL ?? "http://localhost:3001";
 function token() {
   const raw = document.cookie
@@ -164,6 +186,260 @@ function structuredRows(value: unknown): Array<[string, unknown]> | null {
   }
   return null;
 }
+function NegotiationWorkspace({
+  negotiations,
+  rfqs,
+  selectedId,
+  onSelect,
+  busy,
+  onRespond,
+  formatAmount,
+}: {
+  negotiations: Negotiation[];
+  rfqs: Rfq[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  busy: boolean;
+  onRespond: (item: Negotiation, response: "diterima" | "ditolak", catatan?: string) => Promise<void>;
+  formatAmount: (value: number, code: string) => string;
+}) {
+  const selected = negotiations.find((item) => item.id === selectedId) ?? negotiations[0];
+  const [responseNote, setResponseNote] = useState("");
+  useEffect(() => setResponseNote(""), [selected?.id]);
+  if (!selected) return <EmptyData className="min-h-48 border-border/70 bg-card/70 shadow-sm" label="Belum ada negosiasi untuk ditanggapi." />;
+
+  const linkedRfq = rfqs.find((rfq) => rfq.nomor === selected.penawaran.nomorRfq || rfq.id === selected.penawaran.nomorRfq);
+  const baseline = selected.penawaran.detail?.rfqBaseline as Record<string, unknown> | undefined;
+  const initial = Number(selected.penawaran.hargaPenawaran);
+  const negotiated = Number(selected.hargaHasilNegosiasi);
+  const unit = String(baseline?.satuan ?? linkedRfq?.satuan ?? "");
+  const price = (value: string | number | null | undefined) => {
+    if (value == null || value === "") return "Belum tersedia";
+    const numeric = Number(value);
+    return `${selected.penawaran.mataUang} ${Number.isFinite(numeric) ? formatAmount(numeric, selected.penawaran.mataUang) : value}${unit ? ` / ${unit}` : ""}`;
+  };
+  const offerDetails = selected.penawaran.detail ?? {};
+  const excludedKeys = new Set(["rfqBaseline"]);
+  const offerRows = Object.entries(offerDetails).filter(([key, value]) => !excludedKeys.has(key) && value !== null && value !== undefined && value !== "");
+  const rfqRows: Array<[string, unknown]> = linkedRfq
+    ? (
+        [
+          ["Volume", linkedRfq.volume ? `${linkedRfq.volume}${linkedRfq.satuan ? ` ${linkedRfq.satuan}` : ""}` : null],
+          ["Titik serah", linkedRfq.titikSerah],
+          ["Spesifikasi", linkedRfq.spesifikasi],
+          ["Syarat pembayaran", linkedRfq.syaratPembayaran],
+          ["Syarat penyerahan", linkedRfq.syaratPenyerahan],
+          ["Batas respons", linkedRfq.batasRespons],
+          ["Dokumen diminta", linkedRfq.dokumenDiminta?.map((doc) => doc.nama).join(", ")],
+        ] as Array<[string, unknown]>
+      ).filter(([, value]) => value !== null && value !== undefined && value !== "")
+    : [];
+  const display = (value: unknown) => formatRfqValue(value);
+
+  return (
+    <section id="negosiasi" className="space-y-5 scroll-mt-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">Daftar negosiasi</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Pilih negosiasi untuk melihat RFQ, penawaran Anda, dan permintaan harga terbaru.</p>
+        </div>
+        <span className="rounded-full bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary">{negotiations.length} negosiasi</span>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Status</TableHead>
+                <TableHead>Pengadaan</TableHead>
+                <TableHead>RFQ</TableHead>
+                <TableHead>Putaran</TableHead>
+                <TableHead>Harga negosiasi</TableHead>
+                <TableHead className="text-right">Detail</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {negotiations.map((item) => (
+                <TableRow key={item.id} className={selected.id === item.id ? "bg-primary/[0.04]" : ""}>
+                  <TableCell>
+                    <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${negotiationStatusClass(item.status)}`}>{NEGOTIATION_STATUS_LABELS[item.status]}</span>
+                  </TableCell>
+                  <TableCell>
+                    <p className="min-w-40 font-medium">{item.penawaran.pengadaan.judul}</p>
+                    <p className="text-xs text-muted-foreground">{item.penawaran.pengadaan.nomorSurat}</p>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{item.penawaran.nomorRfq ?? "—"}</TableCell>
+                  <TableCell>Putaran {item.putaran}</TableCell>
+                  <TableCell className="whitespace-nowrap font-medium">
+                    {item.penawaran.mataUang} {item.hargaHasilNegosiasi ?? "—"}
+                    {unit ? ` / ${unit}` : ""}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button type="button" size="sm" variant={selected.id === item.id ? "default" : "outline"} onClick={() => onSelect(item.id)}>
+                      {selected.id === item.id ? "Terpilih" : "Lihat detail"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      <article className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border/70 bg-gradient-to-r from-primary/[0.07] via-muted/30 to-transparent px-5 py-5 sm:px-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-primary">Rincian negosiasi · Putaran {selected.putaran}</p>
+            <h3 className="mt-1 text-xl font-semibold">{selected.penawaran.pengadaan.judul}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Nomor pengadaan: {selected.penawaran.pengadaan.nomorSurat} <span aria-hidden="true">·</span> RFQ: {selected.penawaran.nomorRfq ?? "—"}
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${negotiationStatusClass(selected.status)}`}>{NEGOTIATION_STATUS_LABELS[selected.status]}</span>
+        </header>
+
+        <div className="space-y-6 p-5 sm:p-6">
+          <section>
+            <div className="mb-3 flex items-center gap-2">
+              <span className="grid size-7 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">1</span>
+              <div>
+                <h4 className="font-semibold">Detail RFQ</h4>
+                <p className="text-xs text-muted-foreground">Ketentuan permintaan penawaran untuk pengadaan ini</p>
+              </div>
+            </div>
+            {linkedRfq ? (
+              <>
+                <div className="mb-3 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Nomor RFQ</p>
+                    <p className="mt-1 font-semibold">{linkedRfq.nomor}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Batas respons</p>
+                    <p className="mt-1 font-medium">{linkedRfq.batasRespons ? new Date(linkedRfq.batasRespons).toLocaleString("id-ID") : "Tidak dicantumkan"}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Volume kebutuhan</p>
+                    <p className="mt-1 font-medium">
+                      {linkedRfq.volume ?? "—"} {linkedRfq.satuan ?? ""}
+                    </p>
+                  </div>
+                </div>
+                <dl className="grid gap-2 rounded-xl bg-muted/30 p-4 sm:grid-cols-2">
+                  {rfqRows.map(([label, value]) => (
+                    <div key={label} className="border-b border-border/50 py-2 last:border-0">
+                      <dt className="text-xs text-muted-foreground">{label}</dt>
+                      <dd className="mt-1 whitespace-pre-wrap text-sm font-medium">{display(value)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            ) : (
+              <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Detail RFQ tidak tersedia pada data negosiasi ini. Nomor RFQ tercatat: {selected.penawaran.nomorRfq ?? "—"}.</p>
+            )}
+          </section>
+
+          <section>
+            <div className="mb-3 flex items-center gap-2">
+              <span className="grid size-7 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">2</span>
+              <div>
+                <h4 className="font-semibold">Detail penawaran vendor</h4>
+                <p className="text-xs text-muted-foreground">Penawaran awal yang Anda kirim untuk RFQ tersebut</p>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Harga penawaran awal</p>
+                <p className="mt-2 text-lg font-semibold tabular-nums">{price(selected.penawaran.hargaPenawaran)}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Syarat pembayaran</p>
+                <p className="mt-2 text-sm font-medium">{selected.penawaran.syaratPembayaran ?? linkedRfq?.syaratPembayaran ?? "Tidak dicantumkan"}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ketentuan pengangkutan</p>
+                <p className="mt-2 text-sm font-medium">{selected.penawaran.ketentuanPengangkutan ?? "Tidak dicantumkan"}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Masa berlaku penawaran</p>
+                <p className="mt-2 text-sm font-medium">{selected.penawaran.berlakuSampai ? new Date(selected.penawaran.berlakuSampai).toLocaleString("id-ID") : "Tidak dicantumkan"}</p>
+              </div>
+            </div>
+            {offerRows.length > 0 && (
+              <dl className="mt-3 grid gap-2 rounded-xl bg-muted/30 p-4 sm:grid-cols-2">
+                {offerRows.map(([key, value]) => (
+                  <div key={key} className="border-b border-border/50 py-2 last:border-0">
+                    <dt className="text-xs text-muted-foreground">{key.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase())}</dt>
+                    <dd className="mt-1 whitespace-pre-wrap text-sm">{display(value)}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </section>
+
+          <section>
+            <div className="mb-3 flex items-center gap-2">
+              <span className="grid size-7 place-items-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">3</span>
+              <div>
+                <h4 className="font-semibold">Permintaan negosiasi</h4>
+                <p className="text-xs text-muted-foreground">Periksa harga dan catatan sebelum memberi keputusan</p>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Harga awal</p>
+                <p className="mt-2 text-lg font-semibold tabular-nums">{price(selected.penawaran.hargaPenawaran)}</p>
+              </div>
+              <div className="rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Harga yang diminta</p>
+                <p className="mt-2 text-lg font-semibold tabular-nums text-primary">{price(selected.hargaHasilNegosiasi)}</p>
+                {Number.isFinite(initial) && initial > 0 && Number.isFinite(negotiated) && <p className="mt-1 text-xs text-muted-foreground">Perubahan {(((negotiated - initial) / initial) * 100).toFixed(1)}% dari harga awal</p>}
+              </div>
+            </div>
+            <div className="mt-3 rounded-xl bg-muted/40 p-4">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Catatan tim pengadaan</p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed">{selected.hasil || "Tidak ada catatan tambahan."}</p>
+            </div>
+            <div className="mt-4 space-y-3 border-t border-border/70 pt-4">
+              {selected.status === "menunggu_tanggapan" ? (
+                <>
+                  <label className="block space-y-1.5 text-sm">
+                    <span className="font-medium">Catatan tanggapan (opsional)</span>
+                    <textarea
+                      value={responseNote}
+                      onChange={(event) => setResponseNote(event.target.value)}
+                      maxLength={4000}
+                      rows={3}
+                      disabled={busy}
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                      placeholder="Tambahkan alasan, klarifikasi, atau syarat tanggapan"
+                    />
+                  </label>
+                  <div className="flex w-full gap-2 sm:justify-end">
+                    <Button type="button" className="flex-1 sm:flex-none" disabled={busy} onClick={() => void onRespond(selected, "diterima", responseNote.trim() || undefined)}>
+                      <CircleCheck size={16} /> Setujui harga
+                    </Button>
+                    <Button type="button" variant="outline" className="flex-1 sm:flex-none" disabled={busy} onClick={() => void onRespond(selected, "ditolak", responseNote.trim() || undefined)}>
+                      Tolak
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Status: <strong className="text-foreground">{NEGOTIATION_STATUS_LABELS[selected.status]}</strong>
+                  {selected.catatanVendor ? ` · Catatan Anda: ${selected.catatanVendor}` : ""}
+                  {selected.alasanPenutupan ? ` · Alasan penutupan: ${selected.alasanPenutupan}` : ""}
+                </p>
+              )}
+            </div>
+          </section>
+        </div>
+      </article>
+    </section>
+  );
+}
+
 function VendorPortalView() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -181,6 +457,7 @@ function VendorPortalView() {
   const [loading, setLoading] = useState(true);
   const [rfqs, setRfqs] = useState<Rfq[]>([]);
   const [negotiations, setNegotiations] = useState<Negotiation[]>([]);
+  const [selectedNegotiationId, setSelectedNegotiationId] = useState<string | null>(null);
   const [filesByType, setFilesByType] = useState<Record<string, File | null>>({});
   const { toast } = useToast();
   const [notice, setNotice] = useState("");
@@ -206,6 +483,7 @@ function VendorPortalView() {
         const [list, negotiationList] = await Promise.all([request<{ data: Rfq[] }>("/api/vendor-onboarding/me/rfqs"), request<{ data: Negotiation[] }>("/api/vendor-onboarding/me/negotiations")]);
         setRfqs(list.data ?? []);
         setNegotiations(negotiationList.data ?? []);
+        setSelectedNegotiationId((current) => (current && (negotiationList.data ?? []).some((item) => item.id === current) ? current : (negotiationList.data?.[0]?.id ?? null)));
       } else {
         setRfqs([]);
         setNegotiations([]);
@@ -300,13 +578,13 @@ function VendorPortalView() {
       toast({ title: "Unduh gagal", description: e instanceof Error ? e.message : "Unduh gagal", variant: "destructive" });
     }
   }
-  async function respondNegotiation(item: Negotiation, tanggapan: "diterima" | "ditolak") {
+  async function respondNegotiation(item: Negotiation, tanggapan: "diterima" | "ditolak", catatan?: string) {
     setBusy(true);
     setNotice("");
     try {
       await request(`/api/vendor-onboarding/me/negotiations/${item.id}/respond`, {
         method: "POST",
-        body: JSON.stringify({ tanggapan }),
+        body: JSON.stringify({ tanggapan, catatan }),
       });
       setNotice(`Negosiasi putaran ${item.putaran} ${tanggapan}.`);
       await refresh();
@@ -589,57 +867,7 @@ function VendorPortalView() {
             </section>
           )}
           {section === "negotiation" && profile.status === "approved" && (
-            <section id="negosiasi" className="space-y-4 scroll-mt-6">
-              {negotiations.length === 0 ? (
-                <EmptyData className="min-h-48 border-border/70 bg-card/70 shadow-sm" label="Belum ada negosiasi untuk ditanggapi." />
-              ) : (
-                negotiations.map((item) => (
-                  <article key={item.id} className="space-y-3 rounded-xl border border-border/70 bg-card p-5 shadow-sm">
-                    <div>
-                      <h3 className="font-semibold">{item.penawaran.pengadaan.judul}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {item.penawaran.pengadaan.nomorSurat} · RFQ {item.penawaran.nomorRfq ?? "-"} · Putaran {item.putaran}
-                      </p>
-                    </div>
-                    <dl className="grid gap-2 text-sm sm:grid-cols-2">
-                      <div>
-                        <dt className="text-muted-foreground">Harga penawaran awal per satuan</dt>
-                        <dd>
-                          {item.penawaran.mataUang} {item.penawaran.hargaPenawaran ?? "-"}
-                          {item.penawaran.detail?.rfqBaseline?.satuan ? ` / ${item.penawaran.detail.rfqBaseline.satuan}` : ""}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Harga negosiasi per satuan</dt>
-                        <dd className="font-medium">
-                          {item.penawaran.mataUang} {item.hargaHasilNegosiasi ?? "-"}
-                          {item.penawaran.detail?.rfqBaseline?.satuan ? ` / ${item.penawaran.detail.rfqBaseline.satuan}` : ""}
-                        </dd>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <dt className="text-muted-foreground">Catatan negosiasi</dt>
-                        <dd>{item.hasil || "Tidak ada catatan"}</dd>
-                      </div>
-                    </dl>
-                    {item.tanggapanVendor ? (
-                      <p className="text-sm">
-                        Tanggapan Anda: <strong className="capitalize">{item.tanggapanVendor}</strong>
-                        {item.catatanVendor ? ` · ${item.catatanVendor}` : ""}
-                      </p>
-                    ) : (
-                      <div className="flex gap-2">
-                        <Button type="button" disabled={busy} onClick={() => void respondNegotiation(item, "diterima")}>
-                          Terima
-                        </Button>
-                        <Button type="button" variant="outline" disabled={busy} onClick={() => void respondNegotiation(item, "ditolak")}>
-                          Tolak
-                        </Button>
-                      </div>
-                    )}
-                  </article>
-                ))
-              )}
-            </section>
+            <NegotiationWorkspace negotiations={negotiations} rfqs={rfqs} selectedId={selectedNegotiationId} onSelect={setSelectedNegotiationId} busy={busy} onRespond={respondNegotiation} formatAmount={formatAmount} />
           )}
           {section === "rfq" && profile.status === "approved" && (
             <section className="space-y-4">
@@ -649,7 +877,7 @@ function VendorPortalView() {
                     <FileText size={18} />
                   </span>
                   <div>
-                    <p className="text-xs text-muted-foreground">RFQ aktif</p>
+                    <p className="text-xs text-muted-foreground">RFQ aktif / pernah diajukan</p>
                     <p className="font-semibold">{rfqs.length} RFQ</p>
                   </div>
                 </article>
@@ -700,6 +928,24 @@ function VendorPortalView() {
                   const priorOffers = rfq.penawaran ?? [];
                   const priorOffer = priorOffers[0];
                   const priorDetail = priorOffer?.detail ?? {};
+                  const vendorNegotiation = negotiations.find((item) => item.penawaran.pengadaan.id === rfq.pengadaan.id && item.penawaran.nomorRfq === rfq.nomor);
+                  const negotiationStarted = Boolean(vendorNegotiation);
+                  const vendorProgress = !priorOffer
+                    ? expired
+                      ? "Masa RFQ berakhir · penawaran tidak dikirim"
+                      : "Belum mengajukan penawaran"
+                    : negotiationStarted
+                      ? "Penawaran Anda masuk tahap klarifikasi / negosiasi"
+                      : ((
+                          {
+                            aktif: "Penawaran terkirim · menunggu tindak lanjut",
+                            submitted: "Penawaran terkirim · menunggu tindak lanjut",
+                            approved: "Penawaran disetujui",
+                            rejected: "Penawaran ditolak",
+                            requires_revision: "Revisi diminta",
+                            draft: "Draf penawaran",
+                          } as Record<string, string>
+                        )[priorOffer.status] ?? `Penawaran terkirim · ${priorOffer.status.replaceAll("_", " ")}`);
                   const dateInputValue = priorOffer?.berlakuSampai ? new Date(priorOffer.berlakuSampai).toISOString().slice(0, 10) : "";
                   const canonicalTerms: Array<[string, unknown]> = [
                     ["volume", rfq.volume],
@@ -736,6 +982,11 @@ function VendorPortalView() {
                             <Clock3 size={15} /> Batas respons: {rfq.batasRespons ? new Date(rfq.batasRespons).toLocaleString("id-ID") : "Tidak ditentukan"}
                           </p>
                           {rfq.alasanPerubahan && <p className="mt-2 rounded-md bg-amber-50 p-2 text-sm text-amber-900">Perubahan: {rfq.alasanPerubahan}</p>}
+                          <div className="mt-4 rounded-lg border bg-background p-3">
+                            <p className="text-xs font-medium text-muted-foreground">Progres penawaran Anda</p>
+                            <p className="mt-1 text-sm font-semibold">{vendorProgress}</p>
+                            {priorOffer?.submittedAt && <p className="mt-1 text-xs text-muted-foreground">Dikirim {new Date(priorOffer.submittedAt).toLocaleString("id-ID")}</p>}
+                          </div>
                         </header>
                         <div className="space-y-5 p-5">
                           <section className="space-y-3">
@@ -810,11 +1061,15 @@ function VendorPortalView() {
                           </section>
                           <section className="flex flex-col gap-4 rounded-xl border bg-muted/10 p-4 sm:flex-row sm:items-center sm:justify-between">
                             <div>
-                              <h3 className="font-semibold">{priorOffer ? "Revisi penawaran" : "Kirim penawaran"}</h3>
+                              <h3 className="font-semibold">{negotiationStarted ? "Tahap penawaran" : priorOffer ? "Revisi penawaran" : "Kirim penawaran"}</h3>
                               <p className="mt-1 text-xs text-muted-foreground">
-                                {priorOffer
-                                  ? `Penawaran terakhir diperbarui ${priorOffer.updatedAt ? new Date(priorOffer.updatedAt).toLocaleString("id-ID") : ""}. Revisi akan mengganti penawaran aktif sebelumnya.`
-                                  : `Belum ada penawaran untuk RFQ ${rfq.nomor}, revisi ${rfq.revisi ?? 1}.`}
+                                {negotiationStarted
+                                  ? "Perubahan penawaran ditutup karena proses sudah masuk klarifikasi / negosiasi. Pantau tanggapan dan progres pada menu Negosiasi."
+                                  : expired
+                                    ? "Masa RFQ berakhir. Penawaran tidak dapat dibuat atau diubah."
+                                    : priorOffer
+                                      ? `Penawaran terakhir diperbarui ${priorOffer.updatedAt ? new Date(priorOffer.updatedAt).toLocaleString("id-ID") : ""}. Revisi akan mengganti penawaran aktif sebelumnya.`
+                                      : `Belum ada penawaran untuk RFQ ${rfq.nomor}, revisi ${rfq.revisi ?? 1}.`}
                               </p>
                             </div>
                             {priorOffers.length > 0 && (
@@ -834,6 +1089,8 @@ function VendorPortalView() {
                             )}
                             {expired ? (
                               <p className="text-sm text-destructive">Tenggat lewat. Pengiriman tidak tersedia.</p>
+                            ) : negotiationStarted ? (
+                              <p className="text-sm font-medium text-muted-foreground">Penawaran terkunci · proses negosiasi berjalan</p>
                             ) : (
                               <Button type="button" className="w-full sm:w-auto" onClick={() => setQuoteModalRfqId(rfq.id)}>
                                 <Send size={16} /> {priorOffer ? "Ubah penawaran" : "Buat penawaran"}
@@ -1043,6 +1300,18 @@ function VendorPortalView() {
                       <tbody className="divide-y">
                         {rfqs.map((rfq) => {
                           const expired = Boolean(rfq.batasRespons && new Date(rfq.batasRespons).getTime() < Date.now());
+                          const latestOffer = rfq.penawaran?.[0];
+                          const offerStatus = latestOffer?.status;
+                          const progressLabel = offerStatus
+                            ? ((
+                                { submitted: "Penawaran terkirim · menunggu review", approved: "Penawaran disetujui", rejected: "Penawaran ditolak", requires_revision: "Perlu revisi penawaran", draft: "Draf penawaran" } as Record<
+                                  string,
+                                  string
+                                >
+                              )[offerStatus] ?? `Penawaran · ${offerStatus.replaceAll("_", " ")}`)
+                            : expired
+                              ? "Tenggat lewat · belum mengajukan"
+                              : "Belum mengajukan";
                           return (
                             <tr key={rfq.id} className="hover:bg-muted/20">
                               <td className="px-4 py-3">
@@ -1053,7 +1322,7 @@ function VendorPortalView() {
                               <td className="px-4 py-3">R{rfq.revisi ?? 1}</td>
                               <td className="px-4 py-3">{rfq.batasRespons ? new Date(rfq.batasRespons).toLocaleDateString("id-ID") : "Tidak ditentukan"}</td>
                               <td className="px-4 py-3">
-                                <StatusBadge status={expired ? "danger" : "warn"}>{expired ? "Tenggat lewat" : "Menunggu penawaran"}</StatusBadge>
+                                <StatusBadge status={offerStatus === "approved" ? "ok" : offerStatus === "rejected" || (expired && !latestOffer) ? "danger" : latestOffer ? "warn" : "warn"}>{progressLabel}</StatusBadge>
                               </td>
                               <td className="px-4 py-3 text-right">
                                 <Button type="button" variant="outline" size="sm" onClick={() => openRfq(rfq.id)}>

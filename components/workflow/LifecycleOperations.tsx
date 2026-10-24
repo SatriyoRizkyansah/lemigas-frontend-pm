@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowRight, Check, ClipboardList, FileCheck2, FileText, Handshake, Send, Settings2, Ship, Wallet, X, ExternalLink } from "lucide-react";
+import { ArrowRight, Ban, Check, ClipboardList, FileCheck2, FileText, Handshake, Send, Settings2, Ship, Wallet, X, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/modal/Modal";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { FilterCombobox } from "@/components/ui/filter-combobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { browserApi } from "@/lib/api/browser-client";
+import { ContentType } from "@/lib/api/generated/api-generated";
 import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
 import { use_mutation } from "@/lib/api/use_mutation";
 import { use_query } from "@/lib/api/use_query";
@@ -123,10 +124,20 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [documentError, setDocumentError] = useState("");
+  const [closingNegotiation, setClosingNegotiation] = useState<Entity | null>(null);
+  const [closingReason, setClosingReason] = useState("");
+  const [selectedNegotiationId, setSelectedNegotiationId] = useState("");
   const submitting = useRef(false);
   const revisionSeedKey = useRef("");
   const uninitialized = stage === "perencanaan" && Array.isArray(detail.tahapan) && detail.tahapan.length === 0;
   const isPublicDirectPurchase = String(detail.metode) === "pengadaan_langsung";
+  const latestNegotiations: Entity[] = records(detail.penawaran).flatMap((offer) => {
+    const latest = [...records(offer.negosiasi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0];
+    return latest ? [{ ...latest, penawaranId: offer.id, vendor: offer.vendor }] : [];
+  });
+  const closableNegotiations = latestNegotiations.filter((row) => ["menunggu_tanggapan", "ditolak"].includes(String(row.status)));
+  const chosenNegotiation = latestNegotiations.find((row) => String(row.id) === selectedNegotiationId) ?? null;
+  const chosenContinuation = chosenNegotiation?.status === "ditolak" ? chosenNegotiation : undefined;
   const available = lifecycleOperations.filter((op) => op.stages.includes(stage) && op.roles.includes(role) && (!uninitialized || op.key === "perencanaan") && (!op.available || op.available(detail)));
   const fields =
     selected?.fields
@@ -193,7 +204,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           .map((participant) => String(participant.penawaranId ?? "")),
       );
       return records(detail.penawaran)
-        .filter((offer) => offer.isCurrent !== false && offer.submittedAt && passedOfferIds.has(String(offer.id ?? "")))
+        .filter((offer) => {
+          if (offer.isCurrent === false || !offer.submittedAt || !passedOfferIds.has(String(offer.id ?? ""))) return false;
+          const latest = [...records(offer.negosiasi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0];
+          return !latest || latest.status === "ditolak";
+        })
         .map((offer) => {
           const vendorName = plainText(object(offer.vendor).nama) || "Vendor";
           const rfqNumber = plainText(offer.nomorRfq) || plainText(object(offer.rfq).nomor);
@@ -247,7 +262,25 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       return apiData(operation.run(pengadaanId, body) as Promise<{ data: unknown }>);
     },
   });
-  const locked = mutation.isPending || submitting.current;
+  const closeMutation = use_mutation<unknown, Error, { id: string; alasan: string }>({
+    tag: "siklusTransaksiKomoditas",
+    method: "closeNegotiation",
+    invalidateKeys: [apiQueryKeys.resource("siklusTransaksiKomoditas"), apiQueryKeys.resource("lifecycleHistory"), apiQueryKeys.resource("pengadaan"), apiQueryKeys.resource("dashboard")],
+    mutationFn: async ({ id, alasan }) => {
+      setBrowserToken();
+      return apiData(
+        browserApi.request({
+          path: `/api/pengadaan/${encodeURIComponent(pengadaanId)}/negosiasi/${encodeURIComponent(id)}/akhiri`,
+          method: "POST",
+          body: { alasan },
+          type: ContentType.Json,
+          format: "json",
+          secure: true,
+        }) as Promise<{ data: unknown }>,
+      );
+    },
+  });
+  const locked = mutation.isPending || closeMutation.isPending || submitting.current;
   const permitted = !!selected && active && available.some((op) => op.key === selected.key);
   const vendorBlocked = needsVendors && (vendors.isPending || vendors.isError);
   const missingRelation = fields.some((field) => field.required && field.relation && !options(field).length);
@@ -277,9 +310,16 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       dokumenDiminta: documentRequirementText(canonical("dokumenDiminta")),
     }));
   }, [detail.rfq, selected?.key, values.mode, values.rfqIds]);
-  function open(operation: Operation) {
+  function open(operation: Operation, negotiation?: Entity) {
     if (locked || !active) return;
+    const continuation = negotiation ?? (operation.key === "negosiasi" ? chosenContinuation : undefined);
     const initial: Record<string, string> = operation.key === "rfq" ? { mode: "baru" } : {};
+    if (operation.key === "negosiasi" && continuation) {
+      initial.penawaranId = String(continuation.penawaranId ?? "");
+      initial.batasNegosiasi = continuation.batasNegosiasi == null ? "" : String(continuation.batasNegosiasi);
+      initial.hargaHasilNegosiasi = continuation.hargaHasilNegosiasi == null ? "" : String(continuation.hargaHasilNegosiasi);
+      initial.hasil = continuation.hasil == null ? "" : String(continuation.hasil);
+    }
     const seed = object(operation.seed ? detail[operation.seed] : null);
     for (const field of operation.fields) {
       const value = seed[field.name];
@@ -300,7 +340,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     }
     revisionSeedKey.current = "";
     setValues(initial);
-    setSelected(operation);
+    setSelected(continuation ? { ...operation, title: "Buat Putaran Lanjutan" } : operation);
     setError("");
     setSuccess("");
     mutation.reset();
@@ -310,6 +350,19 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     setSelected(null);
     setError("");
     mutation.reset();
+  }
+  async function submitClosing(event: React.FormEvent) {
+    event.preventDefault();
+    if (!closingNegotiation || locked || !closingReason.trim()) return;
+    setError("");
+    try {
+      await closeMutation.mutateAsync({ id: String(closingNegotiation.id), alasan: closingReason.trim() });
+      setSuccess("Negosiasi diakhiri tanpa kesepakatan.");
+      setClosingNegotiation(null);
+      setClosingReason("");
+    } catch (cause) {
+      setError(getApiErrorMessage(cause));
+    }
   }
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -364,11 +417,120 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       {active && !user.isPending && !user.isError && !available.length ? (
         <p className="rounded-lg border border-dashed bg-background px-4 py-5 text-center text-sm text-muted-foreground">Belum ada operasi yang tersedia untuk peran atau status saat ini.</p>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-4">
         {available
           // Keep manual offer-entry operation configured for future use, but hide it from current workflow.
           .filter((operation) => !["tutupRfq", "bukaKembaliRfq", "penawaran"].includes(operation.key))
           .map((operation) => {
+            if (operation.key === "negosiasi") {
+              const activeNegotiations = closableNegotiations;
+              const selectedNegotiation = chosenNegotiation ?? activeNegotiations[0] ?? null;
+              const selectedOffer = records(detail.penawaran).find((offer) => String(offer.id) === String(selectedNegotiation?.penawaranId));
+              const selectedLatest = selectedOffer ? [...records(selectedOffer.negosiasi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0] : null;
+              const canContinue = selectedNegotiation?.status === "ditolak";
+              const presentation = operationPresentation.negosiasi;
+              const Icon = presentation.icon;
+              return (
+                <section key={operation.key} className="overflow-hidden rounded-xl border bg-background">
+                  <header className="flex items-start gap-3 border-b bg-muted/20 p-4">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                      <Icon size={18} aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold">Kelola negosiasi</h3>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">Pilih vendor untuk melihat putaran terbaru dan tindakan yang tersedia.</p>
+                    </div>
+                  </header>
+                  {activeNegotiations.length ? (
+                    <div className="grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+                      <div className="max-h-72 space-y-2 overflow-y-auto p-3" role="listbox" aria-label="Pilih negosiasi">
+                        {activeNegotiations.map((negotiation) => {
+                          const isSelected = String(selectedNegotiation?.id) === String(negotiation.id);
+                          const offer = records(detail.penawaran).find((row) => String(row.id) === String(negotiation.penawaranId));
+                          const statusLabel = negotiation.status === "ditolak" ? "Ditolak vendor" : "Menunggu tanggapan";
+                          return (
+                            <button
+                              key={String(negotiation.id)}
+                              type="button"
+                              role="option"
+                              aria-selected={isSelected}
+                              disabled={!active || locked}
+                              onClick={() => setSelectedNegotiationId(String(negotiation.id))}
+                              className={`w-full rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 ${isSelected ? "border-primary bg-primary/[0.04] shadow-sm" : "hover:border-primary/30 hover:bg-muted/30"}`}
+                            >
+                              <span className="flex items-start justify-between gap-2">
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-semibold">{plainText(object(offer?.vendor).nama) || "Vendor"}</span>
+                                  <span className="mt-1 block text-xs text-muted-foreground">
+                                    RFQ {plainText(offer?.nomorRfq) || "—"} · Putaran {String(negotiation.putaran)}
+                                  </span>
+                                </span>
+                                <span
+                                  className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-medium ${negotiation.status === "ditolak" ? "bg-destructive/10 text-destructive" : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"}`}
+                                >
+                                  {statusLabel}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex flex-col justify-between gap-4 border-t bg-muted/10 p-4 md:border-l md:border-t-0">
+                        {selectedNegotiation ? (
+                          <>
+                            <div>
+                              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pilihan saat ini</p>
+                              <h4 className="mt-1 font-semibold">{plainText(object(selectedOffer?.vendor).nama) || "Vendor"}</h4>
+                              <p className="mt-1 text-sm text-muted-foreground">
+                                Putaran {String(selectedNegotiation.putaran)} · {selectedNegotiation.status === "ditolak" ? "Vendor menolak usulan" : "Menunggu tanggapan vendor"}
+                              </p>
+                              {selectedLatest?.hargaHasilNegosiasi != null ? (
+                                <p className="mt-2 text-sm">
+                                  Harga terakhir:{" "}
+                                  <strong>
+                                    {plainText(object(selectedOffer).mataUang)} {String(selectedLatest.hargaHasilNegosiasi)}
+                                  </strong>
+                                </p>
+                              ) : null}
+                              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                                {canContinue ? "Buat putaran baru dengan nilai awal dari putaran yang ditolak." : "Putaran ini masih menunggu jawaban vendor. Putaran lanjutan belum tersedia."}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {canContinue ? (
+                                <Button type="button" disabled={!active || locked} onClick={() => open(operation, selectedNegotiation)}>
+                                  <Handshake size={16} /> Buat putaran lanjutan
+                                </Button>
+                              ) : null}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="border-destructive/30 text-destructive hover:bg-destructive/5"
+                                disabled={!active || locked}
+                                onClick={() => {
+                                  setClosingNegotiation(selectedNegotiation);
+                                  setClosingReason("");
+                                  setError("");
+                                }}
+                              >
+                                <Ban size={16} /> Akhiri tanpa kesepakatan
+                              </Button>
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4">
+                      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Belum ada negosiasi aktif untuk ditindaklanjuti. Catat putaran pertama dari operasi negosiasi.</div>
+                      <Button className="mt-3" type="button" disabled={!active || locked} onClick={() => open(operation)}>
+                        <Handshake size={16} /> Catat putaran pertama
+                      </Button>
+                    </div>
+                  )}
+                </section>
+              );
+            }
             const presentation = operationPresentation[operation.key];
             const Icon = presentation?.icon ?? ClipboardList;
             return (
@@ -401,6 +563,30 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           <AlertDescription>{success}</AlertDescription>
         </Alert>
       ) : null}
+      <Modal
+        open={!!closingNegotiation}
+        onClose={() => !locked && setClosingNegotiation(null)}
+        title="Akhiri Negosiasi Tanpa Kesepakatan"
+        size="sm"
+        footer={
+          <>
+            <Button type="button" variant="outline" disabled={locked} onClick={() => setClosingNegotiation(null)}>
+              Batal
+            </Button>
+            <Button type="submit" variant="destructive" form={`${id}-close-negotiation`} disabled={locked || !closingReason.trim()}>
+              {closeMutation.isPending ? "Mengakhiri…" : "Akhiri negosiasi"}
+            </Button>
+          </>
+        }
+      >
+        <form id={`${id}-close-negotiation`} onSubmit={submitClosing} className="space-y-3">
+          <p className="text-sm text-muted-foreground">Tindakan menutup putaran terbaru. Vendor tidak dapat memberi tanggapan atau menerima putaran lanjutan.</p>
+          <div className="space-y-1.5">
+            <Label htmlFor={`${id}-closing-reason`}>Alasan penutupan *</Label>
+            <textarea id={`${id}-closing-reason`} value={closingReason} onChange={(event) => setClosingReason(event.target.value)} maxLength={4000} rows={4} required className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+          </div>
+        </form>
+      </Modal>
       <Modal
         open={!!selected}
         onClose={close}
