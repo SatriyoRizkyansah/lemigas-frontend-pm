@@ -17,6 +17,7 @@ import { use_query } from "@/lib/api/use_query";
 import { apiQueryKeys } from "@/lib/api/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { readSession, SESSION_COOKIE } from "@/lib/auth";
+import { procurementMethodLabel } from "@/lib/procurement-methods";
 import { lifecycleOperations, operationPayload, type Entity, type Field, type Operation } from "./lifecycle-operations-config";
 
 export type LifecycleOperationsProps = { pengadaanId: string; stage: string; active: boolean; detail: any };
@@ -640,7 +641,106 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
               <AlertDescription>Relasi wajib belum tersedia. Buat catatan terkait terlebih dahulu.</AlertDescription>
             </Alert>
           ) : null}
-          {!fields.length ? <p>Konfirmasi {selected?.title.toLowerCase()} untuk pengadaan ini.</p> : null}
+          {!fields.length && selected?.key === "submit-memorandum" ? (
+            <section className="space-y-4 rounded-xl border border-primary/20 bg-primary/[0.03] p-4" aria-label="Ringkasan pengajuan memorandum">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">Siap diajukan</p>
+                <h3 className="mt-1 text-base font-semibold">Konfirmasi pengajuan memorandum</h3>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">Memorandum yang tersimpan akan dikirim ke alur review. Setelah diajukan, isinya terkunci sampai reviewer meminta revisi.</p>
+              </div>
+              <dl className="grid gap-3 rounded-lg border bg-background p-4 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Status memorandum</dt>
+                  <dd className="mt-1 font-medium">{plainText(object(detail.memorandum).status).replaceAll("_", " ") || "Draft"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Vendor rekomendasi</dt>
+                  <dd className="mt-1 font-medium">{plainText(object(object(detail.pemilihanPenyedia).vendorTerpilih).nama) || "Belum ditetapkan"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Metode seleksi</dt>
+                  <dd className="mt-1 font-medium">{procurementMethodLabel(plainText(object(detail.strategi).metodeSeleksi) || plainText(detail.metode))}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Status rekomendasi</dt>
+                  <dd className="mt-1 font-medium">{plainText(object(detail.pemilihanPenyedia).status).replaceAll("_", " ") || "Belum direkomendasikan"}</dd>
+                </div>
+              </dl>
+              <p className="text-xs leading-5 text-muted-foreground">Pengajuan membuat tiga tahap approval: Review Memorandum, Verifikasi Memorandum, lalu Persetujuan Pimpinan.</p>
+            </section>
+          ) : null}
+          {!fields.length && selected?.key !== "submit-memorandum" ? <p>Konfirmasi {selected?.title.toLowerCase()} untuk pengadaan ini.</p> : null}
+          {selected?.key === "memorandum"
+            ? (() => {
+                const strategy = object(detail.strategi);
+                const selection = object(detail.pemilihanPenyedia);
+                const winnerId = String(selection.vendorTerpilihId ?? "");
+                const participant = records(selection.peserta).find((row) => String(row.vendorId) === winnerId);
+                const offer = records(detail.penawaran).find((row) => String(row.id) === String(participant?.penawaranId ?? ""));
+                const negotiation = [...records(offer?.negosiasi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0];
+                const assignments = records(detail.tahapan).find((row) => row.tahap === "rekomendasi_pemenang");
+                const votes = records(selection.votes);
+                const amount = (value: unknown, currency = "") => {
+                  if (value == null || value === "") return "—";
+                  const number = Number(value);
+                  return [currency, Number.isFinite(number) ? new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(number) : String(value)].filter(Boolean).join(" ");
+                };
+                return (
+                  <section className="space-y-4 rounded-xl border border-primary/20 bg-primary/[0.03] p-4" aria-label="Bukti rekomendasi sistem">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">Keputusan hulu · hanya baca</p>
+                      <h3 className="mt-1 font-semibold">{plainText(object(selection.vendorTerpilih).nama) || "Vendor rekomendasi belum tersedia"}</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">Metode dan vendor ditetapkan dari strategi serta rekomendasi kolektif. Form tidak dapat menggantinya.</p>
+                    </div>
+                    <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                      <div>
+                        <dt className="text-muted-foreground">Metode seleksi</dt>
+                        <dd className="font-medium">{procurementMethodLabel(plainText(strategy.metodeSeleksi) || plainText(detail.metode))}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">Status rekomendasi</dt>
+                        <dd className="font-medium">{plainText(selection.status).replaceAll("_", " ") || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">Peringkat / skor</dt>
+                        <dd className="font-medium">{participant ? `${plainText(participant.peringkat) || "—"} / ${plainText(participant.skor) || "—"}` : "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">Kuorum suara</dt>
+                        <dd className="font-medium">
+                          {votes.length} / {records(assignments?.assignments).length}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">Harga penawaran</dt>
+                        <dd className="font-medium">{amount(offer?.hargaPenawaran, plainText(offer?.mataUang))}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">Harga negosiasi</dt>
+                        <dd className="font-medium">{amount(negotiation?.hargaHasilNegosiasi, plainText(offer?.mataUang))}</dd>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <dt className="text-muted-foreground">Hasil negosiasi</dt>
+                        <dd className="font-medium">{plainText(negotiation?.hasil) || "—"}</dd>
+                      </div>
+                    </dl>
+                    {votes.length ? (
+                      <div>
+                        <h4 className="text-sm font-semibold">Alasan anggota</h4>
+                        <ul className="mt-2 space-y-2">
+                          {votes.map((vote) => (
+                            <li key={String(vote.id)} className="rounded-md border bg-background p-3 text-sm">
+                              <span className="font-medium">{plainText(object(object(vote.assignment).user).nama) || "Anggota"}</span>
+                              <p className="mt-1 text-muted-foreground">{plainText(vote.alasan) || "—"}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })()
+            : null}
           {selected?.key === "verifikasi"
             ? (() => {
                 const vendor = values.vendorId ? (vendors.data ?? []).find((row) => row.id === values.vendorId) : undefined;
@@ -803,123 +903,65 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                   );
                 })()
               : null}
-            {operationFieldSections(selected?.key, fields).map((section) => (
-              <section key={section.title} className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
-                <h3 className="text-sm font-semibold">{section.title}</h3>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {section.fields.map((field) => {
-                    const fieldId = `${id}-${field.name}`;
-                    const isSelect = !!field.relation || !!field.options || field.kind === "boolean";
-                    const isLongText = field.payloadPath !== undefined;
-                    return (
-                      <div
-                        key={field.name}
-                        className={`min-w-0 space-y-1.5${(selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "dokumenDiminta"].includes(field.name)) || (selected?.key === "negosiasi" && ["penawaranId", "hasil"].includes(field.name)) ? " sm:col-span-2" : ""}`}
-                      >
-                        <Label htmlFor={fieldId} className="block min-h-0 leading-5">
-                          {selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi" ? "Harga negosiasi per satuan" : field.label}
-                          {field.required ? " *" : ""}
-                        </Label>
-                        {selected?.key === "negosiasi" && field.name === "batasNegosiasi" ? (
-                          <p className="min-h-8 text-xs leading-4 text-muted-foreground">Opsional. Harga per satuan untuk acuan internal; tidak dikirim kepada vendor.</p>
-                        ) : null}
-                        {selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi" ? (
-                          <p className="min-h-8 text-xs leading-4 text-muted-foreground">Isi harga per satuan, bukan total volume. Mata uang dan satuan mengikuti penawaran.</p>
-                        ) : null}
-                        {field.multiple && field.relation && field.relation !== "vendor" ? (
-                          <div className="space-y-2">
-                            <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border bg-background p-2">
-                              {(values[field.name] ?? "")
-                                .split(",")
-                                .filter(Boolean)
-                                .map((choiceId) => {
-                                  const choice = options(field).find((item) => item.value === choiceId);
-                                  return (
-                                    <span key={choiceId} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
-                                      {choice?.label ?? choiceId}
-                                      <button
-                                        type="button"
-                                        aria-label={`Hapus ${field.label}`}
-                                        disabled={locked}
-                                        onClick={() =>
-                                          setValues((old) => ({
-                                            ...old,
-                                            [field.name]: (old[field.name] ?? "")
-                                              .split(",")
-                                              .filter((value) => value && value !== choiceId)
-                                              .join(","),
-                                          }))
-                                        }
-                                      >
-                                        <X size={13} />
-                                      </button>
-                                    </span>
-                                  );
-                                })}
-                              {!values[field.name] ? <span className="px-1 text-xs text-muted-foreground">Pilih satu atau beberapa RFQ</span> : null}
-                            </div>
-                            <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-1" role="group" aria-label={field.label}>
-                              {options(field).map((choice) => {
-                                const selectedIds = (values[field.name] ?? "").split(",").filter(Boolean);
-                                const checked = selectedIds.includes(choice.value);
-                                return (
-                                  <button
-                                    key={choice.value}
-                                    type="button"
-                                    disabled={locked}
-                                    onClick={() => setValues((old) => ({ ...old, [field.name]: checked ? selectedIds.filter((value) => value !== choice.value).join(",") : [...selectedIds, choice.value].join(",") }))}
-                                    className="flex w-full items-center justify-between rounded px-2 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
-                                  >
-                                    <span>{choice.label}</span>
-                                    {checked ? <Check size={16} className="text-primary" /> : null}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ) : field.multiple && field.relation === "vendor" ? (
-                          <div className="space-y-2">
-                            <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border bg-background p-2">
-                              {(values[field.name] ?? "")
-                                .split(",")
-                                .filter(Boolean)
-                                .map((vendorId) => {
-                                  const choice = options(field).find((item) => item.value === vendorId);
-                                  return (
-                                    <span key={vendorId} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
-                                      {choice?.label ?? vendorId}
-                                      <button
-                                        type="button"
-                                        aria-label={`Hapus ${choice?.label ?? "vendor"}`}
-                                        disabled={locked}
-                                        onClick={() =>
-                                          setValues((old) => ({
-                                            ...old,
-                                            [field.name]: (old[field.name] ?? "")
-                                              .split(",")
-                                              .filter((id) => id && id !== vendorId)
-                                              .join(","),
-                                          }))
-                                        }
-                                      >
-                                        <X size={13} />
-                                      </button>
-                                    </span>
-                                  );
-                                })}
-                              <span className="px-1 text-xs text-muted-foreground">{(values[field.name] ?? "").split(",").filter(Boolean).length ? "Vendor dipilih" : "Pilih vendor di bawah"}</span>
-                            </div>
-                            <Input
-                              placeholder="Cari vendor…"
-                              aria-label="Cari vendor tujuan"
-                              value={values.__vendorSearch ?? ""}
-                              disabled={locked || vendorBlocked}
-                              onChange={(event) => setValues((old) => ({ ...old, __vendorSearch: event.target.value }))}
-                            />
-                            <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border p-1" role="group" aria-label="Vendor tujuan">
-                              {options(field)
-                                .filter((choice) => choice.label.toLocaleLowerCase("id-ID").includes((values.__vendorSearch ?? "").toLocaleLowerCase("id-ID")))
-                                .map((choice) => {
+            {operationFieldSections(selected?.key, fields)
+              .filter((section) => section.fields.length > 0)
+              .map((section) => (
+                <section key={section.title} className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
+                  <h3 className="text-sm font-semibold">{section.title}</h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {section.fields.map((field) => {
+                      const fieldId = `${id}-${field.name}`;
+                      const isSelect = !!field.relation || !!field.options || field.kind === "boolean";
+                      const isLongText = field.payloadPath !== undefined;
+                      return (
+                        <div
+                          key={field.name}
+                          className={`min-w-0 space-y-1.5${(selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "dokumenDiminta"].includes(field.name)) || (selected?.key === "negosiasi" && ["penawaranId", "hasil"].includes(field.name)) ? " sm:col-span-2" : ""}`}
+                        >
+                          <Label htmlFor={fieldId} className="block min-h-0 leading-5">
+                            {selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi" ? "Harga negosiasi per satuan" : field.label}
+                            {field.required ? " *" : ""}
+                          </Label>
+                          {selected?.key === "negosiasi" && field.name === "batasNegosiasi" ? (
+                            <p className="min-h-8 text-xs leading-4 text-muted-foreground">Opsional. Harga per satuan untuk acuan internal; tidak dikirim kepada vendor.</p>
+                          ) : null}
+                          {selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi" ? (
+                            <p className="min-h-8 text-xs leading-4 text-muted-foreground">Isi harga per satuan, bukan total volume. Mata uang dan satuan mengikuti penawaran.</p>
+                          ) : null}
+                          {field.multiple && field.relation && field.relation !== "vendor" ? (
+                            <div className="space-y-2">
+                              <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border bg-background p-2">
+                                {(values[field.name] ?? "")
+                                  .split(",")
+                                  .filter(Boolean)
+                                  .map((choiceId) => {
+                                    const choice = options(field).find((item) => item.value === choiceId);
+                                    return (
+                                      <span key={choiceId} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
+                                        {choice?.label ?? choiceId}
+                                        <button
+                                          type="button"
+                                          aria-label={`Hapus ${field.label}`}
+                                          disabled={locked}
+                                          onClick={() =>
+                                            setValues((old) => ({
+                                              ...old,
+                                              [field.name]: (old[field.name] ?? "")
+                                                .split(",")
+                                                .filter((value) => value && value !== choiceId)
+                                                .join(","),
+                                            }))
+                                          }
+                                        >
+                                          <X size={13} />
+                                        </button>
+                                      </span>
+                                    );
+                                  })}
+                                {!values[field.name] ? <span className="px-1 text-xs text-muted-foreground">Pilih satu atau beberapa RFQ</span> : null}
+                              </div>
+                              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-1" role="group" aria-label={field.label}>
+                                {options(field).map((choice) => {
                                   const selectedIds = (values[field.name] ?? "").split(",").filter(Boolean);
                                   const checked = selectedIds.includes(choice.value);
                                   return (
@@ -927,7 +969,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                                       key={choice.value}
                                       type="button"
                                       disabled={locked}
-                                      onClick={() => setValues((old) => ({ ...old, [field.name]: checked ? selectedIds.filter((id) => id !== choice.value).join(",") : [...selectedIds, choice.value].join(",") }))}
+                                      onClick={() => setValues((old) => ({ ...old, [field.name]: checked ? selectedIds.filter((value) => value !== choice.value).join(",") : [...selectedIds, choice.value].join(",") }))}
                                       className="flex w-full items-center justify-between rounded px-2 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
                                     >
                                       <span>{choice.label}</span>
@@ -935,77 +977,201 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                                     </button>
                                   );
                                 })}
-                              {!vendorBlocked && !options(field).some((choice) => choice.label.toLocaleLowerCase("id-ID").includes((values.__vendorSearch ?? "").toLocaleLowerCase("id-ID"))) ? (
-                                <p className="px-2 py-3 text-center text-xs text-muted-foreground">Vendor tidak ditemukan.</p>
-                              ) : null}
+                              </div>
                             </div>
-                            <div className="flex flex-wrap gap-2">
+                          ) : field.multiple && field.relation === "vendor" ? (
+                            <div className="space-y-2">
+                              <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border bg-background p-2">
+                                {(values[field.name] ?? "")
+                                  .split(",")
+                                  .filter(Boolean)
+                                  .map((vendorId) => {
+                                    const choice = options(field).find((item) => item.value === vendorId);
+                                    return (
+                                      <span key={vendorId} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
+                                        {choice?.label ?? vendorId}
+                                        <button
+                                          type="button"
+                                          aria-label={`Hapus ${choice?.label ?? "vendor"}`}
+                                          disabled={locked}
+                                          onClick={() =>
+                                            setValues((old) => ({
+                                              ...old,
+                                              [field.name]: (old[field.name] ?? "")
+                                                .split(",")
+                                                .filter((id) => id && id !== vendorId)
+                                                .join(","),
+                                            }))
+                                          }
+                                        >
+                                          <X size={13} />
+                                        </button>
+                                      </span>
+                                    );
+                                  })}
+                                <span className="px-1 text-xs text-muted-foreground">{(values[field.name] ?? "").split(",").filter(Boolean).length ? "Vendor dipilih" : "Pilih vendor di bawah"}</span>
+                              </div>
+                              <Input
+                                placeholder="Cari vendor…"
+                                aria-label="Cari vendor tujuan"
+                                value={values.__vendorSearch ?? ""}
+                                disabled={locked || vendorBlocked}
+                                onChange={(event) => setValues((old) => ({ ...old, __vendorSearch: event.target.value }))}
+                              />
+                              <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border p-1" role="group" aria-label="Vendor tujuan">
+                                {options(field)
+                                  .filter((choice) => choice.label.toLocaleLowerCase("id-ID").includes((values.__vendorSearch ?? "").toLocaleLowerCase("id-ID")))
+                                  .map((choice) => {
+                                    const selectedIds = (values[field.name] ?? "").split(",").filter(Boolean);
+                                    const checked = selectedIds.includes(choice.value);
+                                    return (
+                                      <button
+                                        key={choice.value}
+                                        type="button"
+                                        disabled={locked}
+                                        onClick={() => setValues((old) => ({ ...old, [field.name]: checked ? selectedIds.filter((id) => id !== choice.value).join(",") : [...selectedIds, choice.value].join(",") }))}
+                                        className="flex w-full items-center justify-between rounded px-2 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
+                                      >
+                                        <span>{choice.label}</span>
+                                        {checked ? <Check size={16} className="text-primary" /> : null}
+                                      </button>
+                                    );
+                                  })}
+                                {!vendorBlocked && !options(field).some((choice) => choice.label.toLocaleLowerCase("id-ID").includes((values.__vendorSearch ?? "").toLocaleLowerCase("id-ID"))) ? (
+                                  <p className="px-2 py-3 text-center text-xs text-muted-foreground">Vendor tidak ditemukan.</p>
+                                ) : null}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={locked || vendorBlocked}
+                                  onClick={() =>
+                                    setValues((old) => ({
+                                      ...old,
+                                      [field.name]: options(field)
+                                        .map((choice) => choice.value)
+                                        .join(","),
+                                    }))
+                                  }
+                                >
+                                  Pilih semua ({options(field).length})
+                                </Button>
+                                <Button type="button" variant="ghost" size="sm" disabled={locked} onClick={() => setValues((old) => ({ ...old, [field.name]: "" }))}>
+                                  Kosongkan pilihan
+                                </Button>
+                              </div>
+                            </div>
+                          ) : isSelect && field.relation === "vendor" ? (
+                            <FilterCombobox
+                              options={options(field)}
+                              value={values[field.name] || ""}
+                              onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: value }))}
+                              label={field.label}
+                              disabled={locked || !permitted || vendorBlocked}
+                            />
+                          ) : isSelect ? (
+                            <Select value={values[field.name] || ""} onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: String(value ?? "") }))} disabled={locked || !permitted}>
+                              <SelectTrigger id={fieldId} aria-required={field.required} className={selected?.key === "negosiasi" && field.name === "penawaranId" ? "min-w-0" : undefined}>
+                                {selected?.key === "negosiasi" && field.name === "penawaranId" ? (
+                                  <>
+                                    <span className="min-w-0 flex-1 truncate text-left">{options(field).find((option) => option.value === values[field.name])?.label ?? "Pilih penawaran vendor…"}</span>
+                                    <SelectValue className="sr-only" />
+                                  </>
+                                ) : (
+                                  <SelectValue placeholder="Pilih penawaran…" />
+                                )}
+                              </SelectTrigger>
+                              <SelectContent>
+                                {!field.required ? <SelectItem value="">Tidak diisi</SelectItem> : null}
+                                {options(field).map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {selected?.key === "rfq" && field.name === "mode" ? (({ baru: "RFQ baru", tambah_vendor: "Tambah vendor", revisi: "Ubah RFQ" } as Record<string, string>)[option.value] ?? option.label) : option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : field.kind === "document-list" ? (
+                            <div className="space-y-3" aria-describedby={`${fieldId}-hint`}>
+                              <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
+                                Cantumkan dokumen yang wajib disampaikan vendor beserta ketentuannya.
+                              </p>
+                              <div className="space-y-2">
+                                {parseParameterRows(values[field.name] ?? "").map((row, index, rows) => (
+                                  <div key={`${fieldId}-row-${index}`} className="grid gap-2 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-end">
+                                    <div className="space-y-1.5">
+                                      <Label htmlFor={`${fieldId}-name-${index}`} className="text-xs">
+                                        Nama dokumen
+                                      </Label>
+                                      <Input
+                                        id={`${fieldId}-name-${index}`}
+                                        aria-label={`${field.label}: nama dokumen ${index + 1}`}
+                                        placeholder="Contoh: Surat penawaran harga"
+                                        value={row.name}
+                                        onChange={(event) => {
+                                          const next = [...rows];
+                                          next[index] = { ...row, name: event.target.value };
+                                          setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                        }}
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label htmlFor={`${fieldId}-detail-${index}`} className="text-xs">
+                                        Ketentuan / keterangan
+                                      </Label>
+                                      <Input
+                                        id={`${fieldId}-detail-${index}`}
+                                        aria-label={`${field.label}: ketentuan dokumen ${index + 1}`}
+                                        placeholder="Contoh: Wajib, ditandatangani pejabat berwenang"
+                                        value={row.value}
+                                        onChange={(event) => {
+                                          const next = [...rows];
+                                          next[index] = { ...row, value: event.target.value };
+                                          setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                        }}
+                                      />
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      aria-label={`Hapus dokumen ${index + 1}`}
+                                      disabled={rows.length === 1}
+                                      onClick={() => {
+                                        const next = rows.filter((_, rowIndex) => rowIndex !== index);
+                                        setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                      }}
+                                    >
+                                      Hapus
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
                               <Button
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                disabled={locked || vendorBlocked}
-                                onClick={() =>
-                                  setValues((old) => ({
-                                    ...old,
-                                    [field.name]: options(field)
-                                      .map((choice) => choice.value)
-                                      .join(","),
-                                  }))
-                                }
+                                onClick={() => {
+                                  const next = [...parseParameterRows(values[field.name] ?? ""), { name: "", value: "" }];
+                                  setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                }}
                               >
-                                Pilih semua ({options(field).length})
-                              </Button>
-                              <Button type="button" variant="ghost" size="sm" disabled={locked} onClick={() => setValues((old) => ({ ...old, [field.name]: "" }))}>
-                                Kosongkan pilihan
+                                Tambah dokumen
                               </Button>
                             </div>
-                          </div>
-                        ) : isSelect && field.relation === "vendor" ? (
-                          <FilterCombobox
-                            options={options(field)}
-                            value={values[field.name] || ""}
-                            onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: value }))}
-                            label={field.label}
-                            disabled={locked || !permitted || vendorBlocked}
-                          />
-                        ) : isSelect ? (
-                          <Select value={values[field.name] || ""} onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: String(value ?? "") }))} disabled={locked || !permitted}>
-                            <SelectTrigger id={fieldId} aria-required={field.required} className={selected?.key === "negosiasi" && field.name === "penawaranId" ? "min-w-0" : undefined}>
-                              {selected?.key === "negosiasi" && field.name === "penawaranId" ? (
-                                <>
-                                  <span className="min-w-0 flex-1 truncate text-left">{options(field).find((option) => option.value === values[field.name])?.label ?? "Pilih penawaran vendor…"}</span>
-                                  <SelectValue className="sr-only" />
-                                </>
-                              ) : (
-                                <SelectValue placeholder="Pilih penawaran…" />
-                              )}
-                            </SelectTrigger>
-                            <SelectContent>
-                              {!field.required ? <SelectItem value="">Tidak diisi</SelectItem> : null}
-                              {options(field).map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {selected?.key === "rfq" && field.name === "mode" ? (({ baru: "RFQ baru", tambah_vendor: "Tambah vendor", revisi: "Ubah RFQ" } as Record<string, string>)[option.value] ?? option.label) : option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : field.kind === "document-list" ? (
-                          <div className="space-y-3" aria-describedby={`${fieldId}-hint`}>
-                            <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
-                              Cantumkan dokumen yang wajib disampaikan vendor beserta ketentuannya.
-                            </p>
-                            <div className="space-y-2">
-                              {parseParameterRows(values[field.name] ?? "").map((row, index, rows) => (
-                                <div key={`${fieldId}-row-${index}`} className="grid gap-2 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-end">
-                                  <div className="space-y-1.5">
-                                    <Label htmlFor={`${fieldId}-name-${index}`} className="text-xs">
-                                      Nama dokumen
-                                    </Label>
+                          ) : field.kind === "json" ? (
+                            <div className="space-y-3" aria-describedby={`${fieldId}-hint`}>
+                              <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
+                                Isi kolom parameter dan nilai. Contoh parameter sesuai kebutuhan:{" "}
+                                {field.name === "kesiapanPenerima" ? "Fasilitas, kapasitas, jadwal penerimaan." : field.name === "analisisPasar" ? "Pasokan, harga, risiko pasar." : "Kadar sulfur, densitas, viskositas."}
+                              </p>
+                              <div className="space-y-2">
+                                {parseParameterRows(values[field.name] ?? "").map((row, index, rows) => (
+                                  <div key={`${fieldId}-row-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] items-center gap-2">
                                     <Input
-                                      id={`${fieldId}-name-${index}`}
-                                      aria-label={`${field.label}: nama dokumen ${index + 1}`}
-                                      placeholder="Contoh: Surat penawaran harga"
+                                      aria-label={`${field.label}: parameter ${index + 1}`}
+                                      placeholder="Parameter"
                                       value={row.name}
                                       onChange={(event) => {
                                         const next = [...rows];
@@ -1013,15 +1179,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                                         setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
                                       }}
                                     />
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label htmlFor={`${fieldId}-detail-${index}`} className="text-xs">
-                                      Ketentuan / keterangan
-                                    </Label>
                                     <Input
-                                      id={`${fieldId}-detail-${index}`}
-                                      aria-label={`${field.label}: ketentuan dokumen ${index + 1}`}
-                                      placeholder="Contoh: Wajib, ditandatangani pejabat berwenang"
+                                      aria-label={`${field.label}: nilai ${index + 1}`}
+                                      placeholder="Nilai"
                                       value={row.value}
                                       onChange={(event) => {
                                         const next = [...rows];
@@ -1029,120 +1189,62 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                                         setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
                                       }}
                                     />
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      aria-label={`Hapus parameter ${index + 1}`}
+                                      disabled={rows.length === 1}
+                                      onClick={() => {
+                                        const next = rows.filter((_, rowIndex) => rowIndex !== index);
+                                        setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                      }}
+                                    >
+                                      Hapus
+                                    </Button>
                                   </div>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    aria-label={`Hapus dokumen ${index + 1}`}
-                                    disabled={rows.length === 1}
-                                    onClick={() => {
-                                      const next = rows.filter((_, rowIndex) => rowIndex !== index);
-                                      setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
-                                    }}
-                                  >
-                                    Hapus
-                                  </Button>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const next = [...parseParameterRows(values[field.name] ?? ""), { name: "", value: "" }];
+                                  setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
+                                }}
+                              >
+                                Tambah parameter
+                              </Button>
                             </div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                const next = [...parseParameterRows(values[field.name] ?? ""), { name: "", value: "" }];
-                                setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
-                              }}
-                            >
-                              Tambah dokumen
-                            </Button>
-                          </div>
-                        ) : field.kind === "json" ? (
-                          <div className="space-y-3" aria-describedby={`${fieldId}-hint`}>
-                            <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
-                              Isi kolom parameter dan nilai. Contoh parameter sesuai kebutuhan:{" "}
-                              {field.name === "kesiapanPenerima" ? "Fasilitas, kapasitas, jadwal penerimaan." : field.name === "analisisPasar" ? "Pasokan, harga, risiko pasar." : "Kadar sulfur, densitas, viskositas."}
-                            </p>
-                            <div className="space-y-2">
-                              {parseParameterRows(values[field.name] ?? "").map((row, index, rows) => (
-                                <div key={`${fieldId}-row-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] items-center gap-2">
-                                  <Input
-                                    aria-label={`${field.label}: parameter ${index + 1}`}
-                                    placeholder="Parameter"
-                                    value={row.name}
-                                    onChange={(event) => {
-                                      const next = [...rows];
-                                      next[index] = { ...row, name: event.target.value };
-                                      setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
-                                    }}
-                                  />
-                                  <Input
-                                    aria-label={`${field.label}: nilai ${index + 1}`}
-                                    placeholder="Nilai"
-                                    value={row.value}
-                                    onChange={(event) => {
-                                      const next = [...rows];
-                                      next[index] = { ...row, value: event.target.value };
-                                      setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
-                                    }}
-                                  />
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    aria-label={`Hapus parameter ${index + 1}`}
-                                    disabled={rows.length === 1}
-                                    onClick={() => {
-                                      const next = rows.filter((_, rowIndex) => rowIndex !== index);
-                                      setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
-                                    }}
-                                  >
-                                    Hapus
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                const next = [...parseParameterRows(values[field.name] ?? ""), { name: "", value: "" }];
-                                setValues((old) => ({ ...old, [field.name]: serializeParameterRows(next) }));
-                              }}
-                            >
-                              Tambah parameter
-                            </Button>
-                          </div>
-                        ) : isLongText || field.kind === "textarea" ? (
-                          <textarea
-                            id={fieldId}
-                            value={values[field.name] ?? ""}
-                            onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
-                            required={field.required}
-                            rows={3}
-                            placeholder={`${field.label}…`}
-                            className="w-full rounded-md border border-input bg-background p-3 text-sm leading-6"
-                          />
-                        ) : (
-                          <Input
-                            id={fieldId}
-                            type={field.kind === "date" ? "date" : field.kind === "number" ? "number" : "text"}
-                            step={field.kind === "number" ? (field.integer ? "1" : "any") : undefined}
-                            min={field.min}
-                            maxLength={field.maxLength}
-                            required={field.required}
-                            value={values[field.name] ?? ""}
-                            onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
+                          ) : isLongText || field.kind === "textarea" ? (
+                            <textarea
+                              id={fieldId}
+                              value={values[field.name] ?? ""}
+                              onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
+                              required={field.required}
+                              rows={3}
+                              placeholder={`${field.label}…`}
+                              className="w-full rounded-md border border-input bg-background p-3 text-sm leading-6"
+                            />
+                          ) : (
+                            <Input
+                              id={fieldId}
+                              type={field.kind === "date" ? "date" : field.kind === "number" ? "number" : "text"}
+                              step={field.kind === "number" ? (field.integer ? "1" : "any") : undefined}
+                              min={field.min}
+                              maxLength={field.maxLength}
+                              required={field.required}
+                              value={values[field.name] ?? ""}
+                              onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
           </fieldset>
         </form>
       </Modal>

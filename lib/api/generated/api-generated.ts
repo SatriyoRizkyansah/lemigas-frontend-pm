@@ -84,8 +84,10 @@ export interface ReviewVendorOnboardingDto {
 }
 
 export interface AddPengadaanMemberDto {
-  userId: string;
-  /** Wajib untuk PIC dan PIC UTAMA */
+  userId?: string;
+  /** Daftar UUID pengguna untuk operasi tambah anggota batch */
+  userIds?: string[];
+  /** Tahap wajib untuk PIC dan PIC UTAMA */
   tahap?:
     | "perencanaan"
     | "sourcing"
@@ -243,6 +245,11 @@ export interface CreateNegosiasiDto {
   hasil?: string;
 }
 
+export interface AkhiriNegosiasiDto {
+  /** Alasan negosiasi diakhiri tanpa kesepakatan */
+  alasan: string;
+}
+
 export interface CreatePemilihanPenyediaDto {
   vendorIds?: string[];
   minimumPeserta?: number;
@@ -261,7 +268,8 @@ export interface UpdatePesertaPemilihanDto {
   lulusTerms?: boolean;
   sumberHargaAcuan?: string;
   nilaiHargaAcuan?: number;
-  totalBiayaPerolehan?: number;
+  /** Rincian biaya langsung sampai Titik Serah. Total dihitung server. */
+  komponenBiayaPerolehan?: object;
   /**
    * @min 0
    * @max 100
@@ -271,21 +279,14 @@ export interface UpdatePesertaPemilihanDto {
   catatanEvaluasi?: string;
 }
 
-export interface RekomendasiPemilihanPenyediaDto {
-  vendorTerpilihId: string;
-  rekomendasi: string;
+export interface UpsertRekomendasiVoteDto {
+  pesertaId: string;
+  alasan: string;
 }
 
 export interface CreateMemorandumDto {
-  metodeSeleksi:
-    | "tender"
-    | "pengadaan_langsung"
-    | "penunjukan_langsung"
-    | "e_procurement";
-  hasilEvaluasi: object;
-  analisisHarga: object;
+  /** Uraian memorandum; metode, vendor, evaluasi, dan harga diturunkan oleh sistem. */
   rekomendasi: string;
-  rekomendasiVendorId?: string;
   analisisRisiko?: object;
   kesiapanPembiayaan?: object;
 }
@@ -591,10 +592,15 @@ export interface LinkLifecycleEvidenceDto {
   dokumenId: string;
 }
 
+export interface FulfillConditionsDto {
+  /** Uraian bukti pemenuhan seluruh syarat */
+  buktiPemenuhan: string;
+}
+
 export interface DecisionDto {
   /** Keputusan approval */
-  decision: "disetujui" | "ditolak";
-  /** Catatan keputusan */
+  decision: "disetujui" | "disetujui_bersyarat" | "perlu_revisi" | "ditolak";
+  /** Catatan keputusan atau syarat approval */
   catatan?: string;
 }
 
@@ -1545,7 +1551,7 @@ export class Api<
      *
      * @tags Siklus Transaksi Komoditas
      * @name TransaksiControllerDetail
-     * @summary Detail siklus transaksi komoditas (Admin, Operator, Verifikator, Pimpinan)
+     * @summary Detail siklus transaksi komoditas (Admin, Operator, Verifikator, Pimpinan, MEMBER)
      * @request GET:/api/pengadaan/{pengadaanId}/siklus
      * @secure
      */
@@ -1565,7 +1571,7 @@ export class Api<
      *
      * @tags Siklus Transaksi Komoditas
      * @name TransaksiControllerTeam
-     * @summary Lihat anggota dan penugasan pengadaan (Admin, Operator, Verifikator, Pimpinan)
+     * @summary Lihat anggota dan penugasan pengadaan (Admin, Operator, Verifikator, Pimpinan, MEMBER)
      * @request GET:/api/pengadaan/{pengadaanId}/team
      * @secure
      */
@@ -1596,6 +1602,29 @@ export class Api<
     ) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/team/members`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Siklus Transaksi Komoditas
+     * @name TransaksiControllerAddMembersBulk
+     * @summary Tambah banyak anggota pengadaan (Admin, Operator)
+     * @request POST:/api/pengadaan/{pengadaanId}/team/members/bulk
+     * @secure
+     */
+    transaksiControllerAddMembersBulk: (
+      pengadaanId: string,
+      data: AddPengadaanMemberDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/pengadaan/${pengadaanId}/team/members/bulk`,
         method: "POST",
         body: data,
         secure: true,
@@ -1792,7 +1821,7 @@ export class Api<
      *
      * @tags Siklus Transaksi Komoditas
      * @name TransaksiControllerCreateVerifikasi
-     * @summary Verifikasi legalitas dan rekening vendor (Admin, Verifikator)
+     * @summary Verifikasi legalitas dan rekening vendor (Admin, Verifikator, MEMBER)
      * @request POST:/api/pengadaan/{pengadaanId}/verifikasi
      * @secure
      */
@@ -1814,6 +1843,26 @@ export class Api<
      * No description
      *
      * @tags Siklus Transaksi Komoditas
+     * @name TransaksiControllerGenerateCatatanNegosiasiPdf
+     * @summary Buat PDF catatan negosiasi (Admin, Operator)
+     * @request POST:/api/pengadaan/{pengadaanId}/negosiasi/catatan-pdf
+     * @secure
+     */
+    transaksiControllerGenerateCatatanNegosiasiPdf: (
+      pengadaanId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/pengadaan/${pengadaanId}/negosiasi/catatan-pdf`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Siklus Transaksi Komoditas
      * @name TransaksiControllerCreateNegosiasi
      * @summary Catat negosiasi transaksi (Admin, Operator)
      * @request POST:/api/pengadaan/{pengadaanId}/negosiasi
@@ -1826,6 +1875,30 @@ export class Api<
     ) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/negosiasi`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Siklus Transaksi Komoditas
+     * @name TransaksiControllerAkhiriNegosiasi
+     * @summary Akhiri negosiasi tanpa kesepakatan (Admin, Operator)
+     * @request POST:/api/pengadaan/{pengadaanId}/negosiasi/{negosiasiId}/akhiri
+     * @secure
+     */
+    transaksiControllerAkhiriNegosiasi: (
+      pengadaanId: string,
+      negosiasiId: string,
+      data: AkhiriNegosiasiDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/pengadaan/${pengadaanId}/negosiasi/${negosiasiId}/akhiri`,
         method: "POST",
         body: data,
         secure: true,
@@ -1884,22 +1957,62 @@ export class Api<
      * No description
      *
      * @tags Siklus Transaksi Komoditas
-     * @name TransaksiControllerRecommendPemilihanPenyedia
-     * @summary Rekomendasikan pemenang (Admin, Operator)
-     * @request POST:/api/pengadaan/{pengadaanId}/pemilihan-penyedia/rekomendasi
+     * @name TransaksiControllerRecommendationState
+     * @summary Lihat proses rekomendasi penyedia (Admin, Operator, Verifikator, Pimpinan, MEMBER)
+     * @request GET:/api/pengadaan/{pengadaanId}/pemilihan-penyedia/rekomendasi
      * @secure
      */
-    transaksiControllerRecommendPemilihanPenyedia: (
+    transaksiControllerRecommendationState: (
       pengadaanId: string,
-      data: RekomendasiPemilihanPenyediaDto,
       params: RequestParams = {},
     ) =>
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/pemilihan-penyedia/rekomendasi`,
-        method: "POST",
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Siklus Transaksi Komoditas
+     * @name TransaksiControllerVoteRecommendation
+     * @summary Simpan suara rekomendasi penyedia (Admin, Operator, Verifikator, Pimpinan, MEMBER)
+     * @request PUT:/api/pengadaan/{pengadaanId}/pemilihan-penyedia/rekomendasi/me
+     * @secure
+     */
+    transaksiControllerVoteRecommendation: (
+      pengadaanId: string,
+      data: UpsertRekomendasiVoteDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/pengadaan/${pengadaanId}/pemilihan-penyedia/rekomendasi/me`,
+        method: "PUT",
         body: data,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Siklus Transaksi Komoditas
+     * @name TransaksiControllerFinalizeRecommendation
+     * @summary Finalisasi rekomendasi penyedia (Admin, Operator, Verifikator, Pimpinan, MEMBER)
+     * @request POST:/api/pengadaan/{pengadaanId}/pemilihan-penyedia/rekomendasi/finalize
+     * @secure
+     */
+    transaksiControllerFinalizeRecommendation: (
+      pengadaanId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/pengadaan/${pengadaanId}/pemilihan-penyedia/rekomendasi/finalize`,
+        method: "POST",
+        secure: true,
         ...params,
       }),
 
@@ -2444,7 +2557,7 @@ export class Api<
      *
      * @tags Siklus Transaksi Komoditas
      * @name TransaksiControllerListLaporan
-     * @summary Lihat laporan transaksi (Admin, Operator, Verifikator, Pimpinan)
+     * @summary Lihat laporan transaksi (Admin, Operator, Verifikator, Pimpinan, MEMBER)
      * @request GET:/api/pengadaan/{pengadaanId}/laporan
      * @secure
      */
@@ -2508,7 +2621,7 @@ export class Api<
      *
      * @tags Siklus Transaksi Komoditas
      * @name TransaksiControllerLifecycleHistory
-     * @summary Lihat histori lifecycle dan agregat transaksi (Admin, Operator, Verifikator, Pimpinan)
+     * @summary Lihat histori lifecycle dan agregat transaksi (Admin, Operator, Verifikator, Pimpinan, MEMBER)
      * @request GET:/api/pengadaan/{pengadaanId}/lifecycle-history
      * @secure
      */
@@ -2753,6 +2866,30 @@ export class Api<
         path: `/api/approval/memorandum/submit/${pengadaanId}`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Approval
+     * @name ApprovalActionControllerFulfillConditions
+     * @summary Konfirmasi pemenuhan syarat approval (Admin, Pimpinan)
+     * @request POST:/api/approval/conditions/{pengadaanId}/{stepId}/fulfill
+     * @secure
+     */
+    approvalActionControllerFulfillConditions: (
+      pengadaanId: string,
+      stepId: string,
+      data: FulfillConditionsDto,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/approval/conditions/${pengadaanId}/${stepId}/fulfill`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 

@@ -30,10 +30,16 @@ type Step = {
   urutan: number;
   namaLangkah: string;
   status: string;
+  requiredRole?: string | null;
   catatan?: string | null;
   memorandumId?: string | null;
   tanggalKeputusan?: string | null;
+  syaratPersetujuan?: string | null;
+  syaratTerpenuhi?: boolean;
+  buktiPemenuhan?: string | null;
+  syaratDipenuhiPada?: string | null;
   penanggungJawabUser?: { nama?: string; email?: string } | null;
+  syaratDipenuhiOlehUser?: { nama?: string; email?: string } | null;
 };
 type Procurement = {
   id: string;
@@ -47,7 +53,9 @@ type Procurement = {
 };
 type Inbox = { data: Procurement[]; pagination: { total_datas: number; total_pages: number } };
 type Selection = { row: Procurement; jenis: Jenis };
-type Decision = { pengadaanId: string; stepId: string; decision: "disetujui" | "ditolak"; catatan: string };
+type DecisionValue = "disetujui" | "disetujui_bersyarat" | "perlu_revisi" | "ditolak";
+type Decision = { pengadaanId: string; stepId: string; decision: DecisionValue; catatan: string };
+type Fulfillment = { pengadaanId: string; stepId: string; buktiPemenuhan: string };
 
 function unwrap(value: unknown): unknown {
   let current = value;
@@ -70,19 +78,30 @@ function stepsFor(steps: Step[], jenis: Jenis) {
 }
 function nextStep(steps: Step[], jenis: Jenis) {
   const ordered = stepsFor(steps, jenis);
-  const next = ordered.find((step) => step.status === "menunggu");
+  const next = ordered.find((step) => step.status === "menunggu" || step.status === "disetujui_bersyarat");
   return next && ordered.filter((step) => step.urutan < next.urutan).every((step) => step.status === "disetujui") ? next : undefined;
 }
+function requiredRole(step?: Step) {
+  return step?.requiredRole?.toUpperCase() || (step && step.urutan >= 3 ? "PIMPINAN" : "VERIFIKATOR");
+}
 function roleAllows(role: string, step?: Step) {
-  return Boolean(step && (role === "ADMIN" || role === (step.urutan >= 3 ? "PIMPINAN" : "VERIFIKATOR")));
+  return Boolean(step && (role === "ADMIN" || role === requiredRole(step)));
 }
 function workflowWaiting(row: Procurement, jenis: Jenis) {
   return jenis === "memorandum" ? row.memorandum?.status === "menunggu_persetujuan" : ["diajukan", "dalam_review"].includes(row.status);
 }
+const statusLabels: Record<string, string> = {
+  disetujui_bersyarat: "disetujui bersyarat",
+  perlu_revisi: "perlu revisi",
+  revisi: "perlu revisi",
+  ditolak: "ditolak",
+};
 function Status({ value }: { value: string }) {
-  return <StatusBadge status={value === "ditolak" ? "danger" : value === "disetujui" || value === "selesai" ? "ok" : "warn"}>{value.replaceAll("_", " ")}</StatusBadge>;
+  const variant = value === "ditolak" ? "danger" : value === "disetujui" || value === "selesai" ? "ok" : "warn";
+  return <StatusBadge status={variant}>{statusLabels[value] ?? value.replaceAll("_", " ")}</StatusBadge>;
 }
-const hiddenDetailKeys = new Set(["id", "pengadaanId", "memorandumId", "vendorId", "createdAt", "updatedAt"]);
+const hiddenDetailKeys = new Set(["id", "createdAt", "updatedAt", "deletedAt"]);
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function readableLabel(value: string) {
   return value
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -92,13 +111,22 @@ function readableLabel(value: string) {
 function ReadableValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
   if (value == null || value === "") return <span className="text-muted-foreground">—</span>;
   if (typeof value === "boolean") return <span>{value ? "Ya" : "Tidak"}</span>;
-  if (typeof value === "string" || typeof value === "number") return <span className="break-words">{String(value)}</span>;
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value);
+    if (uuidPattern.test(text)) return <span className="text-muted-foreground">—</span>;
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) return <span>{date.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}</span>;
+    }
+    return <span className="break-words [overflow-wrap:anywhere]">{text}</span>;
+  }
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-muted-foreground">Belum ada data.</span>;
+    const items = value.filter((item) => !(typeof item === "string" && uuidPattern.test(item)));
+    if (items.length === 0) return <span className="text-muted-foreground">Belum ada data.</span>;
     return (
-      <div className="mt-2 space-y-2">
-        {value.map((item, index) => (
-          <div key={index} className="rounded-md border bg-background p-3">
+      <div className="mt-2 divide-y divide-border">
+        {items.map((item, index) => (
+          <div key={index} className="py-3 first:pt-0 last:pb-0">
             <ReadableValue value={item} depth={depth + 1} />
           </div>
         ))}
@@ -106,14 +134,14 @@ function ReadableValue({ value, depth = 0 }: { value: unknown; depth?: number })
     );
   }
   if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).filter(([key]) => !hiddenDetailKeys.has(key));
+    const entries = Object.entries(value as Record<string, unknown>).filter(([key, item]) => !hiddenDetailKeys.has(key) && !/(^|_)id$/i.test(key) && !/Id$/.test(key) && !(typeof item === "string" && uuidPattern.test(item)));
     if (!entries.length) return <span className="text-muted-foreground">Tidak ada informasi tambahan.</span>;
     return (
-      <dl className={depth === 0 ? "grid gap-x-6 gap-y-3 sm:grid-cols-2" : "grid gap-2 sm:grid-cols-2"}>
+      <dl className={depth === 0 ? "grid gap-x-8 gap-y-4 sm:grid-cols-2" : "grid gap-x-6 gap-y-3 sm:grid-cols-2"}>
         {entries.map(([key, item]) => (
-          <div key={key} className={typeof item === "object" && item !== null ? "sm:col-span-2" : "min-w-0"}>
+          <div key={key} className={`min-w-0 ${typeof item === "object" && item !== null ? "sm:col-span-2 border-t pt-3 first:border-0 first:pt-0" : ""}`}>
             <dt className="text-xs font-medium text-muted-foreground">{readableLabel(key)}</dt>
-            <dd className="mt-0.5 text-sm text-foreground">
+            <dd className="mt-1 text-sm leading-6 text-foreground">
               <ReadableValue value={item} depth={depth + 1} />
             </dd>
           </div>
@@ -125,7 +153,7 @@ function ReadableValue({ value, depth = 0 }: { value: unknown; depth?: number })
 }
 function Context({ title, value }: { title: string; value: unknown }) {
   return (
-    <details className="group rounded-lg border bg-card" open>
+    <details className="group rounded-lg border bg-card">
       <summary className="cursor-pointer list-none px-4 py-3 font-semibold marker:hidden [&::-webkit-details-marker]:hidden">
         <span className="flex items-center justify-between gap-3">
           {title}
@@ -140,12 +168,79 @@ function Context({ title, value }: { title: string; value: unknown }) {
     </details>
   );
 }
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+function MemorandumEvidence({ memorandum, context }: { memorandum: Procurement["memorandum"]; context?: Record<string, unknown> }) {
+  const memo = record(memorandum);
+  const selection = record(context?.pemilihanPenyedia);
+  const vendor = record(selection.vendorTerpilih);
+  const evaluation = record(memo.hasilEvaluasi);
+  const collective = record(evaluation.rekomendasiKolektif);
+  const quorum = record(collective.kuorum);
+  return (
+    <section className="space-y-3" aria-label="Bukti memorandum">
+      <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Snapshot keputusan · hanya baca</p>
+        <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-muted-foreground">Metode seleksi</dt>
+            <dd className="font-medium">{entityText(memo.metodeSeleksi)}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Vendor rekomendasi</dt>
+            <dd className="font-medium">{entityText(vendor.nama) || entityText(record(evaluation.vendorTerpilih).nama)}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Kuorum rekomendasi</dt>
+            <dd className="font-medium">
+              {entityText(quorum.masuk)} / {entityText(quorum.wajib)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Status memorandum</dt>
+            <dd>
+              <Status value={String(memo.status ?? "draft")} />
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-muted-foreground">Uraian rekomendasi</dt>
+            <dd className="whitespace-pre-wrap font-medium">{entityText(memo.rekomendasi)}</dd>
+          </div>
+        </dl>
+      </div>
+      <Context title="Hasil evaluasi dan suara kolektif" value={memo.hasilEvaluasi} />
+      <Context title="Analisis harga dan negosiasi" value={memo.analisisHarga} />
+      <Context title="Risiko dan mitigasi" value={memo.analisisRisiko} />
+      <Context title="Kesiapan pembiayaan" value={memo.kesiapanPembiayaan} />
+    </section>
+  );
+}
 
 type RencanaInboxRow = {
   id: string;
   nomor: string;
   judul: string;
+  deskripsi?: string | null;
   status: string;
+  modelPelaksanaan?: string | null;
+  jenisKargo?: string | null;
+  spesifikasiMutu?: unknown;
+  volumeMin?: number | null;
+  volumeMax?: number | null;
+  satuan?: string | null;
+  titikSerah?: string | null;
+  estimasiMulai?: string | null;
+  estimasiSelesai?: string | null;
+  penerimaPasokan?: string | null;
+  kesiapanPenerima?: unknown;
+  jenisTransaksi?: string | null;
+  metodeSeleksi?: string | null;
+  analisisPasar?: unknown;
+  dasarPemilihan?: string | null;
+  strategiPengiriman?: string | null;
+  strategiPembiayaan?: string | null;
+  prioritas?: string | null;
   dibuatOlehUser?: { nama?: string } | null;
   approvalSteps?: { id: string; urutan: number; namaLangkah: string; status: string; catatan?: string | null; tanggalKeputusan?: string | null; penanggungJawabUser?: { nama?: string } | null }[];
 };
@@ -217,36 +312,136 @@ function RencanaApprovalInbox() {
       {pending.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">Tidak ada rencana transaksi yang menunggu validasi Anda.</div>
       ) : (
-        pending.map(({ row, step, requiredRole }) => (
-          <article key={row.id} className="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs text-muted-foreground">{row.nomor}</p>
-                <h3 className="font-semibold">{row.judul}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Pemohon: {row.dibuatOlehUser?.nama ?? "—"}</p>
+        pending.map(({ row, step, requiredRole }) => {
+          const volume = [row.volumeMin, row.volumeMax]
+            .filter((value) => value != null)
+            .map((value) => new Intl.NumberFormat("id-ID").format(Number(value)))
+            .join(" – ");
+          const period = [row.estimasiMulai, row.estimasiSelesai]
+            .map((value) => (value ? new Date(value).toLocaleDateString("id-ID") : ""))
+            .filter(Boolean)
+            .join(" – ");
+          const comment = revisions[step.id]?.trim() ?? "";
+          return (
+            <article key={row.id} className="overflow-hidden rounded-xl border bg-card shadow-sm">
+              <header className="flex flex-wrap items-start justify-between gap-3 border-b bg-muted/20 p-4 sm:p-5">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>{row.nomor}</span>
+                    {row.prioritas ? <span className="rounded-full bg-background px-2 py-0.5 ring-1 ring-border">Prioritas {row.prioritas.replaceAll("_", " ")}</span> : null}
+                  </div>
+                  <h3 className="mt-1 text-base font-semibold">{row.judul}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">Pemohon: {row.dibuatOlehUser?.nama ?? "—"}</p>
+                </div>
+                <Status value={row.status} />
+              </header>
+              <div className="space-y-4 p-4 sm:p-5">
+                {row.deskripsi ? <p className="text-sm leading-6 text-muted-foreground">{row.deskripsi}</p> : null}
+                <dl className="grid gap-3 rounded-lg border bg-background p-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Kargo</dt>
+                    <dd className="mt-1 font-medium">{row.jenisKargo || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Volume</dt>
+                    <dd className="mt-1 font-medium">{volume ? `${volume} ${row.satuan ?? ""}`.trim() : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Titik serah</dt>
+                    <dd className="mt-1 font-medium">{row.titikSerah || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Periode</dt>
+                    <dd className="mt-1 font-medium">{period || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Metode seleksi</dt>
+                    <dd className="mt-1 font-medium">{row.metodeSeleksi?.replaceAll("_", " ") || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Jenis transaksi</dt>
+                    <dd className="mt-1 font-medium">{row.jenisTransaksi?.replaceAll("_", " ") || "—"}</dd>
+                  </div>
+                </dl>
+                <details className="group rounded-lg border bg-background">
+                  <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold marker:hidden [&::-webkit-details-marker]:hidden">
+                    <span className="flex items-center justify-between gap-3">
+                      Dasar dan kesiapan rencana{" "}
+                      <span aria-hidden="true" className="text-muted-foreground transition-transform group-open:rotate-180">
+                        ⌄
+                      </span>
+                    </span>
+                  </summary>
+                  <div className="grid gap-4 border-t p-4 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Dasar pemilihan</p>
+                      <div className="mt-1 text-sm">
+                        <ReadableValue value={row.dasarPemilihan} />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Penerima pasokan</p>
+                      <div className="mt-1 text-sm">
+                        <ReadableValue value={row.penerimaPasokan} />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Spesifikasi mutu</p>
+                      <div className="mt-1 text-sm">
+                        <ReadableValue value={row.spesifikasiMutu} />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Kesiapan penerima</p>
+                      <div className="mt-1 text-sm">
+                        <ReadableValue value={row.kesiapanPenerima} />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Analisis pasar</p>
+                      <div className="mt-1 text-sm">
+                        <ReadableValue value={row.analisisPasar} />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Strategi pembiayaan</p>
+                      <div className="mt-1 text-sm">
+                        <ReadableValue value={row.strategiPembiayaan} />
+                      </div>
+                    </div>
+                  </div>
+                </details>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/40 p-3 text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Tahap aktif · {requiredRole}</p>
+                    <p className="mt-1 font-semibold">
+                      {step.urutan}. {step.namaLangkah}
+                    </p>
+                  </div>
+                  <Status value={step.status} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`rencana-revisi-${step.id}`}>Catatan keputusan</Label>
+                  <Input
+                    id={`rencana-revisi-${step.id}`}
+                    value={revisions[step.id] ?? ""}
+                    disabled={busyId === step.id}
+                    placeholder="Wajib diisi bila meminta revisi"
+                    onChange={(event) => setRevisions((current) => ({ ...current, [step.id]: event.target.value }))}
+                  />
+                </div>
+                <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+                  <Button type="button" variant="outline" disabled={busyId !== null || !comment} onClick={() => void decide(row, step.id, "ditolak")}>
+                    Minta revisi
+                  </Button>
+                  <Button type="button" disabled={busyId !== null} onClick={() => void decide(row, step.id, "disetujui")}>
+                    {busyId === step.id ? "Memproses…" : "Setujui rencana"}
+                  </Button>
+                </div>
               </div>
-              <Status value={row.status} />
-            </div>
-            <div className="rounded-lg bg-muted/40 p-3 text-sm">
-              <p className="text-xs text-muted-foreground">Tahap validasi · {requiredRole}</p>
-              <p className="mt-1 font-semibold">
-                {step.urutan}. {step.namaLangkah}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor={`rencana-revisi-${step.id}`}>Catatan keputusan / alasan revisi</Label>
-              <Input id={`rencana-revisi-${step.id}`} value={revisions[step.id] ?? ""} disabled={busyId === step.id} onChange={(event) => setRevisions((current) => ({ ...current, [step.id]: event.target.value }))} />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="destructive" disabled={busyId !== null} onClick={() => void decide(row, step.id, "ditolak")}>
-                Minta revisi
-              </Button>
-              <Button type="button" disabled={busyId !== null} onClick={() => void decide(row, step.id, "disetujui")}>
-                {busyId === step.id ? "Memproses…" : "Setujui"}
-              </Button>
-            </div>
-          </article>
-        ))
+            </article>
+          );
+        })
       )}
     </div>
   );
@@ -261,6 +456,7 @@ export default function ApprovalPage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Selection | null>(null);
   const [catatan, setCatatan] = useState("");
+  const [buktiPemenuhan, setBuktiPemenuhan] = useState("");
   const [success, setSuccess] = useState("");
   const submitting = useRef(false);
   const client = useQueryClient();
@@ -313,14 +509,28 @@ export default function ApprovalPage() {
     invalidateKeys: invalidations,
     mutationFn: async ({ pengadaanId, stepId, decision, catatan: comment }) => {
       setBrowserToken();
-      return apiData(browserApi.approval.approvalActionControllerDecide(pengadaanId, stepId, { decision, catatan: comment.trim() }, { format: "json" }) as Promise<{ data: unknown }>);
+      return apiData(browserApi.approval.approvalActionControllerDecide(pengadaanId, stepId, { decision, ...(comment.trim() ? { catatan: comment.trim() } : {}) }, { format: "json" }) as Promise<{ data: unknown }>);
     },
     onSuccess: () => {
       setSelected(null);
       setCatatan("");
+      setBuktiPemenuhan("");
     },
     onError: () => {
       void Promise.all(invalidations.map((queryKey) => client.invalidateQueries({ queryKey })));
+    },
+  });
+  const fulfill = use_mutation<unknown, Error, Fulfillment>({
+    tag: "approval",
+    method: "approvalActionControllerFulfillConditions",
+    invalidateKeys: invalidations,
+    mutationFn: async ({ pengadaanId, stepId, buktiPemenuhan: evidence }) => {
+      setBrowserToken();
+      return apiData(browserApi.approval.approvalActionControllerFulfillConditions(pengadaanId, stepId, { buktiPemenuhan: evidence.trim() }, { format: "json" }) as Promise<{ data: unknown }>);
+    },
+    onSuccess: async () => {
+      setBuktiPemenuhan("");
+      await Promise.all([history.refetch(), query.refetch()]);
     },
   });
   const activeStep = selected && history.data ? nextStep(history.data, selected.jenis) : undefined;
@@ -338,14 +548,18 @@ export default function ApprovalPage() {
     context.isSuccess &&
     !context.isFetching,
   );
+  const conditionPending = activeStep?.status === "disetujui_bersyarat" && !activeStep.syaratTerpenuhi;
+  const conditionFulfilled = activeStep?.status === "disetujui_bersyarat" && activeStep.syaratTerpenuhi;
   function open(row: Procurement) {
     decide.reset();
+    fulfill.reset();
     setCatatan("");
+    setBuktiPemenuhan("");
     setSuccess("");
     setSelected({ row, jenis });
   }
   async function submit(decision: Decision["decision"]) {
-    if (!allowed || !selected || !activeStep || submitting.current || decide.isPending || (decision === "ditolak" && !catatan.trim())) return;
+    if (!allowed || !selected || !activeStep || submitting.current || decide.isPending || (decision !== "disetujui" && !catatan.trim())) return;
     submitting.current = true;
     try {
       await decide.mutateAsync({ pengadaanId: selected.row.id, stepId: activeStep.id, decision, catatan: catatan.trim() });
@@ -354,6 +568,10 @@ export default function ApprovalPage() {
     } finally {
       submitting.current = false;
     }
+  }
+  async function confirmFulfillment() {
+    if (!allowed || !selected || !activeStep || !conditionPending || !buktiPemenuhan.trim() || fulfill.isPending) return;
+    await fulfill.mutateAsync({ pengadaanId: selected.row.id, stepId: activeStep.id, buktiPemenuhan });
   }
   function errorAlert(error: unknown, retry: () => void) {
     return (
@@ -377,7 +595,7 @@ export default function ApprovalPage() {
       header: "Langkah aktif",
       render: (row: Procurement) => {
         const step = nextStep(row.approvalSteps, jenis);
-        return step ? `${step.urutan}. ${step.namaLangkah} (${step.urutan >= 3 ? "PIMPINAN" : "VERIFIKATOR"})` : "Tidak ada langkah aktif";
+        return step ? `${step.urutan}. ${step.namaLangkah} (${requiredRole(step)})` : "Tidak ada langkah aktif";
       },
     },
     {
@@ -453,8 +671,8 @@ export default function ApprovalPage() {
                     key={kind}
                     type="button"
                     className="h-8"
-                    variant={jenis === kind ? "secondary" : "outline"}
-                    aria-pressed={jenis === kind}
+                    variant={!rencanaInbox && jenis === kind ? "secondary" : "outline"}
+                    aria-pressed={!rencanaInbox && jenis === kind}
                     disabled={decide.isPending}
                     onClick={() => {
                       setRencanaInbox(false);
@@ -527,19 +745,35 @@ export default function ApprovalPage() {
         title={`Detail approval ${selected?.jenis ?? jenis}`}
         footer={
           <>
-            <Button type="button" variant="outline" disabled={decide.isPending} onClick={() => setSelected(null)}>
+            <Button type="button" variant="outline" disabled={decide.isPending || fulfill.isPending} onClick={() => setSelected(null)}>
               Tutup
             </Button>
-            {!mySubmissions && (
+            {!mySubmissions && conditionPending ? (
+              <Button type="button" disabled={!allowed || fulfill.isPending || !buktiPemenuhan.trim()} onClick={() => void confirmFulfillment()}>
+                {fulfill.isPending ? "Memproses…" : "Konfirmasi pemenuhan syarat"}
+              </Button>
+            ) : !mySubmissions && conditionFulfilled ? (
+              <Button type="button" disabled={!allowed || decide.isPending} onClick={() => void submit("disetujui")}>
+                {decide.isPending ? "Memproses…" : "Setujui final"}
+              </Button>
+            ) : !mySubmissions ? (
               <>
-                <Button type="button" disabled={!allowed || decide.isPending} onClick={() => void submit("disetujui")}>
-                  {decide.isPending ? "Memproses…" : "Setujui langkah"}
+                <Button type="button" variant="outline" disabled={!allowed || decide.isPending || !catatan.trim()} onClick={() => void submit("perlu_revisi")}>
+                  Minta revisi
                 </Button>
                 <Button type="button" variant="destructive" disabled={!allowed || decide.isPending || !catatan.trim()} onClick={() => void submit("ditolak")}>
-                  Tolak langkah
+                  Tolak
+                </Button>
+                {selected?.jenis === "memorandum" && requiredRole(activeStep) === "PIMPINAN" ? (
+                  <Button type="button" variant="secondary" disabled={!allowed || decide.isPending || !catatan.trim()} onClick={() => void submit("disetujui_bersyarat")}>
+                    Setujui bersyarat
+                  </Button>
+                ) : null}
+                <Button type="button" disabled={!allowed || decide.isPending} onClick={() => void submit("disetujui")}>
+                  {decide.isPending ? "Memproses…" : "Setujui"}
                 </Button>
               </>
-            )}
+            ) : null}
           </>
         }
       >
@@ -553,14 +787,15 @@ export default function ApprovalPage() {
                 Buka siklus pengadaan
               </Link>
             </div>
-            {!mySubmissions && <Context title="Item pengadaan" value={selected.row.items} />}
-            {selected.jenis === "memorandum" && <Context title="Memorandum keputusan" value={selected.row.memorandum} />}
+            {selected.jenis === "pengadaan" && !mySubmissions ? <Context title="Item pengadaan" value={selected.row.items} /> : null}
             {context.isPending ? (
               <LoadingState />
             ) : context.isError ? (
               errorAlert(context.error, () => {
                 void context.refetch();
               })
+            ) : selected.jenis === "memorandum" ? (
+              <MemorandumEvidence memorandum={selected.row.memorandum} context={context.data} />
             ) : (
               <Context title="Konteks siklus pengadaan" value={context.data} />
             )}
@@ -584,9 +819,12 @@ export default function ApprovalPage() {
                               {step.urutan}. {step.namaLangkah}
                             </p>
                             <Status value={step.status} />
+                            <p>Peran wajib: {requiredRole(step)}</p>
                             <p>Approver: {entityText(step.penanggungJawabUser)}</p>
                             <p>Waktu: {step.tanggalKeputusan ? new Date(step.tanggalKeputusan).toLocaleString("id-ID") : "—"}</p>
                             <p className="whitespace-pre-wrap break-words">Catatan: {step.catatan || "—"}</p>
+                            {step.syaratPersetujuan ? <p className="whitespace-pre-wrap break-words">Syarat: {step.syaratPersetujuan}</p> : null}
+                            {step.buktiPemenuhan ? <p className="whitespace-pre-wrap break-words">Bukti pemenuhan: {step.buktiPemenuhan}</p> : null}
                           </li>
                         ))}
                       </ol>
@@ -598,16 +836,28 @@ export default function ApprovalPage() {
               </div>
             )}
             <p>
-              Role Anda: {role || "Memuat…"}. {activeStep ? `Langkah aktif: ${activeStep.namaLangkah}. Membutuhkan ${activeStep.urutan >= 3 ? "PIMPINAN" : "VERIFIKATOR"} atau ADMIN.` : "Tidak ada langkah aktif."}
+              Role Anda: {role || "Memuat…"}. {activeStep ? `Langkah aktif: ${activeStep.namaLangkah}. Membutuhkan ${requiredRole(activeStep)} atau ADMIN.` : "Tidak ada langkah aktif."}
             </p>
             {mySubmissions ? <p>Pengajuan saya: detail dan riwayat hanya baca.</p> : !allowed && <p>Keputusan terkunci: periksa role, urutan, status workflow, dan pemuatan konteks/riwayat. Status akun tetap diverifikasi server.</p>}
-            {!mySubmissions && (
-              <div className="space-y-2">
-                <Label htmlFor="approval-comment">Catatan keputusan (wajib untuk penolakan)</Label>
-                <Input id="approval-comment" value={catatan} disabled={decide.isPending} onChange={(event) => setCatatan(event.target.value)} aria-describedby="approval-comment-help" />
-                <p id="approval-comment-help">Penolakan tidak menerima catatan kosong atau hanya spasi.</p>
+            {!mySubmissions && conditionPending ? (
+              <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950">
+                <p className="font-semibold">Syarat persetujuan</p>
+                <p className="whitespace-pre-wrap">{activeStep?.syaratPersetujuan || activeStep?.catatan}</p>
+                <Label htmlFor="fulfillment-evidence">Bukti pemenuhan seluruh syarat</Label>
+                <Input id="fulfillment-evidence" value={buktiPemenuhan} disabled={fulfill.isPending} onChange={(event) => setBuktiPemenuhan(event.target.value)} />
+                <p className="text-xs">Konfirmasi ini tidak menetapkan penyedia. Persetujuan final tetap wajib.</p>
               </div>
-            )}
+            ) : !mySubmissions && !conditionFulfilled ? (
+              <div className="space-y-2">
+                <Label htmlFor="approval-comment">Catatan keputusan</Label>
+                <Input id="approval-comment" value={catatan} disabled={decide.isPending} onChange={(event) => setCatatan(event.target.value)} aria-describedby="approval-comment-help" />
+                <p id="approval-comment-help">Wajib untuk persetujuan bersyarat, permintaan revisi, dan penolakan.</p>
+              </div>
+            ) : conditionFulfilled ? (
+              <Alert>
+                <AlertDescription>Syarat telah dipenuhi. Persetujuan final diperlukan untuk menetapkan penyedia.</AlertDescription>
+              </Alert>
+            ) : null}
             {decide.isError && (
               <Alert variant="destructive">
                 <AlertDescription>{getApiErrorMessage(decide.error)}</AlertDescription>
