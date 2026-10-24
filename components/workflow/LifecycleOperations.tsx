@@ -119,7 +119,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const user = useCurrentUser();
   const currentUser = object(unwrap(user.data));
   const role = String(currentUser.role ?? "").toLowerCase();
-  const isAssignedMember = role !== "member" || records(detail.tahapan).some((row) => String(row.tahap) === stage && records(row.assignments).some((assignment) => String(assignment.userId ?? object(assignment.user).id) === String(currentUser.id)));
+  const isAssignedMember =
+    role !== "member" || records(detail.tahapan).some((row) => String(row.tahap) === stage && records(row.assignments).some((assignment) => String(assignment.userId ?? object(assignment.user).id) === String(currentUser.id)));
   const id = useId();
   const [selected, setSelected] = useState<Operation | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -140,7 +141,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const closableNegotiations = latestNegotiations.filter((row) => ["menunggu_tanggapan", "ditolak"].includes(String(row.status)));
   const chosenNegotiation = latestNegotiations.find((row) => String(row.id) === selectedNegotiationId) ?? null;
   const chosenContinuation = chosenNegotiation?.status === "ditolak" ? chosenNegotiation : undefined;
-  const available = lifecycleOperations.filter((op) => op.stages.includes(stage) && op.roles.includes(role) && (op.key !== "verifikasi" || role !== "member" || isAssignedMember) && (!uninitialized || op.key === "perencanaan") && (!op.available || op.available(detail)));
+  const available = lifecycleOperations.filter(
+    (op) => op.stages.includes(stage) && op.roles.includes(role) && (op.key !== "verifikasi" || role !== "member" || isAssignedMember) && (!uninitialized || op.key === "perencanaan") && (!op.available || op.available(detail)),
+  );
   const canManageRecommendation = active && stage === "rekomendasi_pemenang" && ["admin", "operator", "verifikator", "member"].includes(role) && (role !== "member" || isAssignedMember);
   const fields =
     selected?.fields
@@ -414,7 +417,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       {canManageRecommendation ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
           <p className="text-sm text-muted-foreground">Pilih peserta lulus sebagai pemenang rekomendasi sebelum memorandum.</p>
-          <Button size="sm" onClick={() => window.dispatchEvent(new Event("lifecycle:open-recommendation"))}>Kelola rekomendasi</Button>
+          <Button size="sm" onClick={() => window.dispatchEvent(new Event("lifecycle:open-recommendation"))}>
+            Kelola rekomendasi
+          </Button>
         </div>
       ) : null}
       {user.isError ? (

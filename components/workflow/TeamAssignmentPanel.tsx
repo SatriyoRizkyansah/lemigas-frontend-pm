@@ -233,15 +233,24 @@ export function TeamAssignmentPanel({ pengadaanId, stages, canManage }: { pengad
             <div className="space-y-2 rounded-lg border p-3">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>{memberUserIds.length} pengguna dipilih</span>
-                <button type="button" className="font-medium text-primary hover:underline" onClick={() => setMemberUserIds([])}>Kosongkan</button>
+                <button type="button" className="font-medium text-primary hover:underline" onClick={() => setMemberUserIds([])}>
+                  Kosongkan
+                </button>
               </div>
               <ul className="space-y-2">
                 {memberUserIds.map((userId) => {
                   const selectedUser = users.find((user) => user.id === userId);
-                  return <li key={userId} className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2 text-sm">
-                    <span className="min-w-0 truncate">{selectedUser?.nama ?? selectedUser?.email ?? userId}<span className="ml-2 text-xs text-muted-foreground">{selectedUser?.email}</span></span>
-                    <button type="button" className="shrink-0 text-xs font-medium text-destructive hover:underline" onClick={() => setMemberUserIds((current) => current.filter((id) => id !== userId))}>Hapus</button>
-                  </li>;
+                  return (
+                    <li key={userId} className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2 text-sm">
+                      <span className="min-w-0 truncate">
+                        {selectedUser?.nama ?? selectedUser?.email ?? userId}
+                        <span className="ml-2 text-xs text-muted-foreground">{selectedUser?.email}</span>
+                      </span>
+                      <button type="button" className="shrink-0 text-xs font-medium text-destructive hover:underline" onClick={() => setMemberUserIds((current) => current.filter((id) => id !== userId))}>
+                        Hapus
+                      </button>
+                    </li>
+                  );
                 })}
               </ul>
             </div>

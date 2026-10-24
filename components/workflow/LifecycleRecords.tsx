@@ -591,7 +591,6 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                 },
               ]}
             />
-
           </div>
         </details>
       ) : null}
