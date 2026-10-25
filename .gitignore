@@ -5,3 +5,9 @@ out
 .env*.local
 *.tsbuildinfo
 next-env.d.ts
+playwright-report
+test-results
+blocker-report.json
+blocker-result.json
+full-lifecycle-report.json
+lifecycle-report.json

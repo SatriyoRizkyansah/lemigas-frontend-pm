@@ -14,7 +14,7 @@ import { LifecycleOperations } from "./LifecycleOperations";
 import { LifecycleDocuments } from "./LifecycleDocuments";
 import { LifecycleRecords } from "./LifecycleRecords";
 import { LifecycleEvidence } from "./LifecycleEvidence";
-import { TeamAssignmentPanel } from "./TeamAssignmentPanel";
+import { LifecycleInsights } from "./LifecycleInsights";
 import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,7 +81,6 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
   const [stageKey, setStageKey] = useState("perencanaan");
   const [confirmComplete, setConfirmComplete] = useState(false);
   const currentUser = useCurrentUser();
-  const canComplete = ["admin", "operator", "pimpinan"].includes(currentUser.data?.role.toLowerCase() ?? "");
   const query = use_query<any, Error, string>({
     tag: "siklusTransaksiKomoditas",
     method: "transaksiControllerDetail",
@@ -106,29 +105,17 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
   const fallbackStage = accessibleStages[0]?.key ?? stages[0].key;
   const selectedStage = accessibleStages.some((stage) => stage.key === stageKey) ? stageKey : fallbackStage;
   const stageLocked = (key: string) => stageRestricted && !assignedStageKeys.has(key);
-  const currentStage = stageStatus.find((item: any) => item.status === "aktif")?.tahap;
+  const activeStage = stageStatus.find((item: any) => item.status === "aktif");
+  const currentStage = activeStage?.tahap;
+  const assignedToCurrentStage = Boolean(activeStage?.assignments?.some((assignment: any) => (assignment.userId ?? assignment.user?.id) === currentUser.data?.id));
+  const canComplete = systemRole === "admin" || (currentMember?.peran === "pic_utama" && assignedToCurrentStage);
   const uninitialized = Boolean(detail && stageStatus.length === 0);
-  const missingDocuments = (detail?.persyaratanDokumen ?? []).filter((row: any) => row.tahap === stageKey && row.wajib && !row.terpenuhi);
-  const laporanAkhir = (detail?.laporan ?? []).filter((laporan: any) => laporan.jenis?.toLowerCase() === "akhir");
-  const laporanAkhirValid = laporanAkhir.some((laporan: any) => ["diterbitkan", "disetujui"].includes(laporan.status));
-  const laporanAkhirDraft = laporanAkhir.some((laporan: any) => laporan.status === "draft");
-  const completionIssue =
-    stageKey !== "selesai" && missingDocuments.length
-      ? `Lengkapi dokumen wajib: ${missingDocuments.map((row: any) => row.jenisDokumen).join(", ")}.`
-      : stageKey === "delivery" && !(detail?.pengiriman ?? []).some((shipment: any) => shipment.kontrakId && shipment.pemeriksaan?.length && shipment.penerimaan)
-        ? "Catat pemeriksaan dan penerimaan untuk pengiriman terkait kontrak sebelum menyelesaikan delivery."
-        : stageKey === "settlement" &&
-            (!(detail?.pengiriman ?? []).some((shipment: any) => shipment.kontrakId && shipment.pemeriksaan?.length && shipment.penerimaan) || !(detail?.tagihan ?? []).some((tagihan: any) => tagihan.pembayaran?.length))
-          ? "Catat pemeriksaan dan penerimaan pengiriman terkait kontrak, tagihan, dan pembayaran sebelum menyelesaikan settlement."
-          : stageKey === "selesai" && detail?.rekonsiliasi?.status !== "selesai"
-            ? `Tandai rekonsiliasi selesai terlebih dahulu (status saat ini: ${detail?.rekonsiliasi?.status ?? "belum dicatat"}). Pilih operasi “Ubah status rekonsiliasi” di tahap Selesai.`
-            : stageKey === "selesai" && !laporanAkhirValid
-              ? laporanAkhirDraft
-                ? "Laporan akhir masih draft. Terbitkan laporan akhir dari operasi “Terbitkan laporan”, lalu muat ulang data."
-                : laporanAkhir.length
-                  ? `Laporan akhir ditemukan, tetapi statusnya “${laporanAkhir.map((laporan: any) => laporan.status).join(", ")}”. Terbitkan laporan akhir, lalu muat ulang data.`
-                  : "Laporan akhir belum ada. Buat laporan dengan jenis tepat “akhir”, lalu terbitkan dari operasi “Terbitkan laporan”."
-              : "";
+  const readiness = detail?.readiness as { ready?: boolean; blockers?: Array<{ code?: string; message?: string }> } | null | undefined;
+  const readinessBlockers = currentStage === selectedStage && readiness?.ready === false ? (readiness.blockers ?? []) : [];
+  const completionIssue = readinessBlockers
+    .map((blocker) => blocker.message)
+    .filter(Boolean)
+    .join(" ");
   const updateStage = use_mutation<unknown, Error, { tahap: string; status: "selesai" | "aktif" }>({
     tag: "siklusTransaksiKomoditas",
     method: "transaksiControllerUpdateTahap",
@@ -269,6 +256,25 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
               ) : (
                 <>
                   {!currentStage && <p className="rounded-lg border border-muted bg-muted/30 p-3 text-sm text-muted-foreground">Tidak ada tahap aktif. Operasi bisnis terkunci; periksa status transaksi.</p>}
+                  {currentStage === selectedStage && readiness ? (
+                    readiness.ready ? (
+                      <Alert>
+                        <Check size={16} />
+                        <AlertDescription>Semua prasyarat tahap terpenuhi. Tahap siap diselesaikan.</AlertDescription>
+                      </Alert>
+                    ) : (
+                      <Alert variant="destructive">
+                        <AlertDescription>
+                          <strong>Prasyarat tahap belum lengkap:</strong>
+                          <ul className="mt-2 list-disc space-y-1 pl-5">
+                            {readinessBlockers.map((blocker, index) => (
+                              <li key={`${blocker.code ?? "blocker"}-${index}`}>{blocker.message ?? "Prasyarat belum lengkap"}</li>
+                            ))}
+                          </ul>
+                        </AlertDescription>
+                      </Alert>
+                    )
+                  ) : null}
                   <div className="flex flex-col gap-3">
                     <details className="group overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
                       <summary className="flex min-h-[4.5rem] cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
@@ -319,6 +325,8 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                       </div>
                     </details>
                   </div>
+                  <LifecycleEvidence pengadaanId={pengadaanId} detail={detail ?? {}} />
+                  <LifecycleInsights pengadaanId={pengadaanId} detail={detail ?? {}} />
                 </>
               )}
             </CardContent>

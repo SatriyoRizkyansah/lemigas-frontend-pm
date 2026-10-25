@@ -14,8 +14,6 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { ContentType } from "@/lib/api/generated/api-generated";
 import { apiQueryKeys } from "@/lib/api/query-keys";
 
-const stageOrder = ["perencanaan", "sourcing", "evaluasi_negosiasi", "approval", "kontrak", "delivery", "settlement", "selesai"];
-
 type InsightData = {
   audits: Array<Record<string, any>>;
   events: Array<Record<string, any>>;
@@ -69,12 +67,13 @@ export function LifecycleInsights({ pengadaanId, detail }: { pengadaanId: string
     },
   });
   const isAdmin = user.data?.role?.toLowerCase() === "admin";
-  const stageRows: Array<{ tahap: string; status: string }> = detail.tahapan ?? [];
+  const stageRows: Array<{ tahap: string; status: string; urutan?: number }> = detail.tahapan ?? [];
+  const stageOrder = [...stageRows].sort((left, right) => (left.urutan ?? 0) - (right.urutan ?? 0)).map((row) => row.tahap);
   const stages = new Map(stageRows.map((row) => [row.tahap, row.status]));
   let frontier = false;
   const canonical =
-    stageRows.length === stageOrder.length &&
-    stages.size === stageOrder.length &&
+    stageRows.length > 0 &&
+    stages.size === stageRows.length &&
     stageOrder.every((stage) => {
       const status = stages.get(stage);
       if (!status || (frontier && status !== "draft")) return false;
