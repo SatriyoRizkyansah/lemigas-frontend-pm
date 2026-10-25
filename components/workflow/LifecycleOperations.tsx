@@ -139,7 +139,15 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     const latest = [...records(offer.negosiasi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0];
     return latest ? [{ ...latest, penawaranId: offer.id, vendor: offer.vendor }] : [];
   });
-  const closableNegotiations = latestNegotiations.filter((row) => ["menunggu_tanggapan", "ditolak"].includes(String(row.status)));
+  const passedVendorIds = new Set(
+    records(object(detail.pemilihanPenyedia).peserta)
+      .filter((participant) => participant.status === "lulus")
+      .map((participant) => String(participant.vendorId ?? object(participant.vendor).id ?? "")),
+  );
+  const startableOffers = records(detail.penawaran).filter((offer) => {
+    const latest = [...records(offer.negosi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0];
+    return offer.isCurrent !== false && !!offer.submittedAt && passedVendorIds.has(String(offer.vendorId ?? object(offer.vendor).id ?? "")) && (!latest || latest.status === "ditolak");
+  });
   const chosenNegotiation = latestNegotiations.find((row) => String(row.id) === selectedNegotiationId) ?? null;
   const chosenContinuation = chosenNegotiation?.status === "ditolak" ? chosenNegotiation : undefined;
   const available = lifecycleOperations.filter(
@@ -205,17 +213,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       );
     }
     if (field.relation === "penawaran" && selected?.key === "negosiasi") {
-      const passedOfferIds = new Set(
-        records(object(detail.pemilihanPenyedia).peserta)
-          .filter((participant) => participant.status === "lulus")
-          .map((participant) => String(participant.penawaranId ?? "")),
-      );
-      return records(detail.penawaran)
-        .filter((offer) => {
-          if (offer.isCurrent === false || !offer.submittedAt || !passedOfferIds.has(String(offer.id ?? ""))) return false;
-          const latest = [...records(offer.negosiasi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0];
-          return !latest || latest.status === "ditolak";
-        })
+      return startableOffers
         .map((offer) => {
           const vendorName = plainText(object(offer.vendor).nama) || "Vendor";
           const rfqNumber = plainText(offer.nomorRfq) || plainText(object(offer.rfq).nomor);
@@ -438,7 +436,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           .filter((operation) => !["tutupRfq", "bukaKembaliRfq", "penawaran"].includes(operation.key))
           .map((operation) => {
             if (operation.key === "negosiasi") {
-              const activeNegotiations = closableNegotiations;
+              const activeNegotiations = latestNegotiations;
               const selectedNegotiation = chosenNegotiation ?? activeNegotiations[0] ?? null;
               const selectedOffer = records(detail.penawaran).find((offer) => String(offer.id) === String(selectedNegotiation?.penawaranId));
               const selectedLatest = selectedOffer ? [...records(selectedOffer.negosiasi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0] : null;
@@ -446,104 +444,123 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
               const presentation = operationPresentation.negosiasi;
               const Icon = presentation.icon;
               return (
-                <section key={operation.key} className="overflow-hidden rounded-xl border bg-background">
-                  <header className="flex items-start gap-3 border-b bg-muted/20 p-4">
-                    <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                      <Icon size={18} aria-hidden="true" />
-                    </span>
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-semibold">Kelola negosiasi</h3>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">Pilih vendor untuk melihat putaran terbaru dan tindakan yang tersedia.</p>
-                    </div>
-                  </header>
-                  {activeNegotiations.length ? (
-                    <div className="grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-                      <div className="max-h-72 space-y-2 overflow-y-auto p-3" role="listbox" aria-label="Pilih negosiasi">
-                        {activeNegotiations.map((negotiation) => {
-                          const isSelected = String(selectedNegotiation?.id) === String(negotiation.id);
-                          const offer = records(detail.penawaran).find((row) => String(row.id) === String(negotiation.penawaranId));
-                          const statusLabel = negotiation.status === "ditolak" ? "Ditolak vendor" : "Menunggu tanggapan";
-                          return (
-                            <button
-                              key={String(negotiation.id)}
-                              type="button"
-                              role="option"
-                              aria-selected={isSelected}
-                              disabled={!active || locked}
-                              onClick={() => setSelectedNegotiationId(String(negotiation.id))}
-                              className={`w-full rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 ${isSelected ? "border-primary bg-primary/[0.04] shadow-sm" : "hover:border-primary/30 hover:bg-muted/30"}`}
-                            >
-                              <span className="flex items-start justify-between gap-2">
-                                <span className="min-w-0">
-                                  <span className="block truncate text-sm font-semibold">{plainText(object(offer?.vendor).nama) || "Vendor"}</span>
-                                  <span className="mt-1 block text-xs text-muted-foreground">
-                                    RFQ {plainText(offer?.nomorRfq) || "—"} · Putaran {String(negotiation.putaran)}
-                                  </span>
-                                </span>
-                                <span
-                                  className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-medium ${negotiation.status === "ditolak" ? "bg-destructive/10 text-destructive" : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"}`}
-                                >
-                                  {statusLabel}
-                                </span>
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div className="flex flex-col justify-between gap-4 border-t bg-muted/10 p-4 md:border-l md:border-t-0">
-                        {selectedNegotiation ? (
-                          <>
-                            <div>
-                              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pilihan saat ini</p>
-                              <h4 className="mt-1 font-semibold">{plainText(object(selectedOffer?.vendor).nama) || "Vendor"}</h4>
-                              <p className="mt-1 text-sm text-muted-foreground">
-                                Putaran {String(selectedNegotiation.putaran)} · {selectedNegotiation.status === "ditolak" ? "Vendor menolak usulan" : "Menunggu tanggapan vendor"}
-                              </p>
-                              {selectedLatest?.hargaHasilNegosiasi != null ? (
-                                <p className="mt-2 text-sm">
-                                  Harga terakhir:{" "}
-                                  <strong>
-                                    {plainText(object(selectedOffer).mataUang)} {String(selectedLatest.hargaHasilNegosiasi)}
-                                  </strong>
-                                </p>
-                              ) : null}
-                              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                                {canContinue ? "Buat putaran baru dengan nilai awal dari putaran yang ditolak." : "Putaran ini masih menunggu jawaban vendor. Putaran lanjutan belum tersedia."}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {canContinue ? (
-                                <Button type="button" disabled={!active || locked} onClick={() => open(operation, selectedNegotiation)}>
-                                  <Handshake size={16} /> Buat putaran lanjutan
-                                </Button>
-                              ) : null}
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="border-destructive/30 text-destructive hover:bg-destructive/5"
-                                disabled={!active || locked}
-                                onClick={() => {
-                                  setClosingNegotiation(selectedNegotiation);
-                                  setClosingReason("");
-                                  setError("");
-                                }}
-                              >
-                                <Ban size={16} /> Akhiri tanpa kesepakatan
-                              </Button>
-                            </div>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-4">
-                      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Belum ada negosiasi aktif untuk ditindaklanjuti. Catat putaran pertama dari operasi negosiasi.</div>
-                      <Button className="mt-3" type="button" disabled={!active || locked} onClick={() => open(operation)}>
-                        <Handshake size={16} /> Catat putaran pertama
+                <div key={operation.key} className="space-y-3">
+                  {startableOffers.length ? (
+                    <div className="flex justify-end">
+                      <Button type="button" disabled={!active || locked} onClick={() => open(operation)}>
+                        <Handshake size={16} /> Catat negosiasi
                       </Button>
                     </div>
-                  )}
-                </section>
+                  ) : null}
+                  <section className="overflow-hidden rounded-xl border bg-background">
+                    <header className="flex items-start gap-3 border-b bg-muted/20 p-4">
+                      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                        <Icon size={18} aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold">Kelola negosiasi</h3>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">Semua vendor dan status negosiasi terbaru tercantum di sini. Mulai negosiasi baru untuk vendor eligible lain tanpa menghapus riwayat ini.</p>
+                      </div>
+                    </header>
+                    {activeNegotiations.length ? (
+                      <div className="grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+                        <div className="max-h-72 space-y-2 overflow-y-auto p-3" role="listbox" aria-label="Pilih negosiasi">
+                          {activeNegotiations.map((negotiation) => {
+                            const isSelected = String(selectedNegotiation?.id) === String(negotiation.id);
+                            const offer = records(detail.penawaran).find((row) => String(row.id) === String(negotiation.penawaranId));
+                            const statusLabels: Record<string, string> = {
+                              menunggu_tanggapan: "Menunggu tanggapan",
+                              ditolak: "Ditolak vendor",
+                              disepakati: "Disepakati",
+                            };
+                            const statusLabel = statusLabels[String(negotiation.status)] ?? String(negotiation.status ?? "Status tidak diketahui");
+                            const statusStyle =
+                              negotiation.status === "ditolak"
+                                ? "bg-destructive/10 text-destructive"
+                                : negotiation.status === "disepakati"
+                                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                                  : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300";
+                            return (
+                              <button
+                                key={String(negotiation.id)}
+                                type="button"
+                                role="option"
+                                aria-selected={isSelected}
+                                disabled={!active || locked}
+                                onClick={() => setSelectedNegotiationId(String(negotiation.id))}
+                                className={`w-full rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 ${isSelected ? "border-primary bg-primary/[0.04] shadow-sm" : "hover:border-primary/30 hover:bg-muted/30"}`}
+                              >
+                                <span className="flex items-start justify-between gap-2">
+                                  <span className="min-w-0">
+                                    <span className="block truncate text-sm font-semibold">{plainText(object(offer?.vendor).nama) || "Vendor"}</span>
+                                    <span className="mt-1 block text-xs text-muted-foreground">
+                                      RFQ {plainText(offer?.nomorRfq) || "—"} · Putaran {String(negotiation.putaran)}
+                                    </span>
+                                  </span>
+                                  <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-medium ${statusStyle}`}>{statusLabel}</span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex flex-col justify-between gap-4 border-t bg-muted/10 p-4 md:border-l md:border-t-0">
+                          {selectedNegotiation ? (
+                            <>
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pilihan saat ini</p>
+                                <h4 className="mt-1 font-semibold">{plainText(object(selectedOffer?.vendor).nama) || "Vendor"}</h4>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                  Putaran {String(selectedNegotiation.putaran)} · {selectedNegotiation.status === "ditolak" ? "Vendor menolak usulan" : "Menunggu tanggapan vendor"}
+                                </p>
+                                {selectedLatest?.hargaHasilNegosiasi != null ? (
+                                  <p className="mt-2 text-sm">
+                                    Harga terakhir:{" "}
+                                    <strong>
+                                      {plainText(object(selectedOffer).mataUang)} {String(selectedLatest.hargaHasilNegosiasi)}
+                                    </strong>
+                                  </p>
+                                ) : null}
+                                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                                  {canContinue
+                                    ? "Vendor menolak usulan. Buat putaran lanjutan, atau mulai negosiasi dengan vendor lain."
+                                    : selectedNegotiation.status === "disepakati"
+                                      ? "Negosiasi dengan vendor ini berhasil disepakati."
+                                      : "Putaran ini masih menunggu jawaban vendor. Anda tetap dapat memulai negosiasi dengan vendor lain."}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {canContinue ? (
+                                  <Button type="button" disabled={!active || locked} onClick={() => open(operation, selectedNegotiation)}>
+                                    <Handshake size={16} /> Buat putaran lanjutan
+                                  </Button>
+                                ) : null}
+                                {selectedNegotiation.status !== "disepakati" ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="border-destructive/30 text-destructive hover:bg-destructive/5"
+                                    disabled={!active || locked}
+                                    onClick={() => {
+                                      setClosingNegotiation(selectedNegotiation);
+                                      setClosingReason("");
+                                      setError("");
+                                    }}
+                                  >
+                                    <Ban size={16} /> Akhiri tanpa kesepakatan
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4">
+                        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Belum ada riwayat negosiasi. Mulai negosiasi dengan vendor yang lulus evaluasi.</div>
+                      </div>
+                    )}
+                  </section>
+                </div>
               );
             }
             const presentation = operationPresentation[operation.key];

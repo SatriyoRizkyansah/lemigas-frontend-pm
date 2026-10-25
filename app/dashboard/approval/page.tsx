@@ -34,12 +34,7 @@ type Step = {
   catatan?: string | null;
   memorandumId?: string | null;
   tanggalKeputusan?: string | null;
-  syaratPersetujuan?: string | null;
-  syaratTerpenuhi?: boolean;
-  buktiPemenuhan?: string | null;
-  syaratDipenuhiPada?: string | null;
   penanggungJawabUser?: { nama?: string; email?: string } | null;
-  syaratDipenuhiOlehUser?: { nama?: string; email?: string } | null;
 };
 type Procurement = {
   id: string;
@@ -53,9 +48,8 @@ type Procurement = {
 };
 type Inbox = { data: Procurement[]; pagination: { total_datas: number; total_pages: number } };
 type Selection = { row: Procurement; jenis: Jenis };
-type DecisionValue = "disetujui" | "disetujui_bersyarat" | "perlu_revisi" | "ditolak";
+type DecisionValue = "disetujui" | "perlu_revisi" | "ditolak";
 type Decision = { pengadaanId: string; stepId: string; decision: DecisionValue; catatan: string };
-type Fulfillment = { pengadaanId: string; stepId: string; buktiPemenuhan: string };
 
 function unwrap(value: unknown): unknown {
   let current = value;
@@ -78,7 +72,7 @@ function stepsFor(steps: Step[], jenis: Jenis) {
 }
 function nextStep(steps: Step[], jenis: Jenis) {
   const ordered = stepsFor(steps, jenis);
-  const next = ordered.find((step) => step.status === "menunggu" || step.status === "disetujui_bersyarat");
+  const next = ordered.find((step) => step.status === "menunggu");
   return next && ordered.filter((step) => step.urutan < next.urutan).every((step) => step.status === "disetujui") ? next : undefined;
 }
 function requiredRole(step?: Step) {
@@ -91,7 +85,6 @@ function workflowWaiting(row: Procurement, jenis: Jenis) {
   return jenis === "memorandum" ? row.memorandum?.status === "menunggu_persetujuan" : ["diajukan", "dalam_review"].includes(row.status);
 }
 const statusLabels: Record<string, string> = {
-  disetujui_bersyarat: "disetujui bersyarat",
   perlu_revisi: "perlu revisi",
   revisi: "perlu revisi",
   ditolak: "ditolak",
@@ -456,7 +449,6 @@ export default function ApprovalPage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Selection | null>(null);
   const [catatan, setCatatan] = useState("");
-  const [buktiPemenuhan, setBuktiPemenuhan] = useState("");
   const [success, setSuccess] = useState("");
   const submitting = useRef(false);
   const client = useQueryClient();
@@ -514,23 +506,9 @@ export default function ApprovalPage() {
     onSuccess: () => {
       setSelected(null);
       setCatatan("");
-      setBuktiPemenuhan("");
     },
     onError: () => {
       void Promise.all(invalidations.map((queryKey) => client.invalidateQueries({ queryKey })));
-    },
-  });
-  const fulfill = use_mutation<unknown, Error, Fulfillment>({
-    tag: "approval",
-    method: "approvalActionControllerFulfillConditions",
-    invalidateKeys: invalidations,
-    mutationFn: async ({ pengadaanId, stepId, buktiPemenuhan: evidence }) => {
-      setBrowserToken();
-      return apiData(browserApi.approval.approvalActionControllerFulfillConditions(pengadaanId, stepId, { buktiPemenuhan: evidence.trim() }, { format: "json" }) as Promise<{ data: unknown }>);
-    },
-    onSuccess: async () => {
-      setBuktiPemenuhan("");
-      await Promise.all([history.refetch(), query.refetch()]);
     },
   });
   const activeStep = selected && history.data ? nextStep(history.data, selected.jenis) : undefined;
@@ -548,13 +526,9 @@ export default function ApprovalPage() {
     context.isSuccess &&
     !context.isFetching,
   );
-  const conditionPending = activeStep?.status === "disetujui_bersyarat" && !activeStep.syaratTerpenuhi;
-  const conditionFulfilled = activeStep?.status === "disetujui_bersyarat" && activeStep.syaratTerpenuhi;
   function open(row: Procurement) {
     decide.reset();
-    fulfill.reset();
     setCatatan("");
-    setBuktiPemenuhan("");
     setSuccess("");
     setSelected({ row, jenis });
   }
@@ -568,10 +542,6 @@ export default function ApprovalPage() {
     } finally {
       submitting.current = false;
     }
-  }
-  async function confirmFulfillment() {
-    if (!allowed || !selected || !activeStep || !conditionPending || !buktiPemenuhan.trim() || fulfill.isPending) return;
-    await fulfill.mutateAsync({ pengadaanId: selected.row.id, stepId: activeStep.id, buktiPemenuhan });
   }
   function errorAlert(error: unknown, retry: () => void) {
     return (
@@ -745,18 +715,10 @@ export default function ApprovalPage() {
         title={`Detail approval ${selected?.jenis ?? jenis}`}
         footer={
           <>
-            <Button type="button" variant="outline" disabled={decide.isPending || fulfill.isPending} onClick={() => setSelected(null)}>
+            <Button type="button" variant="outline" disabled={decide.isPending} onClick={() => setSelected(null)}>
               Tutup
             </Button>
-            {!mySubmissions && conditionPending ? (
-              <Button type="button" disabled={!allowed || fulfill.isPending || !buktiPemenuhan.trim()} onClick={() => void confirmFulfillment()}>
-                {fulfill.isPending ? "Memproses…" : "Konfirmasi pemenuhan syarat"}
-              </Button>
-            ) : !mySubmissions && conditionFulfilled ? (
-              <Button type="button" disabled={!allowed || decide.isPending} onClick={() => void submit("disetujui")}>
-                {decide.isPending ? "Memproses…" : "Setujui final"}
-              </Button>
-            ) : !mySubmissions ? (
+            {!mySubmissions ? (
               <>
                 <Button type="button" variant="outline" disabled={!allowed || decide.isPending || !catatan.trim()} onClick={() => void submit("perlu_revisi")}>
                   Minta revisi
@@ -764,11 +726,6 @@ export default function ApprovalPage() {
                 <Button type="button" variant="destructive" disabled={!allowed || decide.isPending || !catatan.trim()} onClick={() => void submit("ditolak")}>
                   Tolak
                 </Button>
-                {selected?.jenis === "memorandum" && requiredRole(activeStep) === "PIMPINAN" ? (
-                  <Button type="button" variant="secondary" disabled={!allowed || decide.isPending || !catatan.trim()} onClick={() => void submit("disetujui_bersyarat")}>
-                    Setujui bersyarat
-                  </Button>
-                ) : null}
                 <Button type="button" disabled={!allowed || decide.isPending} onClick={() => void submit("disetujui")}>
                   {decide.isPending ? "Memproses…" : "Setujui"}
                 </Button>
@@ -823,8 +780,6 @@ export default function ApprovalPage() {
                             <p>Approver: {entityText(step.penanggungJawabUser)}</p>
                             <p>Waktu: {step.tanggalKeputusan ? new Date(step.tanggalKeputusan).toLocaleString("id-ID") : "—"}</p>
                             <p className="whitespace-pre-wrap break-words">Catatan: {step.catatan || "—"}</p>
-                            {step.syaratPersetujuan ? <p className="whitespace-pre-wrap break-words">Syarat: {step.syaratPersetujuan}</p> : null}
-                            {step.buktiPemenuhan ? <p className="whitespace-pre-wrap break-words">Bukti pemenuhan: {step.buktiPemenuhan}</p> : null}
                           </li>
                         ))}
                       </ol>
@@ -839,24 +794,12 @@ export default function ApprovalPage() {
               Role Anda: {role || "Memuat…"}. {activeStep ? `Langkah aktif: ${activeStep.namaLangkah}. Membutuhkan ${requiredRole(activeStep)} atau ADMIN.` : "Tidak ada langkah aktif."}
             </p>
             {mySubmissions ? <p>Pengajuan saya: detail dan riwayat hanya baca.</p> : !allowed && <p>Keputusan terkunci: periksa role, urutan, status workflow, dan pemuatan konteks/riwayat. Status akun tetap diverifikasi server.</p>}
-            {!mySubmissions && conditionPending ? (
-              <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950">
-                <p className="font-semibold">Syarat persetujuan</p>
-                <p className="whitespace-pre-wrap">{activeStep?.syaratPersetujuan || activeStep?.catatan}</p>
-                <Label htmlFor="fulfillment-evidence">Bukti pemenuhan seluruh syarat</Label>
-                <Input id="fulfillment-evidence" value={buktiPemenuhan} disabled={fulfill.isPending} onChange={(event) => setBuktiPemenuhan(event.target.value)} />
-                <p className="text-xs">Konfirmasi ini tidak menetapkan penyedia. Persetujuan final tetap wajib.</p>
-              </div>
-            ) : !mySubmissions && !conditionFulfilled ? (
+            {!mySubmissions ? (
               <div className="space-y-2">
                 <Label htmlFor="approval-comment">Catatan keputusan</Label>
                 <Input id="approval-comment" value={catatan} disabled={decide.isPending} onChange={(event) => setCatatan(event.target.value)} aria-describedby="approval-comment-help" />
-                <p id="approval-comment-help">Wajib untuk persetujuan bersyarat, permintaan revisi, dan penolakan.</p>
+                <p id="approval-comment-help">Wajib untuk permintaan revisi dan penolakan.</p>
               </div>
-            ) : conditionFulfilled ? (
-              <Alert>
-                <AlertDescription>Syarat telah dipenuhi. Persetujuan final diperlukan untuk menetapkan penyedia.</AlertDescription>
-              </Alert>
             ) : null}
             {decide.isError && (
               <Alert variant="destructive">
