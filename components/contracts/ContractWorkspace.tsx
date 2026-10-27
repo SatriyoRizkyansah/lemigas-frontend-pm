@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Check, FileText, RefreshCw } from "lucide-react";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { LoadingState } from "@/components/loading/LoadingState";
@@ -17,7 +17,7 @@ import { use_mutation } from "@/lib/api/use_mutation";
 import { use_query } from "@/lib/api/use_query";
 import { ContentType } from "@/lib/api/generated/api-generated";
 
-type ContractKind = "penyedia" | "kerja_sama_penerima_pasokan";
+type ContractKind = "penyedia";
 type ContractStatus = "draft" | "menunggu_persetujuan" | "menunggu_tanda_tangan_vendor" | "finalisasi_lemigas" | "efektif" | "dipenuhi" | "diakhiri" | "dibatalkan";
 type ContractDocument = { id: string; jenis: string; versi: number; originalName: string; createdAt: string };
 type Contract = {
@@ -43,7 +43,7 @@ type Contract = {
   vendor?: { nama?: string | null } | null;
   dokumen?: ContractDocument[];
 };
-type Action = "create" | "upload-draft" | "submit" | "send" | "upload-signed" | "finalize";
+type Action = "create" | "upload-draft" | "submit" | "send" | "finalize";
 type ActionState = { action: Action; kind: ContractKind; contract?: Contract } | null;
 
 type DraftForm = {
@@ -68,8 +68,136 @@ const stages: Array<{ status: ContractStatus; label: string }> = [
 ];
 const slots: Array<{ kind: ContractKind; label: string; description: string }> = [
   { kind: "penyedia", label: "Kontrak Penyedia", description: "Perjanjian dengan vendor pemenang pengadaan." },
-  { kind: "kerja_sama_penerima_pasokan", label: "Kerja Sama Penerima Pasokan", description: "Perjanjian internal penerimaan dan penyaluran pasokan." },
 ];
+const blankDraft = (): DraftForm => ({
+  nomor: "",
+  jenisHarga: "harga_tetap",
+  nilai: "",
+  mataUang: "USD",
+  formulaHarga: "",
+  ketentuanPembayaran: "",
+  titikSerah: "",
+  pengalihanRisiko: "",
+  forceMajeure: "",
+  hukumBerlaku: "Indonesia",
+});
+const priceKindLabels: Record<DraftForm["jenisHarga"], string> = {
+  harga_tetap: "Harga tetap",
+  formula_harga: "Formula harga",
+  lainnya: "Harga lainnya",
+};
+
+function object(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, any>) : {};
+}
+
+function firstValue(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if ((typeof value === "string" || typeof value === "number") && String(value).trim()) return String(value);
+  }
+  return undefined;
+}
+
+function termValue(terms: Record<string, any>, ...keys: string[]): string | undefined {
+  const wanted = new Set(keys.map((key) => key.toLowerCase().replace(/[^a-z0-9]/g, "")));
+  const match = Object.entries(terms).find(([key]) => wanted.has(key.toLowerCase().replace(/[^a-z0-9]/g, "")));
+  return firstValue(match?.[1]);
+}
+
+function priceKind(value: string | undefined, formulaHarga: string | undefined): DraftForm["jenisHarga"] | undefined {
+  const normalized = value?.toLowerCase().replace(/[^a-z0-9]/g, "_");
+  if (normalized && ["harga_tetap", "tetap", "fixed"].includes(normalized)) return "harga_tetap";
+  if (normalized && ["formula_harga", "formula", "berformula"].includes(normalized)) return "formula_harga";
+  if (normalized && ["lainnya", "lain"].includes(normalized)) return "lainnya";
+  return formulaHarga ? "formula_harga" : undefined;
+}
+
+const currencyOptions = [
+  { code: "IDR", label: "Rupiah Indonesia", symbol: "Rp" },
+  { code: "USD", label: "Dolar Amerika Serikat", symbol: "$" },
+  { code: "EUR", label: "Euro", symbol: "€" },
+  { code: "GBP", label: "Pound sterling", symbol: "£" },
+  { code: "JPY", label: "Yen Jepang", symbol: "¥" },
+  { code: "CNY", label: "Yuan Tiongkok", symbol: "¥" },
+  { code: "SGD", label: "Dolar Singapura", symbol: "S$" },
+  { code: "MYR", label: "Ringgit Malaysia", symbol: "RM" },
+  { code: "AUD", label: "Dolar Australia", symbol: "A$" },
+  { code: "CAD", label: "Dolar Kanada", symbol: "C$" },
+  { code: "RUB", label: "Rubel Rusia", symbol: "₽" },
+] as const;
+const currencyPrefixes: Record<string, string> = Object.fromEntries(currencyOptions.map(({ code, symbol }) => [code, symbol]));
+
+function currencyPrefix(currency: string) {
+  const code = currency.toUpperCase();
+  if (currencyPrefixes[code]) return currencyPrefixes[code];
+  try {
+    return new Intl.NumberFormat(code === "IDR" ? "id-ID" : "en-US", { style: "currency", currency: code })
+      .formatToParts(0)
+      .find((part) => part.type === "currency")?.value ?? code;
+  } catch {
+    return code;
+  }
+}
+
+function formatAmount(value: number) {
+  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(value);
+}
+
+function prefillFromProcurement(data: any): { values: Partial<DraftForm>; vendorName?: string; negotiatedPrice: boolean; unitPrice?: string; volume?: string; satuan?: string; totalValue?: number; totalCalculated: boolean } {
+  const selection = object(data?.pemilihanPenyedia);
+  const winnerId = String(selection.vendorTerpilihId ?? "");
+  const participants = Array.isArray(selection.peserta) ? selection.peserta : [];
+  const winnerParticipant = participants.find((row: any) => String(row.vendorId) === winnerId);
+  const offers = Array.isArray(data?.penawaran) ? data.penawaran : [];
+  const matchingOffers = offers
+    .filter((offer: any) => String(offer.vendorId) === winnerId && offer.isCurrent !== false)
+    .sort((a: any, b: any) => String(b.submittedAt ?? b.updatedAt ?? "").localeCompare(String(a.submittedAt ?? a.updatedAt ?? "")));
+  const offer = matchingOffers.find((row: any) => String(row.id) === String(winnerParticipant?.penawaranId ?? "")) ?? matchingOffers[0];
+  if (!offer) return { values: {}, negotiatedPrice: false, totalCalculated: false };
+
+  const negotiations = Array.isArray(offer.negosiasi) ? [...offer.negosiasi] : [];
+  negotiations.sort((a: any, b: any) => Number(b.putaran) - Number(a.putaran) || String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")));
+  const latestNegotiation = negotiations[0];
+  const negotiatedPrice = latestNegotiation?.status === "disepakati" && latestNegotiation.hargaHasilNegosiasi != null;
+  const baseline = object(object(offer.detail).rfqBaseline);
+  const rfq = (Array.isArray(data?.rfq) ? data.rfq : []).find((row: any) => String(row.id) === String(offer.rfqId));
+  const unitPrice = firstValue(negotiatedPrice ? latestNegotiation.hargaHasilNegosiasi : offer.hargaPenawaran);
+  const volume = firstValue(baseline.volume, rfq?.volume);
+  const satuan = firstValue(baseline.satuan, rfq?.satuan, data?.perencanaan?.satuan);
+  const parsedUnitPrice = unitPrice == null ? Number.NaN : Number(unitPrice);
+  const parsedVolume = volume == null ? Number.NaN : Number(volume);
+  const totalCalculated = Number.isFinite(parsedUnitPrice) && parsedUnitPrice >= 0 && Number.isFinite(parsedVolume) && parsedVolume > 0;
+  const totalValue = totalCalculated ? Math.round((parsedUnitPrice * parsedVolume + Number.EPSILON) * 10_000) / 10_000 : undefined;
+  const terms = object(rfq?.ketentuan);
+  const formulaHarga = firstValue(object(offer.detail).formulaHarga, baseline.formulaHarga, termValue(terms, "formulaHarga", "formula harga"));
+  const jenisHarga = priceKind(firstValue(object(offer.detail).jenisHarga, baseline.jenisHarga, termValue(terms, "jenisHarga", "jenis harga")), formulaHarga);
+  const hukumBerlaku = firstValue(object(offer.detail).hukumBerlaku, termValue(terms, "hukumBerlaku", "hukum berlaku"));
+  return {
+    values: {
+      ...(totalValue != null ? { nilai: String(totalValue) } : {}),
+      ...(firstValue(offer.mataUang) ? { mataUang: firstValue(offer.mataUang)!.toUpperCase() } : {}),
+      ...(formulaHarga ? { formulaHarga } : {}),
+      ...(jenisHarga ? { jenisHarga } : {}),
+      ...(firstValue(offer.syaratPembayaran, baseline.syaratPembayaran, rfq?.syaratPembayaran, termValue(terms, "syaratPembayaran", "syarat pembayaran"))
+        ? { ketentuanPembayaran: firstValue(offer.syaratPembayaran, baseline.syaratPembayaran, rfq?.syaratPembayaran, termValue(terms, "syaratPembayaran", "syarat pembayaran"))! }
+        : {}),
+      ...(firstValue(baseline.titikSerah, rfq?.titikSerah, data?.perencanaan?.titikSerah, data?.rencanaTransaksi?.titikSerah)
+        ? { titikSerah: firstValue(baseline.titikSerah, rfq?.titikSerah, data?.perencanaan?.titikSerah, data?.rencanaTransaksi?.titikSerah)! }
+        : {}),
+      ...(firstValue(object(offer.detail).pengalihanRisiko, termValue(terms, "pengalihanRisiko", "pengalihan risiko")) ? { pengalihanRisiko: firstValue(object(offer.detail).pengalihanRisiko, termValue(terms, "pengalihanRisiko", "pengalihan risiko"))! } : {}),
+      ...(firstValue(object(offer.detail).forceMajeure, termValue(terms, "forceMajeure", "force majeure")) ? { forceMajeure: firstValue(object(offer.detail).forceMajeure, termValue(terms, "forceMajeure", "force majeure"))! } : {}),
+      ...(hukumBerlaku ? { hukumBerlaku } : {}),
+    },
+    vendorName: offer.vendor?.nama,
+    negotiatedPrice,
+    unitPrice,
+    volume,
+    satuan,
+    totalValue,
+    totalCalculated,
+  };
+}
+
 const statusLabels: Record<ContractStatus, string> = {
   draft: "Draft",
   menunggu_persetujuan: "Menunggu persetujuan",
@@ -102,7 +230,6 @@ function nextAction(contract: Contract | undefined, kind: ContractKind, canEdit:
   if (!contract) return { action: "create", kind };
   if (contract.status === "draft") return { action: latestDocument(contract, "draft") ? "submit" : "upload-draft", kind, contract };
   if (contract.status === "menunggu_tanda_tangan_vendor" && !contract.dikirimPada) return { action: "send", kind, contract };
-  if (contract.status === "menunggu_tanda_tangan_vendor" && kind === "kerja_sama_penerima_pasokan") return { action: "upload-signed", kind, contract };
   if (contract.status === "finalisasi_lemigas") return { action: "finalize", kind, contract };
   return null;
 }
@@ -112,28 +239,17 @@ const actionLabels: Record<Action, string> = {
   "upload-draft": "Unggah PDF draft",
   submit: "Ajukan persetujuan",
   send: "Kirim untuk tanda tangan",
-  "upload-signed": "Unggah hasil tanda tangan",
   finalize: "Finalisasi kontrak",
 };
 
-export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string; active: boolean }) {
+export function ContractWorkspace({ pengadaanId, active, procurement }: { pengadaanId: string; active: boolean; procurement?: Record<string, any> }) {
   const user = useCurrentUser();
   const role = user.data?.role.toLowerCase() ?? "";
   const canEdit = active && ["admin", "operator"].includes(role);
   const [dialog, setDialog] = useState<ActionState>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [draft, setDraft] = useState<DraftForm>({
-    nomor: "",
-    jenisHarga: "harga_tetap",
-    nilai: "",
-    mataUang: "USD",
-    formulaHarga: "",
-    ketentuanPembayaran: "",
-    titikSerah: "",
-    pengalihanRisiko: "",
-    forceMajeure: "",
-    hukumBerlaku: "Indonesia",
-  });
+  const [draft, setDraft] = useState<DraftForm>(blankDraft);
+  const touchedDraftFields = useRef<Set<keyof DraftForm>>(new Set());
   const [signer, setSigner] = useState({ nama: "", jabatan: "", email: "", tanggal: "", mulai: "", berakhir: "" });
   const [checklist, setChecklist] = useState([false, false, false, false, false, false]);
 
@@ -146,39 +262,33 @@ export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string
       return unwrap<Contract[]>(await apiData(browserApi.request({ path: `/api/pengadaan/${encodeURIComponent(id)}/contracts`, method: "GET", secure: true, format: "json" })));
     },
   });
-
-  // Fetch procurement (pengadaan) details to prefill draft
-  const procurement = use_query<any, Error, string>({
-    tag: "pengadaan",
-    method: "detail",
-    params: pengadaanId,
-    queryFn: async (id) => {
-      setBrowserToken();
-      return unwrap<any>(await apiData(browserApi.request({ path: `/api/pengadaan/${encodeURIComponent(id)}`, method: "GET", secure: true, format: "json" })));
-    },
-  });
+  const draftPrefill = useMemo(() => (procurement ? prefillFromProcurement(procurement) : null), [procurement]);
 
   useEffect(() => {
-    if (!dialog) return;
+    if (!dialog?.action) return;
     setFile(null);
     setChecklist([false, false, false, false, false, false]);
     setSigner({ nama: "", jabatan: "", email: "", tanggal: "", mulai: "", berakhir: "" });
-    // Default draft values
-    let defaultDraft: DraftForm = { nomor: "", jenisHarga: "harga_tetap", nilai: "", mataUang: "USD", formulaHarga: "", ketentuanPembayaran: "", titikSerah: "", pengalihanRisiko: "", forceMajeure: "", hukumBerlaku: "Indonesia" };
-    // If creating and procurement data available, prefill from winner
-    if (dialog?.action === "create" && procurement.data) {
-      const winner = procurement.data.penawaran?.find((p: any) => p.isCurrent);
-      if (winner) {
-        defaultDraft = {
-          ...defaultDraft,
-          nilai: winner.hargaPenawaran ? String(winner.hargaPenawaran) : "",
-          mataUang: winner.mataUang ?? defaultDraft.mataUang,
-          titikSerah: procurement.data.titikSerah ?? "",
-        };
+    touchedDraftFields.current.clear();
+    setDraft(blankDraft());
+  }, [dialog?.action, dialog?.kind]);
+
+  useEffect(() => {
+    if (dialog?.action !== "create" || !draftPrefill) return;
+    const prefill = draftPrefill;
+    setDraft((current) => {
+      const next = { ...current };
+      for (const [key, value] of Object.entries(prefill.values) as Array<[keyof DraftForm, DraftForm[keyof DraftForm]]>) {
+        if (!touchedDraftFields.current.has(key)) next[key] = value as never;
       }
-    }
-    setDraft(defaultDraft);
-  }, [dialog?.action, dialog?.kind, procurement.data]);
+      return next;
+    });
+  }, [dialog?.action, draftPrefill]);
+
+  function updateDraftField<K extends keyof DraftForm>(field: K, value: DraftForm[K]) {
+    touchedDraftFields.current.add(field);
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
 
   const mutation = use_mutation<unknown, Error, NonNullable<ActionState>>({
     tag: "contract",
@@ -205,13 +315,12 @@ export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string
       body.append("file", file);
       body.append("expectedRevision", String(contract.revision));
       let path = `${base}/${contract.id}/draft-document`;
-      if (state.action === "upload-signed" || state.action === "finalize") {
+      if (state.action === "finalize") {
         body.append("penandatanganNama", signer.nama);
         body.append("penandatanganJabatan", signer.jabatan);
         if (signer.email) body.append("penandatanganEmail", signer.email);
         body.append("tanggalTandaTangan", new Date(signer.tanggal).toISOString());
       }
-      if (state.action === "upload-signed") path = `${base}/${contract.id}/internal-signed-document`;
       if (state.action === "finalize") {
         path = `${base}/${contract.id}/finalize`;
         body.append("mulaiBerlaku", new Date(signer.mulai).toISOString());
@@ -235,7 +344,7 @@ export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold">Proses kontrak</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Dua kontrak mengikuti alur persetujuan dan bukti dokumen yang sama.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Kontrak penyedia mengikuti alur persetujuan dan bukti dokumen yang sama.</p>
         </div>
         <Button type="button" size="icon" variant="outline" aria-label="Muat ulang kontrak" onClick={() => void contracts.refetch()} disabled={contracts.isFetching}>
           <RefreshCw className={contracts.isFetching ? "spin" : undefined} />
@@ -244,7 +353,7 @@ export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string
       {contracts.isPending ? (
         <LoadingState />
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-4">
           {slots.map((slot) => {
             const contract = contractsByKind.get(slot.kind);
             const step = currentStep(contract?.status);
@@ -284,7 +393,7 @@ export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string
                       </div>
                       <div>
                         <dt className="text-xs text-muted-foreground">Pihak</dt>
-                        <dd className="mt-1 font-medium">{contract.vendor?.nama ?? (slot.kind === "penyedia" ? "Vendor pemenang" : "Penerima pasokan")}</dd>
+                        <dd className="mt-1 font-medium">{contract.vendor?.nama ?? "Vendor pemenang"}</dd>
                       </div>
                       <div>
                         <dt className="text-xs text-muted-foreground">Revisi</dt>
@@ -326,7 +435,7 @@ export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string
                           : status === "menunggu_tanda_tangan_vendor"
                             ? "Menunggu unggahan pihak penandatangan"
                             : status === "efektif"
-                              ? "Kontrak sudah berlaku. Pastikan kontrak wajib lainnya efektif, lalu tandai tahap Kontrak selesai untuk lanjut ke Pengiriman."
+                              ? "Kontrak sudah berlaku. Tandai tahap Kontrak selesai untuk lanjut ke Pengiriman."
                               : "Tidak ada aksi saat ini"}
                     </span>
                   )}
@@ -341,7 +450,7 @@ export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string
         open={Boolean(dialog)}
         onClose={() => !mutation.isPending && setDialog(null)}
         title={dialog ? actionLabels[dialog.action] : "Kontrak"}
-        description={dialog?.kind === "penyedia" ? "Kontrak penyedia" : "Kerja sama penerima pasokan"}
+        description="Kontrak dengan vendor pemenang pengadaan."
         footer={
           <>
             <Button type="button" variant="outline" onClick={() => setDialog(null)} disabled={mutation.isPending}>
@@ -356,45 +465,88 @@ export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string
         <form id="contract-action-form" className="space-y-4" onSubmit={submit}>
           {dialog?.action === "create" ? (
             <>
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                {draftPrefill?.vendorName ? (
+                  <>
+                    <p className="font-medium text-foreground">Pemenang: {draftPrefill.vendorName}</p>
+                    <p>Skema {priceKindLabels[draft.jenisHarga]} mengikuti data penawaran/RFQ. Harga {draftPrefill.negotiatedPrice ? "mengikuti negosiasi yang disepakati" : "mengikuti penawaran aktif"}; mata uang, syarat pembayaran, dan titik serah mengikuti penawaran/RFQ.</p>
+                    {draftPrefill.totalCalculated ? (
+                      <p className="mt-1 font-medium text-foreground">
+                        Perhitungan nilai: {draftPrefill.unitPrice} {draft.mataUang} / {draftPrefill.satuan || "satuan"} × {formatAmount(Number(draftPrefill.volume))} {draftPrefill.satuan || "satuan"} = {currencyPrefix(draft.mataUang)} {formatAmount(draftPrefill.totalValue ?? 0)}
+                      </p>
+                    ) : (
+                      <p className="mt-1">Volume RFQ belum tersedia, jadi nilai total belum dapat dihitung otomatis.</p>
+                    )}
+                  </>
+                ) : (
+                  <p>Data penawaran pemenang belum tersedia. Lengkapi nilai kontrak secara manual.</p>
+                )}
+              </div>
               <Field label="Nomor kontrak">
-                <Input required value={draft.nomor} onChange={(event) => setDraft({ ...draft, nomor: event.target.value })} />
+                <Input required value={draft.nomor} onChange={(event) => updateDraftField("nomor", event.target.value)} />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Jenis harga">
-                  <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={draft.jenisHarga} onChange={(event) => setDraft({ ...draft, jenisHarga: event.target.value as DraftForm["jenisHarga"] })}>
-                    <option value="harga_tetap">Harga tetap</option>
-                    <option value="formula_harga">Formula harga</option>
-                    <option value="lainnya">Lainnya</option>
-                  </select>
+                  <div className="flex h-9 items-center rounded-md border bg-muted/30 px-3 text-sm" aria-readonly="true">
+                    {priceKindLabels[draft.jenisHarga]}
+                    <span className="ml-auto text-xs text-muted-foreground">Mengikuti RFQ/penawaran</span>
+                  </div>
                 </Field>
-                <Field label="Nilai">
-                  <Input type="number" min="0" value={draft.nilai} onChange={(event) => setDraft({ ...draft, nilai: event.target.value })} />
+                <Field label="Nilai total kontrak">
+                  <div className="flex h-9 overflow-hidden rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring/40">
+                    <span className="flex min-w-12 items-center justify-center border-r bg-muted/40 px-3 text-sm font-medium text-muted-foreground">{currencyPrefix(draft.mataUang)}</span>
+                    <input
+                      aria-label="Nilai total kontrak"
+                      type="number"
+                      min="0"
+                      step="0.0001"
+                      inputMode="decimal"
+                      readOnly={Boolean(draftPrefill?.totalCalculated)}
+                      value={draft.nilai}
+                      onChange={(event) => updateDraftField("nilai", event.target.value)}
+                      className="w-full min-w-0 bg-transparent px-3 py-2 text-sm outline-none read-only:cursor-default"
+                    />
+                  </div>
                 </Field>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Mata uang">
-                  <Input value={draft.mataUang} onChange={(event) => setDraft({ ...draft, mataUang: event.target.value })} />
+                  <select
+                    aria-label="Mata uang"
+                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    value={draft.mataUang}
+                    onChange={(event) => updateDraftField("mataUang", event.target.value)}
+                  >
+                    {!currencyOptions.some(({ code }) => code === draft.mataUang) ? (
+                      <option value={draft.mataUang}>{draft.mataUang} — mengikuti penawaran vendor</option>
+                    ) : null}
+                    {currencyOptions.map(({ code, label, symbol }) => (
+                      <option key={code} value={code}>{code} — {label} ({symbol})</option>
+                    ))}
+                  </select>
                 </Field>
-                <Field label="Formula harga">
-                  <Input value={draft.formulaHarga} onChange={(event) => setDraft({ ...draft, formulaHarga: event.target.value })} />
-                </Field>
+                {draft.jenisHarga === "formula_harga" ? (
+                  <Field label="Formula harga dari RFQ/negosiasi">
+                    <Input value={draft.formulaHarga} readOnly placeholder="Formula belum tersedia pada penawaran/RFQ" />
+                  </Field>
+                ) : null}
               </div>
               <Field label="Ketentuan pembayaran">
-                <Input value={draft.ketentuanPembayaran} onChange={(event) => setDraft({ ...draft, ketentuanPembayaran: event.target.value })} />
+                <Input value={draft.ketentuanPembayaran} onChange={(event) => updateDraftField("ketentuanPembayaran", event.target.value)} />
               </Field>
               <Field label="Titik serah">
-                <Input value={draft.titikSerah} onChange={(event) => setDraft({ ...draft, titikSerah: event.target.value })} />
+                <Input value={draft.titikSerah} onChange={(event) => updateDraftField("titikSerah", event.target.value)} />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Pengalihan risiko">
-                  <Input value={draft.pengalihanRisiko} onChange={(event) => setDraft({ ...draft, pengalihanRisiko: event.target.value })} />
+                  <Input value={draft.pengalihanRisiko} onChange={(event) => updateDraftField("pengalihanRisiko", event.target.value)} />
                 </Field>
                 <Field label="Hukum berlaku">
-                  <Input value={draft.hukumBerlaku} onChange={(event) => setDraft({ ...draft, hukumBerlaku: event.target.value })} />
+                  <Input value={draft.hukumBerlaku} onChange={(event) => updateDraftField("hukumBerlaku", event.target.value)} />
                 </Field>
               </div>
               <Field label="Force majeure">
-                <textarea className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm" value={draft.forceMajeure} onChange={(event) => setDraft({ ...draft, forceMajeure: event.target.value })} />
+                <textarea className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm" value={draft.forceMajeure} onChange={(event) => updateDraftField("forceMajeure", event.target.value)} />
               </Field>
             </>
           ) : null}
@@ -408,7 +560,7 @@ export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string
               ))}
             </div>
           ) : null}
-          {dialog && ["upload-draft", "upload-signed", "finalize"].includes(dialog.action) ? (
+          {dialog && ["upload-draft", "finalize"].includes(dialog.action) ? (
             <Field label="File PDF">
               <UploadDocumentField
                 key={`${dialog.action}-${dialog.contract?.id ?? ""}-${dialog.contract?.revision ?? ""}`}
@@ -421,7 +573,7 @@ export function ContractWorkspace({ pengadaanId, active }: { pengadaanId: string
               />
             </Field>
           ) : null}
-          {dialog && ["upload-signed", "finalize"].includes(dialog.action) ? (
+          {dialog?.action === "finalize" ? (
             <>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Nama penandatangan">

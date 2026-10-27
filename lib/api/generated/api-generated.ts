@@ -314,7 +314,7 @@ export interface CreateMemorandumDto {
 
 export interface CreateKontrakDto {
   nomor: string;
-  jenis: "penyedia" | "kerja_sama_penerima_pasokan";
+  jenis: "penyedia";
   jenisHarga: "harga_tetap" | "formula_harga" | "lainnya";
   vendorId?: string;
   nilai?: number;
@@ -328,10 +328,6 @@ export interface CreateKontrakDto {
   tanggalTandaTangan?: string;
   mulaiBerlaku?: string;
   berakhirPada?: string;
-}
-
-export interface UpdateJenisKontrakDto {
-  jenis: "penyedia" | "kerja_sama_penerima_pasokan";
 }
 
 export interface UpdateStatusKontrakDto {
@@ -630,7 +626,7 @@ export interface LinkLifecycleEvidenceDto {
 
 export interface ContractDraftDto {
   nomor: string;
-  jenis: "penyedia" | "kerja_sama_penerima_pasokan";
+  jenis: "penyedia";
   jenisHarga: "harga_tetap" | "formula_harga" | "lainnya";
   nilai?: number;
   /** @default "USD" */
@@ -2129,30 +2125,6 @@ export class Api<
       this.request<void, any>({
         path: `/api/pengadaan/${pengadaanId}/kontrak`,
         method: "POST",
-        body: data,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags Siklus Transaksi Komoditas
-     * @name TransaksiControllerUpdateJenisKontrak
-     * @summary Perbaiki jenis kontrak transaksi (Admin, Operator)
-     * @request PUT:/api/pengadaan/{pengadaanId}/kontrak/{kontrakId}/jenis
-     * @secure
-     */
-    transaksiControllerUpdateJenisKontrak: (
-      pengadaanId: string,
-      kontrakId: string,
-      data: UpdateJenisKontrakDto,
-      params: RequestParams = {},
-    ) =>
-      this.request<void, any>({
-        path: `/api/pengadaan/${pengadaanId}/kontrak/${kontrakId}/jenis`,
-        method: "PUT",
         body: data,
         secure: true,
         type: ContentType.Json,

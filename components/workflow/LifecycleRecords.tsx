@@ -208,7 +208,6 @@ function DetailValue({ value }: { value: any }) {
 
 export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage: string; active: boolean; pengadaanId: string; detail: RecordData }) {
   const [selected, setSelected] = useState<RecordData | null>(null);
-  const [jenisDraft, setJenisDraft] = useState<Record<string, string>>({});
   const [evaluating, setEvaluating] = useState<RecordData | null>(null);
   const [recommending, setRecommending] = useState(false);
   const [recommendationDetailId, setRecommendationDetailId] = useState("");
@@ -253,24 +252,6 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
     },
     onError: (error) => setRfqActionError(getApiErrorMessage(error)),
     onSuccess: () => setRfqActionError(""),
-  });
-  const updateContractType = use_mutation<unknown, Error, { id: string; jenis: string }>({
-    tag: "siklusTransaksiKomoditas",
-    method: "updateContractType",
-    invalidateKeys: [apiQueryKeys.resource("siklusTransaksiKomoditas"), apiQueryKeys.resource("lifecycleHistory"), apiQueryKeys.resource("lifecycleEvidence")],
-    mutationFn: async ({ id, jenis }) => {
-      setBrowserToken();
-      return apiData(
-        browserApi.request({
-          path: `/api/pengadaan/${encodeURIComponent(pengadaanId)}/kontrak/${encodeURIComponent(id)}/jenis`,
-          method: "PUT",
-          body: { jenis },
-          secure: true,
-          type: ContentType.Json,
-          format: "json",
-        }) as Promise<{ data: unknown }>,
-      );
-    },
   });
   const canAudit = user.isSuccess && !user.isRefetchError && ["admin", "pimpinan"].includes(user.data.role.toLowerCase());
   async function downloadOfferDocument(id: string, name: string) {
@@ -374,6 +355,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
     });
   const derived: RecordData = {
     ...detail,
+    kontrak: detail.kontrak,
     rfq: stage === "verifikasi_evaluasi" && detail.strategi?.metodeSeleksi !== "pengadaan_langsung" ? [] : detail.rfq,
     negosiasi: list(detail.penawaran).flatMap((offer) => list(offer.negosiasi).map((row) => ({ ...row, vendor: offer.vendor, penawaranId: offer.id }))),
     adendum: list(detail.kontrak).flatMap((contract) => list(contract.adendum).map((row) => ({ ...row, nomorKontrak: contract.nomor }))),
@@ -674,48 +656,6 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                                 </Button>
                               );
                             },
-                          },
-                        ]
-                      : []),
-                    ...(key === "kontrak"
-                      ? [
-                          {
-                            key: "jenisKontrak",
-                            header: "Jenis kontrak",
-                            render: (row: RecordData) => (
-                              <div className="flex min-w-56 items-center gap-2">
-                                <select
-                                  aria-label={`Jenis kontrak ${row.nomor ?? row.id}`}
-                                  value={jenisDraft[row.id] ?? row.jenis ?? ""}
-                                  onChange={(event) => setJenisDraft((old) => ({ ...old, [row.id]: event.target.value }))}
-                                  disabled={!active || updateContractType.isPending || !["admin", "operator"].includes(user.data?.role.toLowerCase() ?? "")}
-                                  className="rounded-md border bg-background p-2 text-sm"
-                                >
-                                  <option value="penyedia">Penyedia</option>
-                                  <option value="kerja_sama_penerima_pasokan">PKS penerima pasokan</option>
-                                </select>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={!active || updateContractType.isPending || !["admin", "operator"].includes(user.data?.role.toLowerCase() ?? "") || !jenisDraft[row.id] || jenisDraft[row.id] === row.jenis}
-                                  onClick={() =>
-                                    updateContractType.mutate(
-                                      { id: row.id, jenis: jenisDraft[row.id] },
-                                      {
-                                        onSuccess: () =>
-                                          setJenisDraft((old) => {
-                                            const next = { ...old };
-                                            delete next[row.id];
-                                            return next;
-                                          }),
-                                      },
-                                    )
-                                  }
-                                >
-                                  Simpan jenis
-                                </Button>
-                              </div>
-                            ),
                           },
                         ]
                       : []),

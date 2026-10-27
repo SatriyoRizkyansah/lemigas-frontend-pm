@@ -936,7 +936,7 @@ export default function RencanaTransaksiPage() {
                   <strong>4. Approval:</strong> ajukan memorandum keputusan untuk persetujuan.
                 </li>
                 <li>
-                  <strong>5. Kontrak:</strong> siapkan kontrak penyedia dan PKS penerima pasokan.
+                  <strong>5. Kontrak:</strong> siapkan kontrak penyedia.
                 </li>
                 <li>
                   <strong>6. Delivery → Settlement:</strong> catat pengiriman dan BAST, lalu proses invoice serta rekonsiliasi hingga selesai.
@@ -980,7 +980,7 @@ export default function RencanaTransaksiPage() {
                   <strong>4. Negosiasi:</strong> lakukan negosiasi dengan vendor terpilih dan catat hasilnya.
                 </li>
                 <li>
-                  <strong>5. Kontrak:</strong> siapkan kontrak penyedia dan PKS penerima pasokan.
+                  <strong>5. Kontrak:</strong> siapkan kontrak penyedia.
                 </li>
                 <li>
                   <strong>6. Delivery → Settlement:</strong> catat pengiriman dan BAST, lalu proses invoice serta rekonsiliasi hingga selesai.
@@ -1005,7 +1005,7 @@ export default function RencanaTransaksiPage() {
                   <strong>5. Approval:</strong> ajukan memorandum keputusan untuk persetujuan.
                 </li>
                 <li>
-                  <strong>6. Kontrak:</strong> siapkan kontrak penyedia dan PKS penerima pasokan.
+                  <strong>6. Kontrak:</strong> siapkan kontrak penyedia.
                 </li>
                 <li>
                   <strong>7. Delivery → Settlement:</strong> catat pengiriman dan BAST, lalu proses invoice serta rekonsiliasi hingga selesai.

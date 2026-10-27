@@ -47,7 +47,7 @@ type Procurement = {
   memorandum?: { id: string; status: string; [key: string]: unknown } | null;
   items?: unknown[];
 };
-type Inbox = { data: Procurement[]; pagination: { total_datas: number; total_pages: number } };
+type Inbox = { data: Procurement[]; pagination: { total_datas?: number; total_pages: number } };
 type Selection = { row: Procurement; jenis: Jenis };
 type DecisionValue = "disetujui" | "perlu_revisi" | "ditolak";
 type Decision = { pengadaanId: string; stepId: string; decision: DecisionValue; catatan: string };
@@ -84,6 +84,29 @@ function roleAllows(role: string, step?: Step) {
 }
 function workflowWaiting(row: Procurement, jenis: Jenis) {
   return jenis === "memorandum" ? row.memorandum?.status === "menunggu_persetujuan" : ["diajukan", "dalam_review"].includes(row.status);
+}
+async function hasActionableApproval(jenis: Jenis, role: string) {
+  setBrowserToken();
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const params = { page, limit: 50, query: "" };
+    const request = jenis === "pengadaan"
+      ? browserApi.approval.approvalGetControllerFindAll(params, { format: "json" })
+      : browserApi.approval.approvalGetControllerFindMemorandum(params, { format: "json" });
+    const inbox = inboxPayload(await apiData(request as Promise<{ data: unknown }>));
+    const actionable = inbox.data.some((row) => {
+      const step = nextStep(row.approvalSteps ?? [], jenis);
+      return step?.pengadaanId === row.id &&
+        workflowWaiting(row, jenis) &&
+        (jenis !== "memorandum" || step.memorandumId === row.memorandum?.id) &&
+        roleAllows(role, step);
+    });
+    if (actionable) return true;
+    totalPages = Math.max(1, Number(inbox.pagination.total_pages) || 1);
+    page += 1;
+  } while (page <= totalPages);
+  return false;
 }
 const statusLabels: Record<string, string> = {
   perlu_revisi: "perlu revisi",
@@ -238,6 +261,16 @@ type RencanaInboxRow = {
   dibuatOlehUser?: { nama?: string } | null;
   approvalSteps?: { id: string; urutan: number; namaLangkah: string; status: string; catatan?: string | null; tanggalKeputusan?: string | null; penanggungJawabUser?: { nama?: string } | null }[];
 };
+function actionableRencanaCount(rows: RencanaInboxRow[], role: string) {
+  return rows.filter((row) => {
+    if (!["diajukan", "dalam_review"].includes(row.status)) return false;
+    const steps = [...(row.approvalSteps ?? [])].sort((a, b) => a.urutan - b.urutan);
+    const active = steps.find((step) => step.status === "menunggu");
+    if (!active || !steps.filter((step) => step.urutan < active.urutan).every((step) => step.status === "disetujui")) return false;
+    const requiredRole = active.urutan >= 3 ? "PIMPINAN" : "VERIFIKATOR";
+    return role === "ADMIN" || role === requiredRole;
+  }).length;
+}
 function RencanaApprovalInbox() {
   const user = useCurrentUser();
   const role = user.data?.role?.toUpperCase() ?? "";
@@ -445,6 +478,7 @@ export default function ApprovalPage() {
   const [jenis, setJenis] = useState<Jenis>("pengadaan");
   const [mySubmissions, setMySubmissions] = useState(false);
   const [rencanaInbox, setRencanaInbox] = useState(false);
+  const [contractInbox, setContractInbox] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -455,10 +489,50 @@ export default function ApprovalPage() {
   const client = useQueryClient();
   const user = useCurrentUser();
   const role = user.data?.role?.toUpperCase() ?? "";
+  const showApprovalInbox = !mySubmissions && Boolean(role);
+  const pengadaanIndicator = use_query<boolean, Error, { jenis: Jenis; role: string }>({
+    tag: "approval",
+    method: "pending-tab-indicator",
+    params: { jenis: "pengadaan", role },
+    enabled: showApprovalInbox,
+    queryFn: ({ jenis: kind, role: currentRole }) => hasActionableApproval(kind, currentRole),
+  });
+  const memorandumIndicator = use_query<boolean, Error, { jenis: Jenis; role: string }>({
+    tag: "approval",
+    method: "pending-tab-indicator",
+    params: { jenis: "memorandum", role },
+    enabled: showApprovalInbox,
+    queryFn: ({ jenis: kind, role: currentRole }) => hasActionableApproval(kind, currentRole),
+  });
+  const rencanaIndicator = use_query<RencanaInboxRow[], Error, void>({
+    tag: "rencanaTransaksi",
+    method: "perencanaanControllerFindAll",
+    params: undefined,
+    enabled: showApprovalInbox,
+    queryFn: async () => {
+      setBrowserToken();
+      const data = unwrap(await apiData(browserApi.ePlanningTransaksi.perencanaanControllerFindAll({ format: "json" }) as Promise<{ data: unknown }>));
+      if (!Array.isArray(data)) throw new Error("Response daftar rencana tidak valid.");
+      return data as RencanaInboxRow[];
+    },
+  });
+  const contractIndicator = use_query<number, Error, string>({
+    tag: "contract",
+    method: "approval-tab-indicator",
+    params: role,
+    enabled: showApprovalInbox && (role === "ADMIN" || role === "PIMPINAN"),
+    queryFn: async () => {
+      setBrowserToken();
+      const data = unwrap(await apiData(browserApi.request({ path: "/api/contract-approvals", method: "GET", secure: true, format: "json" })));
+      if (!Array.isArray(data)) throw new Error("Response daftar persetujuan kontrak tidak valid.");
+      return data.length;
+    },
+  });
   const query = use_query<Inbox, Error, { jenis: Jenis; my: boolean; page: number; limit: number; query: string }>({
     tag: "approval",
     method: mySubmissions ? "approvalGetControllerFindMyPengadaan" : jenis === "pengadaan" ? "approvalGetControllerFindAll" : "approvalGetControllerFindMemorandum",
     params: { jenis, my: mySubmissions, page, limit, query: search.trim() },
+    enabled: !contractInbox,
     queryFn: async ({ jenis: kind, my, ...params }) => {
       setBrowserToken();
       const request = my
@@ -598,6 +672,7 @@ export default function ApprovalPage() {
                 disabled={decide.isPending}
                 onClick={() => {
                   setMySubmissions(false);
+                  setSuccess("");
                   setPage(1);
                 }}
               >
@@ -611,8 +686,10 @@ export default function ApprovalPage() {
                 disabled={decide.isPending}
                 onClick={() => {
                   setRencanaInbox(false);
+                  setContractInbox(false);
                   setMySubmissions(true);
                   setJenis("pengadaan");
+                  setSuccess("");
                   setPage(1);
                 }}
               >
@@ -632,29 +709,55 @@ export default function ApprovalPage() {
                   disabled={decide.isPending}
                   onClick={() => {
                     setRencanaInbox(true);
+                    setContractInbox(false);
+                    setSuccess("");
                     setPage(1);
                   }}
                 >
                   <ClipboardCheck /> Rencana transaksi
+                  {actionableRencanaCount(rencanaIndicator.data ?? [], role) > 0 ? <span className="size-2 rounded-full bg-destructive ring-2 ring-background" role="img" aria-label="Ada persetujuan rencana yang menunggu" title="Ada persetujuan rencana yang menunggu" /> : null}
                 </Button>
                 {(["pengadaan", "memorandum"] as const).map((kind) => (
                   <Button
                     key={kind}
                     type="button"
                     className="h-8"
-                    variant={!rencanaInbox && jenis === kind ? "secondary" : "outline"}
-                    aria-pressed={!rencanaInbox && jenis === kind}
+                    variant={!contractInbox && !rencanaInbox && jenis === kind ? "secondary" : "outline"}
+                    aria-pressed={!contractInbox && !rencanaInbox && jenis === kind}
                     disabled={decide.isPending}
                     onClick={() => {
                       setRencanaInbox(false);
+                      setContractInbox(false);
                       setJenis(kind);
+                      setSuccess("");
                       setPage(1);
                     }}
                   >
                     {kind === "pengadaan" ? <FileText /> : <ClipboardCheck />}
                     {kind === "pengadaan" ? "Pengadaan" : "Memorandum"}
+                    {(kind === "pengadaan" ? pengadaanIndicator.data : memorandumIndicator.data) ? (
+                      <span className="size-2 rounded-full bg-destructive ring-2 ring-background" role="img" aria-label={`Ada persetujuan ${kind} yang menunggu`} title={`Ada persetujuan ${kind} yang menunggu`} />
+                    ) : null}
                   </Button>
                 ))}
+                {(role === "ADMIN" || role === "PIMPINAN") ? (
+                  <Button
+                    type="button"
+                    className="h-8"
+                    variant={contractInbox ? "secondary" : "outline"}
+                    aria-pressed={contractInbox}
+                    disabled={decide.isPending}
+                    onClick={() => {
+                      setMySubmissions(false);
+                      setRencanaInbox(false);
+                      setContractInbox(true);
+                      setSuccess("");
+                    }}
+                  >
+                    <FileText /> Persetujuan kontrak
+                    {(contractIndicator.data ?? 0) > 0 ? <span className="size-2 rounded-full bg-destructive ring-2 ring-background" role="img" aria-label="Ada persetujuan kontrak yang menunggu" title="Ada persetujuan kontrak yang menunggu" /> : null}
+                  </Button>
+                ) : null}
               </div>
             </div>
           ) : (
@@ -671,7 +774,9 @@ export default function ApprovalPage() {
         errorAlert(user.error, () => {
           void user.refetch();
         })}
-      {!mySubmissions && rencanaInbox ? (
+      {!mySubmissions && contractInbox ? (
+        <ContractApprovals />
+      ) : !mySubmissions && rencanaInbox ? (
         <RencanaApprovalInbox />
       ) : query.isPending ? (
         <LoadingState />
@@ -810,7 +915,6 @@ export default function ApprovalPage() {
           </div>
         )}
       </Modal>
-      {(role === "ADMIN" || role === "PIMPINAN") && <ContractApprovals />}
     </section>
   );
 }

@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileUp, Send, Clock3, FileText, CircleCheck } from "lucide-react";
+import { FileUp, Send, Clock3, FileText, CircleCheck, ChevronRight } from "lucide-react";
 import { readSession, SESSION_COOKIE } from "@/lib/auth";
 import { Modal } from "@/components/modal/Modal";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -254,14 +254,21 @@ function NegotiationWorkspace({
               <TableRow>
                 <TableHead>Status</TableHead>
                 <TableHead>Pengadaan</TableHead>
-                <TableHead>RFQ</TableHead>
+                <TableHead>RFQ & penawaran</TableHead>
                 <TableHead>Putaran</TableHead>
-                <TableHead>Harga negosiasi</TableHead>
+                <TableHead>Permintaan terbaru</TableHead>
                 <TableHead className="text-right">Detail</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {negotiations.map((item) => (
+              {negotiations.map((item) => {
+                const itemRfq = rfqs.find((rfq) => rfq.nomor === item.penawaran.nomorRfq || rfq.id === item.penawaran.nomorRfq);
+                const itemBaseline = item.penawaran.detail?.rfqBaseline as Record<string, unknown> | undefined;
+                const itemUnit = String(itemBaseline?.satuan ?? itemRfq?.satuan ?? "");
+                const itemOffer = Number(item.penawaran.hargaPenawaran);
+                const itemRequested = Number(item.hargaHasilNegosiasi);
+                const itemPrice = (value: string | number | null | undefined, fallback: string) => Number.isFinite(Number(value)) ? `${item.penawaran.mataUang} ${formatAmount(Number(value), item.penawaran.mataUang)}${itemUnit ? ` / ${itemUnit}` : ""}` : fallback;
+                return (
                 <TableRow key={item.id} className={selected.id === item.id ? "bg-primary/[0.04]" : ""}>
                   <TableCell>
                     <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${negotiationStatusClass(item.status)}`}>{NEGOTIATION_STATUS_LABELS[item.status]}</span>
@@ -270,11 +277,14 @@ function NegotiationWorkspace({
                     <p className="min-w-40 font-medium">{item.penawaran.pengadaan.judul}</p>
                     <p className="text-xs text-muted-foreground">{item.penawaran.pengadaan.nomorSurat}</p>
                   </TableCell>
-                  <TableCell className="whitespace-nowrap">{item.penawaran.nomorRfq ?? "—"}</TableCell>
+                  <TableCell>
+                    <p className="whitespace-nowrap font-medium">{item.penawaran.nomorRfq ?? "RFQ tidak tersedia"}</p>
+                    <p className="mt-0.5 whitespace-nowrap text-xs text-muted-foreground">Penawaran: {itemPrice(item.penawaran.hargaPenawaran, "—")}</p>
+                  </TableCell>
                   <TableCell>Putaran {item.putaran}</TableCell>
                   <TableCell className="whitespace-nowrap font-medium">
-                    {item.penawaran.mataUang} {item.hargaHasilNegosiasi ?? "—"}
-                    {unit ? ` / ${unit}` : ""}
+                    {itemPrice(item.hargaHasilNegosiasi, "Belum ada harga")}
+                    {Number.isFinite(itemOffer) && itemOffer > 0 && Number.isFinite(itemRequested) ? <p className="mt-0.5 text-xs font-normal text-muted-foreground">{(((itemRequested - itemOffer) / itemOffer) * 100).toFixed(1)}% dari penawaran</p> : null}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button type="button" size="sm" variant={selected.id === item.id ? "default" : "outline"} onClick={() => onSelect(item.id)}>
@@ -282,7 +292,8 @@ function NegotiationWorkspace({
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -301,6 +312,16 @@ function NegotiationWorkspace({
         </header>
 
         <div className="space-y-6 p-5 sm:p-6">
+          <section className="rounded-xl border bg-muted/15 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Jejak dokumen terkait</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
+              <div className="min-w-0"><p className="text-xs text-muted-foreground">RFQ</p><p className="truncate text-sm font-semibold">{linkedRfq?.nomor ?? selected.penawaran.nomorRfq ?? "Tidak tersedia"}</p></div>
+              <ChevronRight className="mx-auto hidden text-muted-foreground sm:block" size={16} />
+              <div className="min-w-0"><p className="text-xs text-muted-foreground">Penawaran Anda</p><p className="truncate text-sm font-semibold">{price(selected.penawaran.hargaPenawaran)}</p></div>
+              <ChevronRight className="mx-auto hidden text-muted-foreground sm:block" size={16} />
+              <div className="min-w-0"><p className="text-xs text-muted-foreground">Negosiasi</p><p className="truncate text-sm font-semibold">Putaran {selected.putaran} · {price(selected.hargaHasilNegosiasi)}</p></div>
+            </div>
+          </section>
           <section>
             <div className="mb-3 flex items-center gap-2">
               <span className="grid size-7 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">1</span>
@@ -446,12 +467,22 @@ function VendorPortalView() {
   const router = useRouter();
   const selectedSection = searchParams?.get("section");
   const selectedRfqId = searchParams?.get("rfq");
+  const selectedContractId = searchParams?.get("contract") ?? null;
   const openRfq = (rfqId?: string) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     params.set("section", "rfq");
     if (rfqId) params.set("rfq", rfqId);
     else params.delete("rfq");
     router.push(`/dashboard/vendor-portal?${params.toString()}`, { scroll: false });
+  };
+  const openContract = (contractId?: string) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.set("section", "contracts");
+    params.delete("rfq");
+    if (contractId) params.set("contract", contractId);
+    else params.delete("contract");
+    router.push(`/dashboard/vendor-portal?${params.toString()}`, { scroll: false });
+    window.scrollTo({ top: 0, behavior: "auto" });
   };
   const section = selectedSection === "rfq" ? "rfq" : selectedSection === "negotiation" ? "negotiation" : selectedSection === "contracts" ? "contracts" : "profile";
   const [profile, setProfile] = useState<Portal | null>(null);
@@ -646,7 +677,7 @@ function VendorPortalView() {
   return (
     <section className="space-y-6">
       <PageHeader
-        title={section === "profile" ? "Profil & Dokumen" : section === "rfq" ? "RFQ & Penawaran" : section === "negotiation" ? "Negosiasi" : "Kontrak"}
+        title={section === "profile" ? "Profil & Dokumen" : section === "rfq" ? "RFQ & Penawaran" : section === "negotiation" ? "Negosiasi" : selectedContractId ? "Detail kontrak" : "Kontrak"}
         description={
           section === "profile"
             ? "Kelola profil perusahaan dan dokumen legalitas."
@@ -654,7 +685,7 @@ function VendorPortalView() {
               ? "Tinjau kebutuhan, ketentuan, dan tenggat sebelum mengirim penawaran."
               : section === "negotiation"
                 ? "Tanggapi putaran negosiasi dari tim pengadaan."
-                : "Tinjau dan tandatangani kontrak yang dikirim kepada perusahaan Anda."
+                : selectedContractId ? "Tinjau asal transaksi, dokumen, dan status kontrak." : "Tinjau dan tandatangani kontrak yang dikirim kepada perusahaan Anda."
         }
       />
       {notice && (
@@ -878,7 +909,7 @@ function VendorPortalView() {
           {section === "negotiation" && profile.status === "approved" && (
             <NegotiationWorkspace negotiations={negotiations} rfqs={rfqs} selectedId={selectedNegotiationId} onSelect={setSelectedNegotiationId} busy={busy} onRespond={respondNegotiation} formatAmount={formatAmount} />
           )}
-          {section === "contracts" && profile.status === "approved" && <VendorContracts />}
+          {section === "contracts" && profile.status === "approved" && <VendorContracts selectedContractId={selectedContractId} onOpenContract={openContract} />}
           {section === "contracts" && profile.status !== "approved" && <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">Kontrak tersedia setelah verifikasi vendor disetujui.</p>}
           {section === "rfq" && profile.status === "approved" && (
             <section className="space-y-4">

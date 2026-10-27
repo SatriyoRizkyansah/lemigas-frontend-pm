@@ -291,7 +291,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                       </summary>
                       <div className="border-t bg-muted/10 px-4 py-4">
                         {selectedStage === "kontrak" ? (
-                          <ContractWorkspace pengadaanId={pengadaanId} active={currentStage === selectedStage} />
+                          <ContractWorkspace pengadaanId={pengadaanId} active={currentStage === selectedStage} procurement={detail} />
                         ) : (
                           <LifecycleOperations key={selectedStage} pengadaanId={pengadaanId} stage={selectedStage} active={currentStage === selectedStage || (uninitialized && selectedStage === "perencanaan")} detail={detail} />
                         )}

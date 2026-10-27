@@ -133,18 +133,14 @@ test.describe.serial("direct purchase post-approval lifecycle", () => {
 
     const suffix = Date.now().toString();
     const providerContract = `E2E-KONTRAK-${suffix}`;
-    const recipientContract = `E2E-PKS-${suffix}`;
     const bol = `E2E-BOL-${suffix}`;
     const invoice = `E2E-INV-${suffix}`;
     const payment = `E2E-PAY-${suffix}`;
 
     await selectStage(page, "Kontrak");
     await createContract(page, providerContract, "penyedia");
-    await createContract(page, recipientContract, "kerja_sama_penerima_pasokan");
     await makeContractEffective(page, providerContract);
-    await makeContractEffective(page, recipientContract);
     await uploadRequirement(page, "kontrak_penyedia");
-    await uploadRequirement(page, "pks_penerima_pasokan");
     await completeStage(page, "Delivery");
 
     await selectStage(page, "Delivery");
