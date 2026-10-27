@@ -144,10 +144,28 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       .filter((participant) => participant.status === "lulus")
       .map((participant) => String(participant.vendorId ?? object(participant.vendor).id ?? "")),
   );
+  const verificationRecords = records(detail.verifikasi);
+  const verificationVendors = [...records(detail.penawaran)]
+    .filter((offer) => offer.isCurrent !== false && !!offer.submittedAt)
+    .sort((left, right) => Number(right.revisi ?? 0) - Number(left.revisi ?? 0))
+    .reduce<Entity[]>((vendors, offer) => {
+      const vendorId = String(offer.vendorId ?? object(offer.vendor).id ?? "");
+      if (vendorId && !vendors.some((vendor) => vendor.id === vendorId)) {
+        vendors.push({
+          id: vendorId,
+          nama: object(offer.vendor).nama ?? "Vendor",
+          verifikasi: verificationRecords.find((row) => String(row.vendorId) === vendorId),
+        });
+      }
+      return vendors;
+    }, []);
+  const verifiedVendors = verificationVendors.filter((vendor) => Boolean(vendor.verifikasi));
+  const pendingVendors = verificationVendors.filter((vendor) => !vendor.verifikasi);
   const startableOffers = records(detail.penawaran).filter((offer) => {
     const latest = [...records(offer.negosi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0];
     return offer.isCurrent !== false && !!offer.submittedAt && passedVendorIds.has(String(offer.vendorId ?? object(offer.vendor).id ?? "")) && (!latest || latest.status === "ditolak");
   });
+  const offersWithoutNegotiation = startableOffers.filter((offer) => records(offer.negosiasi).length === 0);
   const chosenNegotiation = latestNegotiations.find((row) => String(row.id) === selectedNegotiationId) ?? null;
   const chosenContinuation = chosenNegotiation?.status === "ditolak" ? chosenNegotiation : undefined;
   const available = lifecycleOperations.filter(
@@ -782,10 +800,65 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                   }
                 };
                 return (
-                  <section className="space-y-2 rounded-lg border bg-card p-4">
-                    <h3 className="text-sm font-semibold">Dokumen onboarding vendor</h3>
+                  <div className="space-y-3">
+                    <section className="space-y-3 rounded-lg border bg-card p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <h3 className="text-sm font-semibold">Daftar verifikasi vendor</h3>
+                          <p className="mt-1 text-xs text-muted-foreground">Vendor yang sudah mengirim penawaran pada pengadaan ini.</p>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{verifiedVendors.length} sudah | {pendingVendors.length} belum</p>
+                      </div>
+                      {verificationVendors.length ? (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {[
+                            { title: "Belum diverifikasi", rows: pendingVendors, badge: "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300" },
+                            { title: "Sudah diverifikasi", rows: verifiedVendors, badge: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" },
+                          ].map((group) => (
+                            <div key={group.title} className="min-w-0 rounded-md border bg-background p-3">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <h4 className="text-xs font-semibold">{group.title}</h4>
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${group.badge}`}>{group.rows.length}</span>
+                              </div>
+                              {group.rows.length ? (
+                                <ul className="max-h-36 space-y-1 overflow-y-auto">
+                                  {group.rows.map((row) => {
+                                    const result = plainText(object(row.verifikasi).hasil);
+                                    const resultLabel = ({ selesai: "Sesuai", revisi: "Perlu perbaikan", ditolak: "Tidak sesuai" } as Record<string, string>)[result] ?? result.replaceAll("_", " ");
+                                    const selectedVendor = values.vendorId === row.id;
+                                    return (
+                                      <li key={String(row.id)}>
+                                        <button
+                                          type="button"
+                                          disabled={locked || !permitted}
+                                          aria-pressed={selectedVendor}
+                                          onClick={() => setValues((old) => ({ ...old, vendorId: String(row.id) }))}
+                                          className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50 ${selectedVendor ? "bg-primary/10 text-primary" : ""}`}
+                                        >
+                                          <span className="min-w-0 truncate font-medium">{plainText(row.nama) || "Vendor"}</span>
+                                          {resultLabel ? <span className="shrink-0 text-[11px] text-muted-foreground">{resultLabel}</span> : null}
+                                        </button>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              ) : (
+                                <p className="py-2 text-xs text-muted-foreground">Tidak ada vendor.</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Belum ada vendor yang mengirimkan penawaran.</p>
+                      )}
+                    </section>
+                    <section className="space-y-2 rounded-lg border bg-card p-4">
+                    <div>
+                      <h3 className="text-sm font-semibold">Dokumen onboarding vendor</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">{vendor ? `Dokumen ${plainText(vendor.nama) || "vendor terpilih"}` : "Pilih vendor dari daftar atau kolom vendor untuk memeriksa dokumen onboarding."}</p>
+                    </div>
                     {!values.vendorId ? (
-                      <p className="text-sm text-muted-foreground">Pilih vendor untuk memeriksa dokumen onboarding.</p>
+                      null
                     ) : documents.length ? (
                       <div className="space-y-2">
                         <ul className="space-y-2">
@@ -821,7 +894,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                         {documentError}
                       </p>
                     ) : null}
-                  </section>
+                    </section>
+                  </div>
                 );
               })()
             : null}
@@ -838,8 +912,29 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
               </p>
             ) : null}
             {selected?.key === "negosiasi" ? (
-              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm leading-5 text-sky-950">
-                Pilih penawaran lulus evaluasi. Nomor putaran dibuat sistem. Target harga bersifat internal dan tidak ditampilkan kepada vendor.
+              <div className="space-y-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-sm leading-5 text-sky-950">
+                <p>Pilih penawaran lulus evaluasi. Nomor putaran dibuat sistem. Target harga bersifat internal dan tidak ditampilkan kepada vendor.</p>
+                <div className="border-t border-sky-200 pt-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold">Vendor belum dicatat negosiasinya</p>
+                    <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs font-medium">{offersWithoutNegotiation.length}</span>
+                  </div>
+                  {offersWithoutNegotiation.length ? (
+                    <ul className="mt-1 divide-y divide-sky-200/80">
+                      {offersWithoutNegotiation.map((offer) => (
+                        <li key={String(offer.id)} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-1.5">
+                          <span className="font-medium">{plainText(object(offer.vendor).nama) || "Vendor"}</span>
+                          <span className="text-xs text-sky-800/80">
+                            {plainText(offer.nomorRfq) ? `RFQ ${plainText(offer.nomorRfq)}` : "Penawaran aktif"}
+                            {offer.revisi != null ? ` · Revisi ${String(offer.revisi)}` : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-xs text-sky-800/80">Semua vendor yang lulus sudah memiliki riwayat negosiasi.</p>
+                  )}
+                </div>
               </div>
             ) : null}
             {selected?.key === "penawaran" ? <p className="text-sm text-muted-foreground">Catat satu penawaran per vendor dan nomor RFQ. Ulangi hanya untuk vendor yang sudah menyampaikan penawaran.</p> : null}
@@ -930,10 +1025,14 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                       const fieldId = `${id}-${field.name}`;
                       const isSelect = !!field.relation || !!field.options || field.kind === "boolean";
                       const isLongText = field.payloadPath !== undefined;
+                      const fullWidth =
+                        (selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "syaratPenyerahan", "syaratPembayaran", "dokumenDiminta"].includes(field.name)) ||
+                        (selected?.key === "negosiasi" && ["penawaranId", "hasil"].includes(field.name)) ||
+                        (selected?.key === "verifikasi" && ["kepatuhan", "hasil", "catatan"].includes(field.name));
                       return (
                         <div
                           key={field.name}
-                          className={`min-w-0 space-y-1.5${(selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "dokumenDiminta"].includes(field.name)) || (selected?.key === "negosiasi" && ["penawaranId", "hasil"].includes(field.name)) ? " sm:col-span-2" : ""}`}
+                          className={`min-w-0 space-y-1.5${fullWidth ? " sm:col-span-2" : ""}`}
                         >
                           <Label htmlFor={fieldId} className="block min-h-0 leading-5">
                             {selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi" ? "Harga negosiasi per satuan" : field.label}

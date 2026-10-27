@@ -110,6 +110,7 @@ const sections: Record<string, Array<[string, string]>> = {
   selesai: [["laporan", "Laporan transaksi"]],
 };
 const list = (value: any): RecordData[] => (Array.isArray(value) ? value : value ? [value] : []);
+const asRecord = (value: any): RecordData => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
 const text = (value: any): string =>
   value == null || value === ""
     ? "—"
@@ -210,6 +211,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
   const [jenisDraft, setJenisDraft] = useState<Record<string, string>>({});
   const [evaluating, setEvaluating] = useState<RecordData | null>(null);
   const [recommending, setRecommending] = useState(false);
+  const [recommendationDetailId, setRecommendationDetailId] = useState("");
   const [selectedRecommendationParticipant, setSelectedRecommendationParticipant] = useState("");
   const [recommendation, setRecommendation] = useState("");
   const [evaluation, setEvaluation] = useState({
@@ -344,9 +346,20 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
   const selection = detail.pemilihanPenyedia as RecordData | undefined;
   const currentOffers = list(detail.penawaran).filter((offer) => offer.isCurrent !== false && offer.submittedAt);
   const bidByVendor = new Map<string, RecordData>(currentOffers.map((offer) => [String(offer.vendorId), offer]));
-  const selectionParticipants = list(selection?.peserta)
+  const selectionParticipantsBase = list(selection?.peserta)
     .filter((participant) => bidByVendor.has(String(participant.vendorId)))
-    .map<RecordData>((participant) => ({ ...participant, penawaran: bidByVendor.get(String(participant.vendorId)) }))
+    .map<RecordData>((participant) => ({ ...participant, penawaran: bidByVendor.get(String(participant.vendorId)) }));
+  const computedRankByParticipantId = new Map(
+    selectionParticipantsBase
+      .filter((participant) => participant.skor != null && Number.isFinite(Number(participant.skor)))
+      .sort((a, b) => Number(b.skor) - Number(a.skor) || String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")) || String(a.id).localeCompare(String(b.id)))
+      .map((participant, index) => [String(participant.id), index + 1] as const),
+  );
+  const selectionParticipants = selectionParticipantsBase
+    .map((participant) => ({
+      ...participant,
+      peringkat: computedRankByParticipantId.get(String(participant.id)) ?? null,
+    }))
     .sort((a, b) => {
       const rankA = Number(a.peringkat);
       const rankB = Number(b.peringkat);
@@ -975,7 +988,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           <section className="space-y-3 rounded-xl border p-4">
             <div>
               <Label htmlFor="selection-score">3. Skor evaluasi (0–100)</Label>
-              <p className="mt-1 text-xs text-muted-foreground">Masukkan nilai akhir berbobot. Peringkat dihitung otomatis dari skor peserta yang lulus.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Masukkan nilai akhir berbobot. Peringkat dihitung otomatis dari skor seluruh peserta yang sudah dinilai; kelulusan tetap menentukan kelayakan untuk tahap berikutnya.</p>
             </div>
             <Input
               id="selection-score"
@@ -1108,26 +1121,45 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                   const vendor = candidate.vendor as RecordData | undefined;
                   const offer = candidate.penawaran as RecordData | undefined;
                   const latestNegotiation = offer?.latestNegotiation as RecordData | undefined;
+                  const evaluationParticipant = selectionParticipants.find((participant) => String(participant.id) === String(candidate.id));
+                  const evaluationCriteria = [
+                    evaluationParticipant?.lulusAdministrasi,
+                    evaluationParticipant?.lulusDokumen,
+                    evaluationParticipant?.lulusTeknis,
+                    evaluationParticipant?.lulusLegal,
+                    evaluationParticipant?.lulusKomersial,
+                    evaluationParticipant?.lulusDelivery,
+                    evaluationParticipant?.lulusTerms,
+                  ];
+                  const passedCriteriaCount = evaluationCriteria.filter((passed) => passed === true).length;
                   const selectedCandidate = selectedRecommendationParticipant === String(candidate.id);
                   return (
-                    <button
-                      type="button"
-                      key={String(candidate.id)}
-                      disabled={!recommendationData?.canVote}
-                      onClick={() => setSelectedRecommendationParticipant(String(candidate.id))}
-                      className={`rounded-lg border p-4 text-left transition ${selectedCandidate ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "hover:border-primary/40"} disabled:cursor-not-allowed disabled:opacity-70`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="font-semibold">{vendor?.nama == null ? "Vendor" : String(vendor.nama)}</span>
-                        <span className="rounded-full bg-muted px-2 py-1 text-xs">Peringkat {text(candidate.peringkat)}</span>
+                    <div key={String(candidate.id)} className={`rounded-lg border p-3 transition ${selectedCandidate ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "hover:border-primary/40"}`}>
+                      <button
+                        type="button"
+                        disabled={!recommendationData?.canVote}
+                        aria-pressed={selectedCandidate}
+                        onClick={() => setSelectedRecommendationParticipant(String(candidate.id))}
+                        className="w-full text-left disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="font-semibold">{vendor?.nama == null ? "Vendor" : String(vendor.nama)}</span>
+                          <span className="rounded-full bg-muted px-2 py-1 text-xs">Peringkat {text(candidate.peringkat)}</span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                          <span>Skor evaluasi: <strong className="text-foreground">{text(candidate.skor)}</strong></span>
+                          <span>
+                            Harga disepakati: <strong className="text-foreground">{offer?.mataUang == null ? "IDR" : String(offer.mataUang)} {new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(Number(latestNegotiation?.hargaPenawaran ?? offer?.hargaPenawaran ?? 0))}</strong>
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">Lulus {passedCriteriaCount}/7 kriteria evaluasi · Negosiasi disepakati</p>
+                      </button>
+                      <div className="mt-3 flex justify-end border-t pt-2">
+                        <Button type="button" size="sm" variant="outline" onClick={() => setRecommendationDetailId(String(candidate.id))}>
+                          Lihat analisis kandidat
+                        </Button>
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                        <span>Skor: {text(candidate.skor)}</span>
-                        <span>
-                          Harga akhir: {offer?.mataUang == null ? "IDR" : String(offer.mataUang)} {new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(Number(latestNegotiation?.hargaPenawaran ?? offer?.hargaPenawaran ?? 0))}
-                        </span>
-                      </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -1187,6 +1219,189 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
         )}
       </Modal>
       <Modal
+        open={Boolean(recommendationDetailId)}
+        onClose={() => setRecommendationDetailId("")}
+        title="Analisis kandidat rekomendasi"
+        description="Ringkasan kekuatan dan hal yang perlu dipertimbangkan dari data evaluasi, penawaran, negosiasi, dan dokumen."
+        size="xl"
+        contentClassName="max-h-[92dvh]"
+        bodyClassName="space-y-5"
+        footer={<Button variant="outline" onClick={() => setRecommendationDetailId("")}>Tutup</Button>}
+      >
+        {(() => {
+          const candidate = list(recommendationData?.candidates).find((row) => String(row.id) === recommendationDetailId);
+          if (!candidate) return <p className="text-sm text-muted-foreground">Data kandidat tidak tersedia.</p>;
+          const candidateOfferSummary = candidate.penawaran as RecordData | undefined;
+          const offer = list(detail.penawaran).find((row) => String(row.id) === String(candidateOfferSummary?.id)) ?? {};
+          const participant = selectionParticipants.find((row) => String(row.id) === String(candidate.id));
+          const baseline = asRecord(asRecord(offer.detail).rfqBaseline);
+          const negotiation = candidateOfferSummary?.latestNegotiation as RecordData | undefined;
+          const currency = String(candidateOfferSummary?.mataUang ?? offer.mataUang ?? "IDR");
+          const initialPrice = Number(offer.hargaPenawaran);
+          const finalPrice = Number(negotiation?.hargaPenawaran ?? offer.hargaPenawaran);
+          const referencePrice = Number(participant?.nilaiHargaAcuan);
+          const validFinalPrice = Number.isFinite(finalPrice);
+          const priceChange = Number.isFinite(initialPrice) && initialPrice > 0 && validFinalPrice ? ((finalPrice - initialPrice) / initialPrice) * 100 : null;
+          const referenceDifference = Number.isFinite(referencePrice) && referencePrice > 0 && Number.isFinite(initialPrice) ? ((initialPrice - referencePrice) / referencePrice) * 100 : null;
+          const formatMoney = (value: unknown) => {
+            const amount = Number(value);
+            return value == null || value === "" || !Number.isFinite(amount) ? "—" : `${currency} ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(amount)}`;
+          };
+          const criteria = [
+            ["Administrasi", participant?.lulusAdministrasi],
+            ["Dokumen", participant?.lulusDokumen],
+            ["Teknis", participant?.lulusTeknis],
+            ["Legal", participant?.lulusLegal],
+            ["Komersial", participant?.lulusKomersial],
+            ["Delivery", participant?.lulusDelivery],
+            ["Terms", participant?.lulusTerms],
+          ] as Array<[string, boolean | undefined]>;
+          const passed = criteria.filter(([, value]) => value === true).length;
+          const uploads = list(offer.dokumenPenawaran);
+          const requiredDocs = list(baseline.dokumenDiminta).filter((row) => row.wajib);
+          const uploadedIds = new Set(uploads.map((row) => String(row.requirementId)));
+          const missingDocuments = requiredDocs.filter((row) => !uploadedIds.has(String(row.id)));
+          const verification = list(detail.verifikasi)
+            .filter((row) => String(row.vendorId) === String(candidate.vendorId))
+            .sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")))[0];
+          const verificationLabel = ({ selesai: "Sesuai", revisi: "Perlu perbaikan", ditolak: "Tidak sesuai" } as Record<string, string>)[String(verification?.hasil)] ?? String(verification?.hasil ?? "Belum tercatat").replaceAll("_", " ");
+          const strengths = [
+            `${passed} dari ${criteria.length} kriteria evaluasi dinyatakan lulus.`,
+            "Negosiasi terakhir berstatus disepakati.",
+            priceChange != null && priceChange < 0 ? `Harga akhir turun ${Math.abs(priceChange).toFixed(2)}% dari penawaran awal.` : null,
+            referenceDifference != null && referenceDifference <= 0 ? "Harga penawaran awal berada pada atau di bawah harga acuan." : null,
+            requiredDocs.length > 0 && missingDocuments.length === 0 ? `Seluruh ${requiredDocs.length} dokumen wajib tercatat.` : null,
+          ].filter((item): item is string => Boolean(item));
+          const considerations = [
+            referenceDifference != null && referenceDifference > 0 ? `Harga penawaran awal ${referenceDifference.toFixed(2)}% di atas harga acuan.` : null,
+            priceChange != null && priceChange > 0 ? `Harga hasil negosiasi naik ${priceChange.toFixed(2)}% dari penawaran awal.` : null,
+            missingDocuments.length ? `Dokumen wajib belum tertaut: ${missingDocuments.map((row) => String(row.nama ?? "Dokumen")).join(", ")}.` : null,
+            verification?.hasil && verification.hasil !== "selesai" ? `Status verifikasi vendor: ${verificationLabel}.` : null,
+            referenceDifference == null ? "Perbandingan dengan harga acuan tidak tersedia atau tidak dapat dihitung." : null,
+          ].filter((item): item is string => Boolean(item));
+          const costComponents = asRecord(participant?.komponenBiayaPerolehan);
+          const componentLabels: Record<string, string> = {
+            freight: "Pengangkutan / freight", asuransi: "Asuransi", kepelabuhanan: "Kepelabuhanan", penyimpanan: "Penyimpanan",
+            pajakKepabeanan: "Pajak dan kepabeanan", inspeksi: "Inspeksi", pembiayaan: "Pembiayaan / perbankan", biayaLain: "Biaya langsung lain", diskon: "Diskon / kredit",
+          };
+          return (
+            <div className="space-y-5">
+              <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-muted/20 p-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Vendor kandidat</p>
+                  <h3 className="text-lg font-semibold">{String((candidate.vendor as RecordData | undefined)?.nama ?? "Vendor")}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{offer.nomorRfq ? `RFQ ${text(offer.nomorRfq)}` : "Penawaran aktif"} · Revisi {text(offer.revisi ?? 1)}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-lg border bg-background px-3 py-2 text-sm">Skor <strong>{text(candidate.skor)}</strong></span>
+                  <span className="rounded-lg border bg-background px-3 py-2 text-sm">Peringkat <strong>{text(candidate.peringkat)}</strong></span>
+                  <span className="rounded-lg border bg-background px-3 py-2 text-sm">Lulus <strong>{passed}/{criteria.length}</strong></span>
+                </div>
+              </section>
+
+              <section className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
+                  <h4 className="font-semibold text-emerald-900 dark:text-emerald-200">Kekuatan</h4>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-emerald-900 dark:text-emerald-100">
+                    {strengths.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+                  <h4 className="font-semibold text-amber-900 dark:text-amber-200">Hal yang perlu dipertimbangkan</h4>
+                  {considerations.length ? (
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-950 dark:text-amber-100">
+                      {considerations.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-sm text-amber-950 dark:text-amber-100">Tidak ada indikator tambahan dari data harga, verifikasi, dan dokumen yang tercatat. Pertimbangkan juga catatan evaluasi dan kebutuhan operasional.</p>
+                  )}
+                </div>
+              </section>
+
+              <section className="overflow-hidden rounded-xl border">
+                <h4 className="border-b bg-muted/30 px-4 py-2 font-semibold">Hasil evaluasi</h4>
+                <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {criteria.map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm">
+                      <span>{label}</span>
+                      <span className={value ? "font-medium text-emerald-700 dark:text-emerald-300" : "font-medium text-muted-foreground"}>{value ? "Lulus" : "Tidak lulus"}</span>
+                    </div>
+                  ))}
+                </div>
+                <dl className="grid gap-x-6 border-t px-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Status verifikasi</dt><dd className="font-medium">{verificationLabel}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Sumber harga acuan</dt><dd className="font-medium">{text(participant?.sumberHargaAcuan)}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Harga acuan per satuan</dt><dd className="font-medium">{formatMoney(participant?.nilaiHargaAcuan)}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Harga penawaran awal</dt><dd className="font-medium">{formatMoney(offer.hargaPenawaran)}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Harga hasil negosiasi</dt><dd className="font-medium">{formatMoney(negotiation?.hargaPenawaran)}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Total biaya perolehan</dt><dd className="font-medium">{formatMoney(negotiation?.totalBiayaPerolehan ?? candidate.totalBiayaPerolehanEvaluasi)}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Selisih dari harga acuan</dt><dd className="font-medium">{referenceDifference == null ? "—" : `${referenceDifference > 0 ? "+" : ""}${referenceDifference.toFixed(2)}%`}</dd></div>
+                </dl>
+              </section>
+
+              <section className="overflow-hidden rounded-xl border">
+                <h4 className="border-b bg-muted/30 px-4 py-2 font-semibold">Negosiasi terakhir</h4>
+                <dl className="grid gap-x-6 px-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Putaran</dt><dd className="font-medium">{text(negotiation?.putaran)}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Status</dt><dd className="font-medium">{negotiationStatus(negotiation?.status ?? "")}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Tanggapan vendor</dt><dd className="font-medium">{text(negotiation?.tanggapanVendor)}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Hasil / kesepakatan</dt><dd className="font-medium">{text(negotiation?.hasil)}</dd></div>
+                </dl>
+              </section>
+
+              <section className="overflow-hidden rounded-xl border">
+                <h4 className="border-b bg-muted/30 px-4 py-2 font-semibold">Kebutuhan dan dokumen</h4>
+                <div className="space-y-3 p-4 text-sm">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <p><span className="text-muted-foreground">Volume RFQ:</span> <strong>{[text(baseline.volume), text(baseline.satuan)].filter(Boolean).join(" ") || "—"}</strong></p>
+                    <p><span className="text-muted-foreground">Titik serah:</span> <strong>{text(baseline.titikSerah)}</strong></p>
+                    <p><span className="text-muted-foreground">Syarat penyerahan:</span> <strong>{text(baseline.syaratPenyerahan)}</strong></p>
+                    <p><span className="text-muted-foreground">Syarat pembayaran:</span> <strong>{text(baseline.syaratPembayaran)}</strong></p>
+                  </div>
+                  {baseline.spesifikasi ? <div><p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">Spesifikasi</p><DetailValue value={baseline.spesifikasi} /></div> : null}
+                  <div>
+                    <p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">Dokumen wajib ({requiredDocs.length - missingDocuments.length}/{requiredDocs.length} tercatat)</p>
+                    {requiredDocs.length ? (
+                      <ul className="divide-y rounded-lg border px-3">
+                        {requiredDocs.map((document) => {
+                          const uploaded = uploads.find((item) => String(item.requirementId) === String(document.id));
+                          const attached = uploaded?.dokumen ?? uploaded;
+                          return <li key={String(document.id)} className="flex flex-wrap items-center justify-between gap-2 py-2"><span>{String(document.nama ?? "Dokumen wajib")}</span><span className={attached ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}>{attached ? `Terunggah: ${String(attached.nama ?? "dokumen")}` : "Belum tertaut"}</span></li>;
+                        })}
+                      </ul>
+                    ) : <p className="text-muted-foreground">Tidak ada dokumen wajib yang tercatat pada RFQ.</p>}
+                  </div>
+                </div>
+              </section>
+
+              {Object.keys(costComponents).length ? (
+                <section className="overflow-hidden rounded-xl border">
+                  <h4 className="border-b bg-muted/30 px-4 py-2 font-semibold">Rincian biaya perolehan evaluasi</h4>
+                  <div className="divide-y px-4">
+                    {Object.entries(costComponents).map(([key, raw]) => {
+                      const component = asRecord(raw);
+                      return <div key={key} className="grid gap-1 py-2 sm:grid-cols-[minmax(11rem,0.7fr)_minmax(0,1fr)] sm:gap-4"><span className="text-muted-foreground">{componentLabels[key] ?? key}</span><span>{formatMoney(component.nilai)}{component.includedInOffer ? " · sudah termasuk harga penawaran" : ""}{component.sumber ? ` · ${String(component.sumber)}` : ""}</span></div>;
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              {participant?.alasan || participant?.catatanEvaluasi ? (
+                <section className="overflow-hidden rounded-xl border">
+                  <h4 className="border-b bg-muted/30 px-4 py-2 font-semibold">Catatan evaluasi</h4>
+                  <div className="space-y-3 p-4">
+                    {participant.alasan ? <div><p className="text-xs font-semibold uppercase text-muted-foreground">Alasan</p><p className="mt-1 whitespace-pre-wrap">{String(participant.alasan)}</p></div> : null}
+                    {participant.catatanEvaluasi ? <div><p className="text-xs font-semibold uppercase text-muted-foreground">Catatan</p><p className="mt-1 whitespace-pre-wrap">{String(participant.catatanEvaluasi)}</p></div> : null}
+                  </div>
+                </section>
+              ) : null}
+
+              <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">Gunakan rincian ini sebagai bahan pertimbangan dan tuliskan alasan pada suara Anda. Suara merupakan rekomendasi; penetapan pemenang tetap mengikuti memorandum dan persetujuan.</p>
+            </div>
+          );
+        })()}
+      </Modal>
+      <Modal
         open={Boolean(selected)}
         onClose={() => setSelected(null)}
         title="Detail record"
@@ -1219,8 +1434,36 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
               const offerDetail = isOffer && currentSelected.detail && typeof currentSelected.detail === "object" ? currentSelected.detail : null;
               const rfqBaseline = offerDetail?.rfqBaseline && typeof offerDetail.rfqBaseline === "object" ? offerDetail.rfqBaseline : null;
               const labelFor = (key: string) => fieldLabels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (character) => character.toUpperCase());
+              const offerGroups = [
+                { title: "Informasi penawaran", keys: ["vendorName", "mataUang", "hargaPenawaran", "berlakuSampai", "revisi", "status", "createdAt"] },
+                { title: "Verifikasi dan evaluasi", keys: ["verification", "evaluationStatus", "kelulusan", "skor", "peringkat"] },
+                { title: "Harga acuan dan biaya perolehan", keys: ["sumberHargaAcuan", "nilaiHargaAcuan", "totalBiayaPerolehanEvaluasi"] },
+                { title: "Negosiasi", keys: ["negotiationCount", "negotiationStatus", "putaran", "batasNegosiasi", "hargaHasilNegosiasi", "totalBiayaPerolehan", "tanggapanVendor", "hasil"] },
+                { title: "Kelengkapan dokumen", keys: ["documentStatus"] },
+              ];
+              const offerValueMap = new Map(scalarEntries);
+              const renderScalarRows = (rows: Array<[string, unknown]>, compact = false) => (
+                <dl className={compact ? "grid grid-cols-1 sm:grid-cols-2" : "overflow-hidden rounded-xl border bg-background"}>
+                  {rows.map(([key, value], index) => (
+                    <div
+                      key={key}
+                      className={
+                        compact
+                          ? `grid min-w-0 gap-1.5 border-b border-border/70 px-4 py-1.5 sm:grid-cols-[minmax(5.5rem,0.38fr)_minmax(0,1fr)] sm:gap-3 ${index % 2 === 1 ? "sm:border-l sm:pl-4" : ""}`
+                          : `grid min-w-0 gap-1.5 px-4 py-3 sm:grid-cols-[minmax(11rem,0.34fr)_minmax(0,1fr)] sm:gap-5 ${index > 0 ? "border-t border-border/70" : ""}`
+                      }
+                    >
+                      <dt className="text-xs font-medium text-muted-foreground">{labelFor(key)}</dt>
+                      <dd className="min-w-0 break-words text-sm font-medium leading-relaxed text-foreground">
+                        <DetailValue value={value} />
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              );
               return (
                 <>
+                  {!isOffer ? (
                   <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/[0.07] via-background to-background p-5 shadow-sm sm:p-6">
                     <div className="absolute inset-y-0 left-0 w-1 bg-primary/70" />
                     <div className="flex flex-wrap items-start justify-between gap-4 pl-2">
@@ -1237,7 +1480,9 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                       ) : null}
                     </div>
                   </section>
-                  <section className="space-y-4 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
+                  ) : null}
+                  <section className={isOffer ? "space-y-3" : "space-y-4 rounded-2xl border bg-card p-4 shadow-sm sm:p-5"}>
+                    {!isOffer ? (
                     <header className="flex items-end justify-between gap-3 border-b pb-3">
                       <div>
                         <h3 className="font-semibold tracking-tight">Informasi record</h3>
@@ -1245,45 +1490,58 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                       </div>
                       <span className="text-xs tabular-nums text-muted-foreground">{isOffer ? "Ringkasan penawaran" : `${entries.length} field`}</span>
                     </header>
-                    {isOffer && currentSelected.vendor ? (
-                      <div className="flex items-center gap-3 rounded-xl border bg-muted/20 px-4 py-3">
-                        <span className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                          {String(currentSelected.vendor.nama ?? "V")
-                            .slice(0, 1)
-                            .toUpperCase()}
-                        </span>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Vendor</p>
-                          <p className="text-sm font-semibold">{String(currentSelected.vendor.nama ?? "—")}</p>
-                        </div>
-                      </div>
                     ) : null}
-                    {scalarEntries.length ? (
-                      <dl className="overflow-hidden rounded-xl border bg-background">
-                        {scalarEntries.map(([key, value], index) => (
-                          <div key={key} className={`grid min-w-0 gap-1.5 px-4 py-3 sm:grid-cols-[minmax(11rem,0.34fr)_minmax(0,1fr)] sm:gap-5 ${index > 0 ? "border-t border-border/70" : ""}`}>
-                            <dt className="text-xs font-medium text-muted-foreground">{labelFor(key)}</dt>
-                            <dd className="min-w-0 break-words text-sm font-medium leading-relaxed text-foreground">
-                              <DetailValue value={value} />
-                            </dd>
+                    {isOffer ? (
+                      <div className="overflow-hidden rounded-xl border bg-card">
+                        {currentSelected.vendor ? (
+                          <div className="flex items-center gap-3 border-b bg-muted/20 px-4 py-3">
+                            <span className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                              {String(currentSelected.vendor.nama ?? "V")
+                                .slice(0, 1)
+                                .toUpperCase()}
+                            </span>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Vendor</p>
+                              <p className="text-sm font-semibold">{String(currentSelected.vendor.nama ?? "—")}</p>
+                            </div>
                           </div>
-                        ))}
-                      </dl>
-                    ) : null}
-                    {isOffer && offerDetail?.catatan ? (
-                      <section className="rounded-xl border bg-background p-4">
-                        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Catatan vendor</h4>
-                        <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed">{String(offerDetail.catatan)}</p>
-                      </section>
+                        ) : null}
+                        {offerGroups.map((group) => {
+                          const rows = group.keys.flatMap((key) => {
+                            const value = offerValueMap.get(key);
+                            return value === undefined ? [] : [[key, value] as [string, unknown]];
+                          });
+                          return rows.length ? (
+                            <section key={group.title}>
+                              <h4 className="border-b bg-muted/10 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</h4>
+                              {renderScalarRows(rows, true)}
+                            </section>
+                          ) : null;
+                        })}
+                        {scalarEntries.some(([key]) => !offerGroups.some((group) => group.keys.includes(key))) ? (
+                          <section>
+                            <h4 className="border-b bg-muted/10 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Informasi lainnya</h4>
+                            {renderScalarRows(scalarEntries.filter(([key]) => !offerGroups.some((group) => group.keys.includes(key))), true)}
+                          </section>
+                        ) : null}
+                        {offerDetail?.catatan ? (
+                          <section className="border-t px-4 py-3">
+                            <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Catatan vendor</h4>
+                            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed">{String(offerDetail.catatan)}</p>
+                          </section>
+                        ) : null}
+                      </div>
+                    ) : scalarEntries.length ? (
+                      renderScalarRows(scalarEntries)
                     ) : null}
                     {isOffer && Array.isArray(currentSelected.dokumenPenawaran) && currentSelected.dokumenPenawaran.length ? (
-                      <section className="overflow-hidden rounded-xl border bg-background">
-                        <h4 className="border-b bg-muted/25 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dokumen yang diunggah</h4>
-                        <div className="space-y-2 p-4">
+                      <section className="overflow-hidden rounded-xl border bg-card">
+                        <h4 className="border-b bg-muted/20 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Dokumen yang diunggah</h4>
+                        <div className="space-y-1.5 px-4 py-2">
                           {currentSelected.dokumenPenawaran.map((item: Record<string, any>, index: number) => {
                             const doc = item.dokumen ?? item;
                             return (
-                              <div key={String(doc.id ?? index)} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
+                              <div key={String(doc.id ?? index)} className="flex flex-wrap items-center justify-between gap-3 border-b py-2 last:border-b-0">
                                 <div className="min-w-0">
                                   <p className="break-words text-sm font-medium">{String(doc.nama ?? `Dokumen ${index + 1}`)}</p>
                                   <p className="mt-0.5 text-xs text-muted-foreground">{String(item.requirementId ?? "Dokumen penawaran")}</p>
@@ -1304,13 +1562,13 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                       </section>
                     ) : null}
                     {isOffer && (!Array.isArray(currentSelected.dokumenPenawaran) || currentSelected.dokumenPenawaran.length === 0) ? (
-                      <p className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">Belum ada dokumen yang diunggah untuk penawaran ini.</p>
+                      <p className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">Belum ada dokumen yang diunggah untuk penawaran ini.</p>
                     ) : null}
                     {rfqBaseline ? (
-                      <section className="overflow-hidden rounded-xl border bg-background">
-                        <h4 className="border-b bg-muted/25 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acuan kebutuhan RFQ</h4>
-                        <div className="space-y-4 p-4">
-                          <dl className="overflow-hidden rounded-lg border bg-background">
+                      <section className="overflow-hidden rounded-xl border bg-card">
+                        <h4 className="border-b bg-muted/20 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Acuan kebutuhan RFQ</h4>
+                        <div className="space-y-3 px-4 py-3">
+                          <dl className="overflow-hidden">
                             {(
                               [
                                 ["volume", "Volume"],
@@ -1322,7 +1580,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                             )
                               .filter(([key]) => rfqBaseline[key] != null && rfqBaseline[key] !== "")
                               .map(([key, label], index) => (
-                                <div key={key} className={`grid min-w-0 gap-1.5 px-3 py-2.5 sm:grid-cols-[minmax(9rem,0.32fr)_minmax(0,1fr)] sm:gap-4 ${index > 0 ? "border-t border-border/70" : ""}`}>
+                                <div key={key} className={`grid min-w-0 gap-1.5 px-0 py-2 sm:grid-cols-[minmax(9rem,0.32fr)_minmax(0,1fr)] sm:gap-4 ${index > 0 ? "border-t border-border/70" : ""}`}>
                                   <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
                                   <dd className="min-w-0 whitespace-pre-wrap break-words text-sm">{typeof rfqBaseline[key] === "object" ? <DetailValue value={rfqBaseline[key]} /> : String(rfqBaseline[key])}</dd>
                                 </div>
@@ -1330,19 +1588,19 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                           </dl>
                           {rfqBaseline.spesifikasi ? (
                             <div>
-                              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Spesifikasi</p>
+                              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Spesifikasi</p>
                               <DetailValue value={rfqBaseline.spesifikasi} />
                             </div>
                           ) : null}
                           {Array.isArray(rfqBaseline.dokumenDiminta) && rfqBaseline.dokumenDiminta.length ? (
                             <div>
-                              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dokumen diminta</p>
-                              <div className="space-y-2">
+                              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Dokumen diminta</p>
+                              <div className="space-y-1.5">
                                 {rfqBaseline.dokumenDiminta.map((document: Record<string, unknown>, index: number) => {
                                   const attachedDocument = list(currentSelected.dokumenPenawaran).find((item) => String(item.requirementId) === String(document.id));
                                   const uploadedFile = attachedDocument?.dokumen ?? attachedDocument;
                                   return (
-                                    <div key={String(document.id ?? index)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                                    <div key={String(document.id ?? index)} className="flex flex-wrap items-center justify-between gap-2 border-t py-2 first:border-t-0">
                                       <span className="text-sm font-medium">{String(document.nama ?? `Dokumen ${index + 1}`)}</span>
                                       <span className="rounded-full bg-muted px-2 py-1 text-xs">{document.wajib ? "Wajib" : "Opsional"}</span>
                                       {document.keterangan ? <p className="w-full text-xs text-muted-foreground">{String(document.keterangan)}</p> : null}

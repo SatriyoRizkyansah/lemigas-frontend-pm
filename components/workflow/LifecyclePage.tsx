@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, LockKeyhole, RefreshCw, ClipboardList, FileText, Settings2 } from "lucide-react";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
@@ -13,8 +13,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LifecycleOperations } from "./LifecycleOperations";
 import { LifecycleDocuments } from "./LifecycleDocuments";
 import { LifecycleRecords } from "./LifecycleRecords";
-import { LifecycleEvidence } from "./LifecycleEvidence";
-import { LifecycleInsights } from "./LifecycleInsights";
 import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -80,7 +78,9 @@ function unwrap(value: unknown): any {
 export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) {
   const [stageKey, setStageKey] = useState("perencanaan");
   const [confirmComplete, setConfirmComplete] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const currentUser = useCurrentUser();
+  useEffect(() => setHydrated(true), []);
   const query = use_query<any, Error, string>({
     tag: "siklusTransaksiKomoditas",
     method: "transaksiControllerDetail",
@@ -93,7 +93,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
   const detail = query.data;
   const stageStatus = detail?.tahapan ?? [];
   const currentMember = (detail?.anggota ?? []).find((member: any) => member.userId === currentUser.data?.id && member.aktif);
-  const canManageTeam = currentUser.data?.role.toLowerCase() === "admin" || currentMember?.peran === "pic_utama" || currentMember?.peran === "owner";
+  const canManageTeam = hydrated && (currentUser.data?.role.toLowerCase() === "admin" || currentMember?.peran === "pic_utama" || currentMember?.peran === "owner");
   const stages: WorkflowStage[] = stageStatus.length
     ? stageStatus.map((stage: any) => ({ key: stage.tahap, label: stage.label ?? stage.tahap.replaceAll("_", " "), urutan: stage.urutan, assignments: stage.assignments }))
     : [{ key: "perencanaan", label: "Perencanaan" }];
@@ -325,8 +325,6 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                       </div>
                     </details>
                   </div>
-                  <LifecycleEvidence pengadaanId={pengadaanId} detail={detail ?? {}} />
-                  <LifecycleInsights pengadaanId={pengadaanId} detail={detail ?? {}} />
                 </>
               )}
             </CardContent>
