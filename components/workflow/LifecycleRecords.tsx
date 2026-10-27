@@ -356,7 +356,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
       .map((participant, index) => [String(participant.id), index + 1] as const),
   );
   const selectionParticipants = selectionParticipantsBase
-    .map((participant) => ({
+    .map<RecordData>((participant) => ({
       ...participant,
       peringkat: computedRankByParticipantId.get(String(participant.id)) ?? null,
     }))
@@ -1147,9 +1147,14 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                           <span className="rounded-full bg-muted px-2 py-1 text-xs">Peringkat {text(candidate.peringkat)}</span>
                         </div>
                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                          <span>Skor evaluasi: <strong className="text-foreground">{text(candidate.skor)}</strong></span>
                           <span>
-                            Harga disepakati: <strong className="text-foreground">{offer?.mataUang == null ? "IDR" : String(offer.mataUang)} {new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(Number(latestNegotiation?.hargaPenawaran ?? offer?.hargaPenawaran ?? 0))}</strong>
+                            Skor evaluasi: <strong className="text-foreground">{text(candidate.skor)}</strong>
+                          </span>
+                          <span>
+                            Harga disepakati:{" "}
+                            <strong className="text-foreground">
+                              {offer?.mataUang == null ? "IDR" : String(offer.mataUang)} {new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(Number(latestNegotiation?.hargaPenawaran ?? offer?.hargaPenawaran ?? 0))}
+                            </strong>
                           </span>
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">Lulus {passedCriteriaCount}/7 kriteria evaluasi · Negosiasi disepakati</p>
@@ -1226,7 +1231,11 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
         size="xl"
         contentClassName="max-h-[92dvh]"
         bodyClassName="space-y-5"
-        footer={<Button variant="outline" onClick={() => setRecommendationDetailId("")}>Tutup</Button>}
+        footer={
+          <Button variant="outline" onClick={() => setRecommendationDetailId("")}>
+            Tutup
+          </Button>
+        }
       >
         {(() => {
           const candidate = list(recommendationData?.candidates).find((row) => String(row.id) === recommendationDetailId);
@@ -1281,8 +1290,15 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           ].filter((item): item is string => Boolean(item));
           const costComponents = asRecord(participant?.komponenBiayaPerolehan);
           const componentLabels: Record<string, string> = {
-            freight: "Pengangkutan / freight", asuransi: "Asuransi", kepelabuhanan: "Kepelabuhanan", penyimpanan: "Penyimpanan",
-            pajakKepabeanan: "Pajak dan kepabeanan", inspeksi: "Inspeksi", pembiayaan: "Pembiayaan / perbankan", biayaLain: "Biaya langsung lain", diskon: "Diskon / kredit",
+            freight: "Pengangkutan / freight",
+            asuransi: "Asuransi",
+            kepelabuhanan: "Kepelabuhanan",
+            penyimpanan: "Penyimpanan",
+            pajakKepabeanan: "Pajak dan kepabeanan",
+            inspeksi: "Inspeksi",
+            pembiayaan: "Pembiayaan / perbankan",
+            biayaLain: "Biaya langsung lain",
+            diskon: "Diskon / kredit",
           };
           return (
             <div className="space-y-5">
@@ -1290,12 +1306,23 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                 <div>
                   <p className="text-xs text-muted-foreground">Vendor kandidat</p>
                   <h3 className="text-lg font-semibold">{String((candidate.vendor as RecordData | undefined)?.nama ?? "Vendor")}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{offer.nomorRfq ? `RFQ ${text(offer.nomorRfq)}` : "Penawaran aktif"} · Revisi {text(offer.revisi ?? 1)}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {offer.nomorRfq ? `RFQ ${text(offer.nomorRfq)}` : "Penawaran aktif"} · Revisi {text(offer.revisi ?? 1)}
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <span className="rounded-lg border bg-background px-3 py-2 text-sm">Skor <strong>{text(candidate.skor)}</strong></span>
-                  <span className="rounded-lg border bg-background px-3 py-2 text-sm">Peringkat <strong>{text(candidate.peringkat)}</strong></span>
-                  <span className="rounded-lg border bg-background px-3 py-2 text-sm">Lulus <strong>{passed}/{criteria.length}</strong></span>
+                  <span className="rounded-lg border bg-background px-3 py-2 text-sm">
+                    Skor <strong>{text(candidate.skor)}</strong>
+                  </span>
+                  <span className="rounded-lg border bg-background px-3 py-2 text-sm">
+                    Peringkat <strong>{text(candidate.peringkat)}</strong>
+                  </span>
+                  <span className="rounded-lg border bg-background px-3 py-2 text-sm">
+                    Lulus{" "}
+                    <strong>
+                      {passed}/{criteria.length}
+                    </strong>
+                  </span>
                 </div>
               </section>
 
@@ -1303,14 +1330,18 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
                   <h4 className="font-semibold text-emerald-900 dark:text-emerald-200">Kekuatan</h4>
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-emerald-900 dark:text-emerald-100">
-                    {strengths.map((item) => <li key={item}>{item}</li>)}
+                    {strengths.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
                   </ul>
                 </div>
                 <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/20">
                   <h4 className="font-semibold text-amber-900 dark:text-amber-200">Hal yang perlu dipertimbangkan</h4>
                   {considerations.length ? (
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-950 dark:text-amber-100">
-                      {considerations.map((item) => <li key={item}>{item}</li>)}
+                      {considerations.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
                     </ul>
                   ) : (
                     <p className="mt-2 text-sm text-amber-950 dark:text-amber-100">Tidak ada indikator tambahan dari data harga, verifikasi, dan dokumen yang tercatat. Pertimbangkan juga catatan evaluasi dan kebutuhan operasional.</p>
@@ -1329,23 +1360,56 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                   ))}
                 </div>
                 <dl className="grid gap-x-6 border-t px-4 sm:grid-cols-2">
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Status verifikasi</dt><dd className="font-medium">{verificationLabel}</dd></div>
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Sumber harga acuan</dt><dd className="font-medium">{text(participant?.sumberHargaAcuan)}</dd></div>
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Harga acuan per satuan</dt><dd className="font-medium">{formatMoney(participant?.nilaiHargaAcuan)}</dd></div>
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Harga penawaran awal</dt><dd className="font-medium">{formatMoney(offer.hargaPenawaran)}</dd></div>
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Harga hasil negosiasi</dt><dd className="font-medium">{formatMoney(negotiation?.hargaPenawaran)}</dd></div>
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Total biaya perolehan</dt><dd className="font-medium">{formatMoney(negotiation?.totalBiayaPerolehan ?? candidate.totalBiayaPerolehanEvaluasi)}</dd></div>
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Selisih dari harga acuan</dt><dd className="font-medium">{referenceDifference == null ? "—" : `${referenceDifference > 0 ? "+" : ""}${referenceDifference.toFixed(2)}%`}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Status verifikasi</dt>
+                    <dd className="font-medium">{verificationLabel}</dd>
+                  </div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Sumber harga acuan</dt>
+                    <dd className="font-medium">{text(participant?.sumberHargaAcuan)}</dd>
+                  </div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Harga acuan per satuan</dt>
+                    <dd className="font-medium">{formatMoney(participant?.nilaiHargaAcuan)}</dd>
+                  </div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Harga penawaran awal</dt>
+                    <dd className="font-medium">{formatMoney(offer.hargaPenawaran)}</dd>
+                  </div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Harga hasil negosiasi</dt>
+                    <dd className="font-medium">{formatMoney(negotiation?.hargaPenawaran)}</dd>
+                  </div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Total biaya perolehan</dt>
+                    <dd className="font-medium">{formatMoney(negotiation?.totalBiayaPerolehan ?? candidate.totalBiayaPerolehanEvaluasi)}</dd>
+                  </div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Selisih dari harga acuan</dt>
+                    <dd className="font-medium">{referenceDifference == null ? "—" : `${referenceDifference > 0 ? "+" : ""}${referenceDifference.toFixed(2)}%`}</dd>
+                  </div>
                 </dl>
               </section>
 
               <section className="overflow-hidden rounded-xl border">
                 <h4 className="border-b bg-muted/30 px-4 py-2 font-semibold">Negosiasi terakhir</h4>
                 <dl className="grid gap-x-6 px-4 sm:grid-cols-2">
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Putaran</dt><dd className="font-medium">{text(negotiation?.putaran)}</dd></div>
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Status</dt><dd className="font-medium">{negotiationStatus(negotiation?.status ?? "")}</dd></div>
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Tanggapan vendor</dt><dd className="font-medium">{text(negotiation?.tanggapanVendor)}</dd></div>
-                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm"><dt className="text-muted-foreground">Hasil / kesepakatan</dt><dd className="font-medium">{text(negotiation?.hasil)}</dd></div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Putaran</dt>
+                    <dd className="font-medium">{text(negotiation?.putaran)}</dd>
+                  </div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Status</dt>
+                    <dd className="font-medium">{negotiationStatus(negotiation?.status ?? "")}</dd>
+                  </div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Tanggapan vendor</dt>
+                    <dd className="font-medium">{text(negotiation?.tanggapanVendor)}</dd>
+                  </div>
+                  <div className="grid grid-cols-[minmax(8rem,0.8fr)_minmax(0,1fr)] gap-3 border-b py-2 text-sm">
+                    <dt className="text-muted-foreground">Hasil / kesepakatan</dt>
+                    <dd className="font-medium">{text(negotiation?.hasil)}</dd>
+                  </div>
                 </dl>
               </section>
 
@@ -1353,23 +1417,45 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                 <h4 className="border-b bg-muted/30 px-4 py-2 font-semibold">Kebutuhan dan dokumen</h4>
                 <div className="space-y-3 p-4 text-sm">
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <p><span className="text-muted-foreground">Volume RFQ:</span> <strong>{[text(baseline.volume), text(baseline.satuan)].filter(Boolean).join(" ") || "—"}</strong></p>
-                    <p><span className="text-muted-foreground">Titik serah:</span> <strong>{text(baseline.titikSerah)}</strong></p>
-                    <p><span className="text-muted-foreground">Syarat penyerahan:</span> <strong>{text(baseline.syaratPenyerahan)}</strong></p>
-                    <p><span className="text-muted-foreground">Syarat pembayaran:</span> <strong>{text(baseline.syaratPembayaran)}</strong></p>
+                    <p>
+                      <span className="text-muted-foreground">Volume RFQ:</span> <strong>{[text(baseline.volume), text(baseline.satuan)].filter(Boolean).join(" ") || "—"}</strong>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Titik serah:</span> <strong>{text(baseline.titikSerah)}</strong>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Syarat penyerahan:</span> <strong>{text(baseline.syaratPenyerahan)}</strong>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Syarat pembayaran:</span> <strong>{text(baseline.syaratPembayaran)}</strong>
+                    </p>
                   </div>
-                  {baseline.spesifikasi ? <div><p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">Spesifikasi</p><DetailValue value={baseline.spesifikasi} /></div> : null}
+                  {baseline.spesifikasi ? (
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">Spesifikasi</p>
+                      <DetailValue value={baseline.spesifikasi} />
+                    </div>
+                  ) : null}
                   <div>
-                    <p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">Dokumen wajib ({requiredDocs.length - missingDocuments.length}/{requiredDocs.length} tercatat)</p>
+                    <p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
+                      Dokumen wajib ({requiredDocs.length - missingDocuments.length}/{requiredDocs.length} tercatat)
+                    </p>
                     {requiredDocs.length ? (
                       <ul className="divide-y rounded-lg border px-3">
                         {requiredDocs.map((document) => {
                           const uploaded = uploads.find((item) => String(item.requirementId) === String(document.id));
                           const attached = uploaded?.dokumen ?? uploaded;
-                          return <li key={String(document.id)} className="flex flex-wrap items-center justify-between gap-2 py-2"><span>{String(document.nama ?? "Dokumen wajib")}</span><span className={attached ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}>{attached ? `Terunggah: ${String(attached.nama ?? "dokumen")}` : "Belum tertaut"}</span></li>;
+                          return (
+                            <li key={String(document.id)} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                              <span>{String(document.nama ?? "Dokumen wajib")}</span>
+                              <span className={attached ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}>{attached ? `Terunggah: ${String(attached.nama ?? "dokumen")}` : "Belum tertaut"}</span>
+                            </li>
+                          );
                         })}
                       </ul>
-                    ) : <p className="text-muted-foreground">Tidak ada dokumen wajib yang tercatat pada RFQ.</p>}
+                    ) : (
+                      <p className="text-muted-foreground">Tidak ada dokumen wajib yang tercatat pada RFQ.</p>
+                    )}
                   </div>
                 </div>
               </section>
@@ -1380,7 +1466,16 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                   <div className="divide-y px-4">
                     {Object.entries(costComponents).map(([key, raw]) => {
                       const component = asRecord(raw);
-                      return <div key={key} className="grid gap-1 py-2 sm:grid-cols-[minmax(11rem,0.7fr)_minmax(0,1fr)] sm:gap-4"><span className="text-muted-foreground">{componentLabels[key] ?? key}</span><span>{formatMoney(component.nilai)}{component.includedInOffer ? " · sudah termasuk harga penawaran" : ""}{component.sumber ? ` · ${String(component.sumber)}` : ""}</span></div>;
+                      return (
+                        <div key={key} className="grid gap-1 py-2 sm:grid-cols-[minmax(11rem,0.7fr)_minmax(0,1fr)] sm:gap-4">
+                          <span className="text-muted-foreground">{componentLabels[key] ?? key}</span>
+                          <span>
+                            {formatMoney(component.nilai)}
+                            {component.includedInOffer ? " · sudah termasuk harga penawaran" : ""}
+                            {component.sumber ? ` · ${String(component.sumber)}` : ""}
+                          </span>
+                        </div>
+                      );
                     })}
                   </div>
                 </section>
@@ -1390,13 +1485,25 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                 <section className="overflow-hidden rounded-xl border">
                   <h4 className="border-b bg-muted/30 px-4 py-2 font-semibold">Catatan evaluasi</h4>
                   <div className="space-y-3 p-4">
-                    {participant.alasan ? <div><p className="text-xs font-semibold uppercase text-muted-foreground">Alasan</p><p className="mt-1 whitespace-pre-wrap">{String(participant.alasan)}</p></div> : null}
-                    {participant.catatanEvaluasi ? <div><p className="text-xs font-semibold uppercase text-muted-foreground">Catatan</p><p className="mt-1 whitespace-pre-wrap">{String(participant.catatanEvaluasi)}</p></div> : null}
+                    {participant.alasan ? (
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-muted-foreground">Alasan</p>
+                        <p className="mt-1 whitespace-pre-wrap">{String(participant.alasan)}</p>
+                      </div>
+                    ) : null}
+                    {participant.catatanEvaluasi ? (
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-muted-foreground">Catatan</p>
+                        <p className="mt-1 whitespace-pre-wrap">{String(participant.catatanEvaluasi)}</p>
+                      </div>
+                    ) : null}
                   </div>
                 </section>
               ) : null}
 
-              <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">Gunakan rincian ini sebagai bahan pertimbangan dan tuliskan alasan pada suara Anda. Suara merupakan rekomendasi; penetapan pemenang tetap mengikuti memorandum dan persetujuan.</p>
+              <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">
+                Gunakan rincian ini sebagai bahan pertimbangan dan tuliskan alasan pada suara Anda. Suara merupakan rekomendasi; penetapan pemenang tetap mengikuti memorandum dan persetujuan.
+              </p>
             </div>
           );
         })()}
@@ -1464,32 +1571,32 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
               return (
                 <>
                   {!isOffer ? (
-                  <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/[0.07] via-background to-background p-5 shadow-sm sm:p-6">
-                    <div className="absolute inset-y-0 left-0 w-1 bg-primary/70" />
-                    <div className="flex flex-wrap items-start justify-between gap-4 pl-2">
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">{isOffer ? "Penawaran vendor" : currentSelected.nomorRfq ? "Permintaan penawaran" : "Record transaksi"}</p>
-                        <h3 className="mt-2 break-words text-2xl font-semibold tracking-tight text-foreground">{title}</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">{isOffer ? `RFQ ${currentSelected.nomorRfq ?? "—"} · Revisi ${currentSelected.revisi ?? 1}` : "Informasi dan ketentuan tersimpan pada tahap pengadaan ini."}</p>
+                    <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/[0.07] via-background to-background p-5 shadow-sm sm:p-6">
+                      <div className="absolute inset-y-0 left-0 w-1 bg-primary/70" />
+                      <div className="flex flex-wrap items-start justify-between gap-4 pl-2">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">{isOffer ? "Penawaran vendor" : currentSelected.nomorRfq ? "Permintaan penawaran" : "Record transaksi"}</p>
+                          <h3 className="mt-2 break-words text-2xl font-semibold tracking-tight text-foreground">{title}</h3>
+                          <p className="mt-1 text-sm text-muted-foreground">{isOffer ? `RFQ ${currentSelected.nomorRfq ?? "—"} · Revisi ${currentSelected.revisi ?? 1}` : "Informasi dan ketentuan tersimpan pada tahap pengadaan ini."}</p>
+                        </div>
+                        {currentSelected.status ? (
+                          <span className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/80 px-3 py-1.5 text-xs font-semibold capitalize text-foreground shadow-sm">
+                            <span className="size-2 rounded-full bg-primary" />
+                            {String(currentSelected.status).replaceAll("_", " ")}
+                          </span>
+                        ) : null}
                       </div>
-                      {currentSelected.status ? (
-                        <span className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/80 px-3 py-1.5 text-xs font-semibold capitalize text-foreground shadow-sm">
-                          <span className="size-2 rounded-full bg-primary" />
-                          {String(currentSelected.status).replaceAll("_", " ")}
-                        </span>
-                      ) : null}
-                    </div>
-                  </section>
+                    </section>
                   ) : null}
                   <section className={isOffer ? "space-y-3" : "space-y-4 rounded-2xl border bg-card p-4 shadow-sm sm:p-5"}>
                     {!isOffer ? (
-                    <header className="flex items-end justify-between gap-3 border-b pb-3">
-                      <div>
-                        <h3 className="font-semibold tracking-tight">Informasi record</h3>
-                        <p className="mt-1 text-xs text-muted-foreground">Ringkasan data dan atribut utama.</p>
-                      </div>
-                      <span className="text-xs tabular-nums text-muted-foreground">{isOffer ? "Ringkasan penawaran" : `${entries.length} field`}</span>
-                    </header>
+                      <header className="flex items-end justify-between gap-3 border-b pb-3">
+                        <div>
+                          <h3 className="font-semibold tracking-tight">Informasi record</h3>
+                          <p className="mt-1 text-xs text-muted-foreground">Ringkasan data dan atribut utama.</p>
+                        </div>
+                        <span className="text-xs tabular-nums text-muted-foreground">{isOffer ? "Ringkasan penawaran" : `${entries.length} field`}</span>
+                      </header>
                     ) : null}
                     {isOffer ? (
                       <div className="overflow-hidden rounded-xl border bg-card">
@@ -1521,7 +1628,10 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                         {scalarEntries.some(([key]) => !offerGroups.some((group) => group.keys.includes(key))) ? (
                           <section>
                             <h4 className="border-b bg-muted/10 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Informasi lainnya</h4>
-                            {renderScalarRows(scalarEntries.filter(([key]) => !offerGroups.some((group) => group.keys.includes(key))), true)}
+                            {renderScalarRows(
+                              scalarEntries.filter(([key]) => !offerGroups.some((group) => group.keys.includes(key))),
+                              true,
+                            )}
                           </section>
                         ) : null}
                         {offerDetail?.catatan ? (

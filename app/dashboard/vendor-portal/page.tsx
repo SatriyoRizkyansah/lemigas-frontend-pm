@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { UploadDocumentField } from "@/components/documents/DocumentControls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
+import { VendorContracts } from "@/components/contracts/VendorContracts";
 
 type VendorDoc = { id: string; jenis: string; status: string; filePath: string; expiresAt?: string | null };
 type Portal = {
@@ -452,7 +453,7 @@ function VendorPortalView() {
     else params.delete("rfq");
     router.push(`/dashboard/vendor-portal?${params.toString()}`, { scroll: false });
   };
-  const section = selectedSection === "rfq" ? "rfq" : selectedSection === "negotiation" ? "negotiation" : "profile";
+  const section = selectedSection === "rfq" ? "rfq" : selectedSection === "negotiation" ? "negotiation" : selectedSection === "contracts" ? "contracts" : "profile";
   const [profile, setProfile] = useState<Portal | null>(null);
   const [loading, setLoading] = useState(true);
   const [rfqs, setRfqs] = useState<Rfq[]>([]);
@@ -645,8 +646,16 @@ function VendorPortalView() {
   return (
     <section className="space-y-6">
       <PageHeader
-        title={section === "profile" ? "Profil & Dokumen" : section === "rfq" ? "RFQ & Penawaran" : "Negosiasi"}
-        description={section === "profile" ? "Kelola profil perusahaan dan dokumen legalitas." : section === "rfq" ? "Tinjau kebutuhan, ketentuan, dan tenggat sebelum mengirim penawaran." : "Tanggapi putaran negosiasi dari tim pengadaan."}
+        title={section === "profile" ? "Profil & Dokumen" : section === "rfq" ? "RFQ & Penawaran" : section === "negotiation" ? "Negosiasi" : "Kontrak"}
+        description={
+          section === "profile"
+            ? "Kelola profil perusahaan dan dokumen legalitas."
+            : section === "rfq"
+              ? "Tinjau kebutuhan, ketentuan, dan tenggat sebelum mengirim penawaran."
+              : section === "negotiation"
+                ? "Tanggapi putaran negosiasi dari tim pengadaan."
+                : "Tinjau dan tandatangani kontrak yang dikirim kepada perusahaan Anda."
+        }
       />
       {notice && (
         <div role="status" className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
@@ -869,6 +878,8 @@ function VendorPortalView() {
           {section === "negotiation" && profile.status === "approved" && (
             <NegotiationWorkspace negotiations={negotiations} rfqs={rfqs} selectedId={selectedNegotiationId} onSelect={setSelectedNegotiationId} busy={busy} onRespond={respondNegotiation} formatAmount={formatAmount} />
           )}
+          {section === "contracts" && profile.status === "approved" && <VendorContracts />}
+          {section === "contracts" && profile.status !== "approved" && <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">Kontrak tersedia setelah verifikasi vendor disetujui.</p>}
           {section === "rfq" && profile.status === "approved" && (
             <section className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-3">

@@ -17,6 +17,7 @@ import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/common/PageHeader";
+import { ContractWorkspace } from "@/components/contracts/ContractWorkspace";
 
 type WorkflowStage = { key: string; label: string; urutan?: number; assignments?: { tanggungJawab?: string; userId?: string; user?: { id?: string; nama?: string } }[] };
 const stageSections: Record<string, Array<[string, string]>> = {
@@ -289,7 +290,11 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                         <ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                       </summary>
                       <div className="border-t bg-muted/10 px-4 py-4">
-                        <LifecycleOperations key={selectedStage} pengadaanId={pengadaanId} stage={selectedStage} active={currentStage === selectedStage || (uninitialized && selectedStage === "perencanaan")} detail={detail} />
+                        {selectedStage === "kontrak" ? (
+                          <ContractWorkspace pengadaanId={pengadaanId} active={currentStage === selectedStage} />
+                        ) : (
+                          <LifecycleOperations key={selectedStage} pengadaanId={pengadaanId} stage={selectedStage} active={currentStage === selectedStage || (uninitialized && selectedStage === "perencanaan")} detail={detail} />
+                        )}
                       </div>
                     </details>
                     <details className="group overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">

@@ -21,6 +21,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
+import { ContractApprovals } from "@/components/contracts/ContractApprovals";
 
 type Jenis = "pengadaan" | "memorandum";
 type Step = {
@@ -809,6 +810,7 @@ export default function ApprovalPage() {
           </div>
         )}
       </Modal>
+      {(role === "ADMIN" || role === "PIMPINAN") && <ContractApprovals />}
     </section>
   );
 }

@@ -63,6 +63,7 @@ function allowedSections(role: string) {
           { href: "/dashboard/vendor-portal", label: "Profil & Dokumen", icon: FolderOpen, exact: true, section: "profile" },
           { href: "/dashboard/vendor-portal?section=rfq", label: "RFQ & Penawaran", icon: Package, exact: true, section: "rfq" },
           { href: "/dashboard/vendor-portal?section=negotiation", label: "Negosiasi", icon: Activity, exact: true, section: "negotiation" },
+          { href: "/dashboard/vendor-portal?section=contracts", label: "Kontrak", icon: ClipboardList, exact: true, section: "contracts" },
         ],
       },
     ];
