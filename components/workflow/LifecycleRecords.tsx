@@ -621,7 +621,7 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                   {title}
                   <span className="ml-2 text-xs font-normal text-muted-foreground">({rows.length})</span>
                 </span>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${rows.length ? "bg-emerald-100 text-emerald-800" : "bg-destructive/10 text-destructive"}`}>{rows.length ? "Ada data" : "Belum lengkap"}</span>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${rows.length ? "bg-emerald-100 text-emerald-800" : key === "adendum" ? "bg-muted text-muted-foreground" : "bg-destructive/10 text-destructive"}`}>{rows.length ? "Ada data" : key === "adendum" ? "Opsional" : "Belum lengkap"}</span>
               </span>
               <ChevronDown size={18} className="shrink-0 transition-transform group-open:rotate-180" />
             </summary>

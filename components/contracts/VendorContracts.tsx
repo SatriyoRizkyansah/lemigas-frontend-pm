@@ -16,6 +16,7 @@ import { use_mutation } from "@/lib/api/use_mutation";
 import { apiData, setBrowserToken } from "@/lib/api/hooks";
 import { browserApi } from "@/lib/api/browser-client";
 import { ContentType } from "@/lib/api/generated/api-generated";
+import { VendorAddenda, type Addendum } from "@/components/contracts/ContractAddenda";
 
 type ContractDocument = { id: string; jenis: string; originalName: string };
 type ContractSource = {
@@ -45,6 +46,7 @@ type Contract = {
   pengadaan?: { id?: string; nomorSurat?: string | null; judul?: string | null };
   sumberTransaksi?: ContractSource | null;
   dokumen?: ContractDocument[];
+  adendum?: Addendum[];
 };
 type ActionState = { contract: Contract } | null;
 type Signer = { nama: string; jabatan: string; email: string; tanggal: string };
@@ -258,6 +260,7 @@ export function VendorContracts({ selectedContractId, onOpenContract }: { select
                     {selectedFinal ? <a className="flex min-h-12 items-center gap-3 rounded-lg border bg-background p-3 text-sm hover:bg-muted/30" href={downloadUrl(selectedFinal.id)} target="_blank" rel="noreferrer"><FileText size={17} className="shrink-0 text-emerald-600" /><span className="min-w-0"><span className="block font-medium">Kontrak final</span><span className="block truncate text-xs text-muted-foreground">{selectedFinal.originalName}</span></span></a> : null}
                   </div> : <p className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">Belum ada dokumen kontrak yang tersedia.</p>}
                 </section>
+                <VendorAddenda addenda={selected.adendum ?? []} pengadaanId={selected.pengadaanId} contractId={selected.id} onRefresh={() => void contracts.refetch()} />
               </CardContent>
               <CardFooter className="flex-col items-start justify-between gap-3 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
                 <p className="flex items-start gap-2 text-sm text-muted-foreground">{selected.status === "menunggu_tanda_tangan_vendor" ? <PenLine size={16} className="mt-0.5 shrink-0 text-amber-600" /> : selected.status === "efektif" ? <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-600" /> : <Clock3 size={16} className="mt-0.5 shrink-0" />}<span>{selectedStatus.message}</span></p>

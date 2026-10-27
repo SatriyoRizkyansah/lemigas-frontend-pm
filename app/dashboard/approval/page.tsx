@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ClipboardCheck, FileText, Send } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -475,6 +475,8 @@ function RencanaApprovalInbox() {
 }
 
 export default function ApprovalPage() {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
   const [jenis, setJenis] = useState<Jenis>("pengadaan");
   const [mySubmissions, setMySubmissions] = useState(false);
   const [rencanaInbox, setRencanaInbox] = useState(false);
@@ -523,9 +525,9 @@ export default function ApprovalPage() {
     enabled: showApprovalInbox && (role === "ADMIN" || role === "PIMPINAN"),
     queryFn: async () => {
       setBrowserToken();
-      const data = unwrap(await apiData(browserApi.request({ path: "/api/contract-approvals", method: "GET", secure: true, format: "json" })));
-      if (!Array.isArray(data)) throw new Error("Response daftar persetujuan kontrak tidak valid.");
-      return data.length;
+      const [contracts, addenda] = await Promise.all(["/api/contract-approvals", "/api/adendum-approvals"].map(async (path) => unwrap(await apiData(browserApi.request({ path, method: "GET", secure: true, format: "json" })))));
+      if (!Array.isArray(contracts) || !Array.isArray(addenda)) throw new Error("Response daftar persetujuan kontrak tidak valid.");
+      return contracts.length + addenda.length;
     },
   });
   const query = use_query<Inbox, Error, { jenis: Jenis; my: boolean; page: number; limit: number; query: string }>({
@@ -653,6 +655,8 @@ export default function ApprovalPage() {
       ),
     },
   ];
+  if (!hydrated) return <LoadingState />;
+
   return (
     <section className="space-y-6 py-1">
       <PageHeader title="Approval" description="Tinjau pengadaan dan memorandum, atau pantau status pengajuan yang Anda kirim." />

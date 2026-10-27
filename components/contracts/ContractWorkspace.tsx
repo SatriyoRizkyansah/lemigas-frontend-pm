@@ -16,6 +16,7 @@ import { apiQueryKeys } from "@/lib/api/query-keys";
 import { use_mutation } from "@/lib/api/use_mutation";
 import { use_query } from "@/lib/api/use_query";
 import { ContentType } from "@/lib/api/generated/api-generated";
+import { ContractAddenda, ContractValidityCorrection } from "@/components/contracts/ContractAddenda";
 
 type ContractKind = "penyedia";
 type ContractStatus = "draft" | "menunggu_persetujuan" | "menunggu_tanda_tangan_vendor" | "finalisasi_lemigas" | "efektif" | "dipenuhi" | "diakhiri" | "dibatalkan";
@@ -42,6 +43,7 @@ type Contract = {
   dikirimPada?: string | null;
   vendor?: { nama?: string | null } | null;
   dokumen?: ContractDocument[];
+  adendum?: Array<{ nomor: string; status: string }>;
 };
 type Action = "create" | "upload-draft" | "submit" | "send" | "finalize";
 type ActionState = { action: Action; kind: ContractKind; contract?: Contract } | null;
@@ -246,6 +248,9 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
   const user = useCurrentUser();
   const role = user.data?.role.toLowerCase() ?? "";
   const canEdit = active && ["admin", "operator"].includes(role);
+  const canManageContract = ["admin", "operator"].includes(role);
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => { setNow(Date.now()); }, []);
   const [dialog, setDialog] = useState<ActionState>(null);
   const [file, setFile] = useState<File | null>(null);
   const [draft, setDraft] = useState<DraftForm>(blankDraft);
@@ -298,7 +303,7 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
       setBrowserToken();
       const base = `/api/pengadaan/${encodeURIComponent(pengadaanId)}/contracts`;
       if (state.action === "create") {
-        const body = { ...draft, jenis: state.kind, nilai: draft.nilai ? Number(draft.nilai) : undefined };
+        const body = { ...draft, jenis: state.kind, nilai: draft.nilai ? Number(draft.nilai) : undefined, volumeKontrak: draftPrefill?.volume && Number(draftPrefill.volume) > 0 ? Number(draftPrefill.volume) : undefined, satuanKontrak: draftPrefill?.satuan };
         return apiData(browserApi.request({ path: base, method: "POST", secure: true, type: ContentType.Json, format: "json", body }));
       }
       const contract = state.contract!;
@@ -311,6 +316,11 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
         return apiData(browserApi.request({ path: `${base}/${contract.id}/send`, method: "POST", secure: true, type: ContentType.Json, format: "json", body: { expectedRevision: contract.revision } }));
       }
       if (!file) throw new Error("Pilih file PDF terlebih dahulu");
+      if (state.action === "finalize") {
+        const start = new Date(`${signer.mulai}:00+07:00`).getTime();
+        const end = signer.berakhir ? new Date(`${signer.berakhir}:00+07:00`).getTime() : null;
+        if (end !== null && (end <= start || end <= Date.now())) throw new Error("Tanggal berakhir harus setelah tanggal mulai dan belum lewat.");
+      }
       const body = new FormData();
       body.append("file", file);
       body.append("expectedRevision", String(contract.revision));
@@ -319,12 +329,12 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
         body.append("penandatanganNama", signer.nama);
         body.append("penandatanganJabatan", signer.jabatan);
         if (signer.email) body.append("penandatanganEmail", signer.email);
-        body.append("tanggalTandaTangan", new Date(signer.tanggal).toISOString());
+        body.append("tanggalTandaTangan", new Date(`${signer.tanggal}:00+07:00`).toISOString());
       }
       if (state.action === "finalize") {
         path = `${base}/${contract.id}/finalize`;
-        body.append("mulaiBerlaku", new Date(signer.mulai).toISOString());
-        if (signer.berakhir) body.append("berakhirPada", new Date(signer.berakhir).toISOString());
+        body.append("mulaiBerlaku", new Date(`${signer.mulai}:00+07:00`).toISOString());
+        if (signer.berakhir) body.append("berakhirPada", new Date(`${signer.berakhir}:00+07:00`).toISOString());
       }
       return apiData(browserApi.request({ path, method: "POST", secure: true, type: ContentType.FormData, format: "json", body }));
     },
@@ -359,6 +369,8 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
             const step = currentStep(contract?.status);
             const action = nextAction(contract, slot.kind, canEdit);
             const status = contract?.status;
+            const expired = status === "efektif" && now !== null && Boolean(contract?.berakhirPada) && new Date(contract!.berakhirPada!).getTime() <= now;
+            const future = status === "efektif" && now !== null && Boolean(contract?.mulaiBerlaku) && new Date(contract!.mulaiBerlaku!).getTime() > now;
             return (
               <Card key={slot.kind} className="overflow-hidden">
                 <CardHeader className="border-b bg-muted/20">
@@ -367,8 +379,8 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
                       <CardTitle>{slot.label}</CardTitle>
                       <CardDescription className="mt-1">{slot.description}</CardDescription>
                     </div>
-                    <StatusBadge status={status === "efektif" || status === "dipenuhi" ? "ok" : status === "dibatalkan" || status === "diakhiri" ? "danger" : status ? "warn" : "neutral"}>
-                      {status ? statusLabels[status] : "Belum dibuat"}
+                    <StatusBadge status={expired ? "danger" : future ? "warn" : status === "efektif" || status === "dipenuhi" ? "ok" : status === "dibatalkan" || status === "diakhiri" ? "danger" : status ? "warn" : "neutral"}>
+                      {expired ? "Masa berlaku berakhir" : future ? "Belum mulai berlaku" : status ? statusLabels[status] : "Belum dibuat"}
                     </StatusBadge>
                   </div>
                 </CardHeader>
@@ -420,6 +432,7 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
                       ))}
                     </div>
                   ) : null}
+                  {contract?.status === "efektif" ? <ContractValidityCorrection contract={contract} pengadaanId={pengadaanId} canManage={canManageContract} /> : null}
                 </CardContent>
                 <CardFooter className="justify-end">
                   {action ? (
@@ -435,7 +448,7 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
                           : status === "menunggu_tanda_tangan_vendor"
                             ? "Menunggu unggahan pihak penandatangan"
                             : status === "efektif"
-                              ? "Kontrak sudah berlaku. Tandai tahap Kontrak selesai untuk lanjut ke Pengiriman."
+                              ? expired ? "Masa berlaku kontrak telah berakhir. Periksa tanggal pada dokumen final." : future ? "Kontrak belum mulai berlaku." : "Kontrak berlaku. Tandai tahap Kontrak selesai untuk lanjut ke Pengiriman."
                               : "Tidak ada aksi saat ini"}
                     </span>
                   )}
@@ -445,6 +458,8 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
           })}
         </div>
       )}
+
+      {contractsByKind.get("penyedia")?.status === "efektif" ? <ContractAddenda pengadaanId={pengadaanId} contract={contractsByKind.get("penyedia")!} canManage={canManageContract} /> : null}
 
       <Modal
         open={Boolean(dialog)}
@@ -587,7 +602,7 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
                 <Field label="Email">
                   <Input type="email" value={signer.email} onChange={(event) => setSigner({ ...signer, email: event.target.value })} />
                 </Field>
-                <Field label="Tanggal tanda tangan">
+                <Field label="Tanggal tanda tangan (WIB)">
                   <Input type="datetime-local" required value={signer.tanggal} onChange={(event) => setSigner({ ...signer, tanggal: event.target.value })} />
                 </Field>
               </div>
@@ -595,15 +610,16 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
           ) : null}
           {dialog?.action === "finalize" ? (
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Mulai berlaku">
+              <Field label="Mulai berlaku (WIB)">
                 <Input type="datetime-local" required value={signer.mulai} onChange={(event) => setSigner({ ...signer, mulai: event.target.value })} />
               </Field>
-              <Field label="Berakhir pada">
+              <Field label="Berakhir pada (WIB, opsional)">
                 <Input type="datetime-local" value={signer.berakhir} onChange={(event) => setSigner({ ...signer, berakhir: event.target.value })} />
               </Field>
             </div>
           ) : null}
           {dialog?.action === "send" ? <p className="rounded-lg border bg-muted/30 p-3 text-sm">Versi yang telah disetujui akan dikirim kepada pihak penandatangan.</p> : null}
+          {dialog?.action === "finalize" ? <p className="text-xs text-muted-foreground">Tanggal berakhir harus setelah mulai berlaku dan belum lewat. Kosongkan jika kontrak tidak mencantumkan tanggal akhir.</p> : null}
         </form>
       </Modal>
     </div>

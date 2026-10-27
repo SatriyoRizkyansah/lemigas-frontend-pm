@@ -12,6 +12,7 @@ import { LoadingState } from "@/components/loading/LoadingState";
 import { Modal } from "@/components/modal/Modal";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AdendumApprovals } from "@/components/contracts/ContractAddenda";
 
 type Review = {
   keputusan: string;
@@ -183,6 +184,8 @@ export function ContractApprovals() {
           </div>
         </div>
       )}
+
+      <AdendumApprovals />
 
       <Modal
         open={Boolean(selected)}
