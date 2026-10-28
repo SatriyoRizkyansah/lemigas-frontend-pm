@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, Ban, Check, ClipboardList, FileCheck2, FileText, Handshake, Send, Settings2, Ship, Wallet, X, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/modal/Modal";
+import { ReadDocumentButton, UploadDocumentField } from "@/components/documents/DocumentControls";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FilterCombobox } from "@/components/ui/filter-combobox";
@@ -22,6 +23,21 @@ import { lifecycleOperations, operationPayload, type Entity, type Field, type Op
 
 export type LifecycleOperationsProps = { pengadaanId: string; stage: string; active: boolean; detail: any };
 type Choice = { value: string; label: string };
+const shipmentStatusSteps = [
+  { value: "direncanakan", label: "Direncanakan" },
+  { value: "dimuat", label: "Dimuat" },
+  { value: "dalam_perjalanan", label: "Dalam perjalanan" },
+  { value: "tiba", label: "Tiba" },
+  { value: "dibongkar", label: "Dibongkar" },
+  { value: "diserahkan", label: "Diserahkan" },
+] as const;
+function shipmentStatusLabel(value: string) {
+  return shipmentStatusSteps.find((step) => step.value === value)?.label ?? (value === "bermasalah" ? "Bermasalah" : value.replaceAll("_", " "));
+}
+function nextShipmentStatus(value: string) {
+  const index = shipmentStatusSteps.findIndex((step) => step.value === value);
+  return index >= 0 ? shipmentStatusSteps[index + 1]?.value : undefined;
+}
 function object(value: unknown): Entity {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Entity) : {};
 }
@@ -32,6 +48,14 @@ function unwrap(value: unknown): unknown {
 }
 function records(value: unknown): Entity[] {
   return Array.isArray(value) ? value.map(object) : [];
+}
+function shipmentHandoverComplete(shipment: Entity | undefined) {
+  if (!shipment) return false;
+  const expected = Number(object(shipment.penerimaan).kuantitasDiterima);
+  if (!Number.isFinite(expected) || expected <= 0) return false;
+  const accepted = records(shipment.serahTerima).filter((row) => row.status !== "ditolak");
+  const handedOver = accepted.reduce((total, row) => total + Math.round(Number(row.kuantitasDiserahkan ?? 0) * 10_000), 0) / 10_000;
+  return Math.abs(handedOver - expected) < 0.00005;
 }
 function parseParameterRows(value: string): Array<{ name: string; value: string }> {
   const rows = value
@@ -83,16 +107,43 @@ function cleanParameterRows(value: string): string {
 function choices(rows: Entity[]): Choice[] {
   return rows.filter((row) => typeof row.id === "string").map((row) => ({ value: String(row.id), label: [row.nomor ?? row.nama ?? row.namaKapal ?? row.nomorBillOfLading ?? row.jenis ?? row.id].filter(Boolean).join(" · ") }));
 }
-function contractChoices(rows: Entity[]): Choice[] {
+function quantityUnits(value: unknown): number {
+  const quantity = Number(value);
+  return Number.isFinite(quantity) ? Math.round(quantity * 10_000) : 0;
+}
+function quantityDiffers(left: unknown, right: unknown): boolean {
+  return left != null && right != null && quantityUnits(left) !== quantityUnits(right);
+}
+function formatQuantity(value: unknown, unit?: unknown): string {
+  if (value == null || value === "") return "Belum dicatat";
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity)) return "Belum dicatat";
+  const formatted = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(quantity);
+  const suffix = plainText(unit);
+  return suffix ? `${formatted} ${suffix}` : formatted;
+}
+function allocatedVolume(shipments: Entity[], contractId: string, excludeShipmentId?: string): number {
+  return shipments
+    .filter((shipment) => String(shipment.kontrakId ?? object(shipment.kontrak).id ?? "") === contractId && String(shipment.id ?? "") !== excludeShipmentId)
+    .reduce((total, shipment) => total + quantityUnits(shipment.volumeRencana), 0) / 10_000;
+}
+function remainingContractVolume(contract: Entity, shipments: Entity[], excludeShipmentId?: string): number | null {
+  const target = Number(contract.volumeKontrak);
+  if (!Number.isFinite(target) || target <= 0) return null;
+  return target - allocatedVolume(shipments, String(contract.id ?? ""), excludeShipmentId);
+}
+function contractChoices(rows: Entity[], shipments: Entity[], excludeShipmentId?: string): Choice[] {
   return rows
     .filter((row) => typeof row.id === "string")
     .map((row) => {
       const number = plainText(row.nomor);
       const vendor = plainText(object(row.vendor).nama);
       const status = plainText(row.status).replaceAll("_", " ");
+      const remaining = remainingContractVolume(row, shipments, excludeShipmentId);
+      const quantity = Number(row.volumeKontrak) > 0 ? `Target ${formatQuantity(row.volumeKontrak, row.satuanKontrak)} · sisa ${formatQuantity(remaining, row.satuanKontrak)}` : "Volume kontrak belum diatur";
       return {
         value: String(row.id),
-        label: [number ? `Kontrak ${number}` : "Kontrak tanpa nomor", vendor, status].filter(Boolean).join(" · "),
+        label: [number ? `Kontrak ${number}` : "Kontrak tanpa nomor", vendor, status, quantity].filter(Boolean).join(" · "),
       };
     });
 }
@@ -104,8 +155,9 @@ function shipmentChoices(rows: Entity[]): Choice[] {
       const bill = plainText(row.nomorBillOfLading);
       const route = [plainText(row.pelabuhanMuat), plainText(row.pelabuhanBongkar)].filter(Boolean).join(" → ");
       const contractNumber = plainText(object(row.kontrak).nomor);
+      const plan = row.volumeRencana == null ? "" : `Rencana ${formatQuantity(row.volumeRencana, object(row.kontrak).satuanKontrak)}`;
       const identity = vessel || (bill ? `B/L ${bill}` : "") || route || "Kargo tanpa identitas";
-      return { value: String(row.id), label: [identity, bill && vessel ? `B/L ${bill}` : "", contractNumber ? `Kontrak ${contractNumber}` : "", plainText(row.status).replaceAll("_", " ")].filter(Boolean).join(" · ") };
+      return { value: String(row.id), label: [identity, bill && vessel ? `B/L ${bill}` : "", contractNumber ? `Kontrak ${contractNumber}` : "", plan, plainText(row.status).replaceAll("_", " ")].filter(Boolean).join(" · ") };
     });
 }
 function operationFieldSections(operationKey: string | undefined, fields: Field[]): Array<{ title: string; fields: Field[] }> {
@@ -124,9 +176,10 @@ function operationFieldSections(operationKey: string | undefined, fields: Field[
       { title: "Analisis dan strategi", fields: ["analisisPasar", "dasarPemilihan", "strategiPengiriman", "strategiPembiayaan"] },
     ],
     negosiasi: [{ title: "Detail negosiasi", fields: ["penawaranId", "batasNegosiasi", "hargaHasilNegosiasi", "hasil"] }],
-    pengiriman: [{ title: "Informasi pengiriman", fields: ["kontrakId", "namaKapal", "nomorBillOfLading", "pelabuhanMuat", "pelabuhanBongkar", "etd", "eta", "volumeKontrak"] }],
-    "update-pengiriman": [{ title: "Informasi pengiriman", fields: ["entityId", "kontrakId", "namaKapal", "nomorBillOfLading", "pelabuhanMuat", "pelabuhanBongkar", "etd", "eta", "volumeKontrak"] }],
-    "status-pengiriman": [{ title: "Status dan volume aktual", fields: ["entityId", "status", "volumeAktual"] }],
+    pengiriman: [{ title: "Informasi pengiriman", fields: ["kontrakId", "namaKapal", "nomorBillOfLading", "pelabuhanMuat", "pelabuhanBongkar", "etd", "eta", "volumeRencana"] }],
+    "update-pengiriman": [{ title: "Informasi pengiriman", fields: ["entityId", "kontrakId", "namaKapal", "nomorBillOfLading", "pelabuhanMuat", "pelabuhanBongkar", "etd", "eta", "volumeRencana"] }],
+    "status-pengiriman": [{ title: "Status dan realisasi pengapalan", fields: ["entityId", "status", "volumeAktual"] }],
+    risiko: [{ title: "Detail kejadian", fields: ["pengirimanId", "deskripsi", "tingkat", "mitigasi"] }],
     pemeriksaan: [{ title: "Detail pemeriksaan", fields: ["pengirimanId", "tipe", "tanggalPeriksa", "surveyor", "hasilKuantitas", "hasilMutu", "nomorSertifikat", "diterimaDenganCatatan", "catatan"] }],
     penerimaan: [{ title: "Detail penerimaan / BAST", fields: ["pengirimanId", "tanggalTerima", "titikSerah", "nomorBast", "kuantitasDiterima", "mutuDiterima", "denganCatatan", "catatan"] }],
     penyimpanan: [{ title: "Catatan persediaan", fields: ["fasilitas", "penerimaanId", "satuan", "lokasi", "kuantitasMasuk", "kuantitasKeluar", "catatan"] }],
@@ -147,28 +200,23 @@ function deliveryDate(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? "—" : new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium" }).format(parsed);
 }
 
-function DeliveryChecklist({ active, locked, operations, shipments, storage, risks, planning, onOpen }: {
+function DeliveryChecklist({ active, locked, operations, contracts, shipments, storage, risks, planning, onOpen }: {
   active: boolean; locked: boolean; operations: Operation[]; shipments: Entity[]; storage: Entity[]; risks: Entity[];
-  planning: Entity;
+  contracts: Entity[]; planning: Entity;
   onOpen: (operation: Operation, context?: Entity) => void;
 }) {
   const operation = (key: string) => operations.find((item) => item.key === key);
   const inspectionDone = (shipment: Entity) => records(shipment.pemeriksaan).length > 0;
   const receptionDone = (shipment: Entity) => Boolean(shipment.penerimaan);
+  const unloadingDone = (shipment: Entity) => String(shipment.status ?? "") === "dibongkar";
+  const hasReachedDischarge = (shipment: Entity) => ["dibongkar", "diserahkan"].includes(String(shipment.status ?? ""));
   const deliveredQuantity = (shipment: Entity) =>
     records(shipment.serahTerima)
       .filter((row) => row.status !== "ditolak")
       .reduce((total, row) => total + Math.round(Number(row.kuantitasDiserahkan ?? 0) * 10_000), 0) / 10_000;
-  const handoverDone = (shipment: Entity) => {
-    const accepted = records(shipment.serahTerima).filter((row) => row.status !== "ditolak");
-    if (!accepted.length) return false;
-    const receipt = object(shipment.penerimaan);
-    const target = Number(receipt.kuantitasDiterima);
-    return Number.isFinite(target) && target > 0
-      ? deliveredQuantity(shipment) >= target
-      : accepted.some((row) => row.status === "diterima");
-  };
+  const handoverDone = shipmentHandoverComplete;
   const completed = shipments.filter((shipment) => inspectionDone(shipment) && receptionDone(shipment) && handoverDone(shipment)).length;
+  const effectiveContracts = contracts.filter((contract) => contract.jenis === "penyedia" && contract.status === "efektif");
   const action = (key: string, label: string, context?: Entity, unavailable = false) => {
     const item = operation(key);
     return item ? <Button type="button" size="sm" variant="outline" disabled={!active || locked || unavailable} onClick={() => onOpen(item, context)}>{label}</Button> : null;
@@ -191,18 +239,49 @@ function DeliveryChecklist({ active, locked, operations, shipments, storage, ris
     <section className="space-y-3" aria-label="Checklist pelaksanaan delivery">
       <section className="overflow-hidden rounded-xl border bg-background">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3">
-          <div><h3 className="text-sm font-semibold">Pengapalan dan pemantauan</h3><p className="mt-1 text-xs text-muted-foreground">Setiap kargo punya checklist sendiri, jadi pengiriman yang berbeda bisa berjalan bersamaan.</p></div>
+          <div><h3 className="text-sm font-semibold">Pengapalan dan pemantauan</h3><p className="mt-1 text-xs text-muted-foreground">Alokasi seluruh kargo mengikuti volume kontrak. Setiap pengiriman punya progres sendiri.</p></div>
           {action("pengiriman", "Catat pengiriman")}
         </header>
+        {effectiveContracts.length ? (
+          <div className="overflow-x-auto border-b">
+            <table className="w-full min-w-[820px] text-left text-sm">
+              <thead className="bg-muted/10 text-xs text-muted-foreground"><tr><th className="px-4 py-2.5 font-medium">Kontrak</th><th className="px-4 py-2.5 text-right font-medium">Volume kontrak</th><th className="px-4 py-2.5 text-right font-medium">Dialokasikan</th><th className="px-4 py-2.5 text-right font-medium">Sisa rencana</th><th className="px-4 py-2.5 text-right font-medium">Diterima (BAST)</th><th className="px-4 py-2.5 text-right font-medium">Selisih penerimaan</th></tr></thead>
+              <tbody className="divide-y">{effectiveContracts.map((contract) => {
+                const contractId = String(contract.id);
+                const related = shipments.filter((shipment) => String(shipment.kontrakId ?? object(shipment.kontrak).id ?? "") === contractId);
+                const allocated = allocatedVolume(shipments, contractId);
+                const targetValue = Number(contract.volumeKontrak);
+                const target = Number.isFinite(targetValue) && targetValue > 0 ? targetValue : null;
+                const received = related.reduce((total, shipment) => total + quantityUnits(object(shipment.penerimaan).kuantitasDiterima), 0) / 10_000;
+                const hasReceiptQuantity = related.some((shipment) => object(shipment.penerimaan).kuantitasDiterima != null);
+                const remaining = target == null ? null : target - allocated;
+                const variance = target == null || !hasReceiptQuantity ? null : received - target;
+                return <tr key={contractId}>
+                  <td className="px-4 py-3"><p className="font-medium">Kontrak {plainText(contract.nomor) || "—"}</p><p className="mt-0.5 text-xs text-muted-foreground">{plainText(object(contract.vendor).nama) || "Vendor"}</p></td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right">{formatQuantity(target, contract.satuanKontrak)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right">{formatQuantity(allocated, contract.satuanKontrak)}</td>
+                  <td className={`whitespace-nowrap px-4 py-3 text-right ${remaining != null && remaining < -0.00005 ? "font-medium text-destructive" : remaining != null && remaining > 0.00005 ? "font-medium text-amber-700 dark:text-amber-300" : ""}`}>{formatQuantity(remaining, contract.satuanKontrak)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right">{hasReceiptQuantity ? formatQuantity(received, contract.satuanKontrak) : "Belum dicatat"}</td>
+                  <td className={`whitespace-nowrap px-4 py-3 text-right ${variance != null && Math.abs(variance) > 0.00005 ? "font-medium text-amber-700 dark:text-amber-300" : "text-muted-foreground"}`}>{variance != null && variance > 0 ? "+" : ""}{formatQuantity(variance, contract.satuanKontrak)}</td>
+                </tr>;
+              })}</tbody>
+            </table>
+            <p className="px-4 py-2 text-xs text-muted-foreground">Selisih penerimaan wajib dijelaskan pada catatan BAST. Tahap Delivery hanya dapat diselesaikan jika alokasi rencana sama dengan volume kontrak.</p>
+          </div>
+        ) : null}
         {shipments.length ? (
-          <div className="overflow-x-auto"><table className="w-full min-w-[740px] text-left text-sm">
-            <thead className="bg-muted/10 text-xs text-muted-foreground"><tr><th className="px-4 py-2.5 font-medium">Kargo / kapal</th><th className="px-4 py-2.5 font-medium">Bill of lading</th><th className="px-4 py-2.5 font-medium">Status</th><th className="px-4 py-2.5 font-medium">ETA</th><th className="px-4 py-2.5 text-right font-medium">Aksi</th></tr></thead>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1190px] text-left text-sm">
+            <thead className="bg-muted/10 text-xs text-muted-foreground"><tr><th className="px-4 py-2.5 font-medium">Kargo / kapal</th><th className="px-4 py-2.5 font-medium">Bill of lading</th><th className="px-4 py-2.5 text-right font-medium">Volume rencana</th><th className="px-4 py-2.5 text-right font-medium">Realisasi pengapalan</th><th className="px-4 py-2.5 text-right font-medium">Hasil pemeriksaan</th><th className="px-4 py-2.5 text-right font-medium">Diterima (BAST)</th><th className="px-4 py-2.5 font-medium">Status</th><th className="px-4 py-2.5 font-medium">ETA</th><th className="px-4 py-2.5 text-right font-medium">Aksi</th></tr></thead>
             <tbody className="divide-y">{shipments.map((shipment) => <tr key={String(shipment.id)}>
-              <td className="px-4 py-3"><p className="font-medium">{plainText(shipment.namaKapal) || "Pengiriman"}</p><p className="mt-0.5 text-xs text-muted-foreground">Volume aktual: {plainText(shipment.volumeAktual) || "Belum dicatat"}</p></td>
+              <td className="px-4 py-3"><p className="font-medium">{plainText(shipment.namaKapal) || "Pengiriman"}</p><p className="mt-0.5 text-xs text-muted-foreground">Kontrak {plainText(object(shipment.kontrak).nomor) || "—"}</p></td>
               <td className="px-4 py-3 text-muted-foreground">{plainText(shipment.nomorBillOfLading) || "—"}</td>
+              <td className="whitespace-nowrap px-4 py-3 text-right">{formatQuantity(shipment.volumeRencana, object(shipment.kontrak).satuanKontrak)}</td>
+              <td className={`whitespace-nowrap px-4 py-3 text-right ${quantityDiffers(shipment.volumeAktual, shipment.volumeRencana) ? "font-medium text-amber-700 dark:text-amber-300" : ""}`}>{formatQuantity(shipment.volumeAktual, object(shipment.kontrak).satuanKontrak)}</td>
+              <td className={`whitespace-nowrap px-4 py-3 text-right ${quantityDiffers(records(shipment.pemeriksaan).slice(-1)[0]?.hasilKuantitas, shipment.volumeRencana) ? "font-medium text-amber-700 dark:text-amber-300" : ""}`}>{formatQuantity(records(shipment.pemeriksaan).slice(-1)[0]?.hasilKuantitas, object(shipment.kontrak).satuanKontrak)}</td>
+              <td className={`whitespace-nowrap px-4 py-3 text-right ${quantityDiffers(object(shipment.penerimaan).kuantitasDiterima, shipment.volumeRencana) ? "font-medium text-amber-700 dark:text-amber-300" : ""}`}>{formatQuantity(object(shipment.penerimaan).kuantitasDiterima, object(shipment.kontrak).satuanKontrak)}</td>
               <td className="px-4 py-3"><span className="rounded-full bg-muted px-2 py-1 text-xs font-medium capitalize">{(plainText(shipment.status) || "direncanakan").replaceAll("_", " ")}</span></td>
               <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{deliveryDate(shipment.eta)}</td>
-              <td className="px-4 py-3"><div className="flex justify-end gap-2">{action("update-pengiriman", "Perbarui data", shipment)}{action("status-pengiriman", "Ubah status", shipment)}</div></td>
+              <td className="px-4 py-3"><div className="flex justify-end gap-2">{action("update-pengiriman", "Edit detail", shipment)}{action("status-pengiriman", shipment.status === "bermasalah" ? "Pulihkan status" : shipment.status === "diserahkan" && handoverDone(shipment) ? "Lihat progres" : shipment.status === "diserahkan" ? "Koreksi status" : shipment.status === "dibongkar" && !handoverDone(shipment) ? "Lihat progres" : "Lanjut tahap", shipment)}</div></td>
             </tr>)}</tbody>
           </table></div>
         ) : <div className="px-4 py-6 text-center"><p className="text-sm font-medium">Belum ada pengiriman tercatat</p><p className="mt-1 text-xs text-muted-foreground">Catat kargo terlebih dahulu untuk membuka checklist operasionalnya.</p></div>}
@@ -210,43 +289,76 @@ function DeliveryChecklist({ active, locked, operations, shipments, storage, ris
 
       <section className="overflow-hidden rounded-xl border bg-background">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3">
-          <div><h3 className="text-sm font-semibold">Checklist delivery per kargo</h3><p className="mt-1 text-xs text-muted-foreground">Pemeriksaan dan BAST berurutan. Penyimpanan opsional; serah-terima menutup alur kargo.</p></div>
+          <div><h3 className="text-sm font-semibold">Penerimaan dan serah-terima per kargo</h3><p className="mt-1 text-xs text-muted-foreground">Pemeriksaan mengikuti titik dalam kontrak. BAST menunggu pembongkaran, penyimpanan opsional setelah BAST, lalu serah-terima kepada penerima.</p></div>
           <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{shipments.length ? `${completed}/${shipments.length} selesai` : "Menunggu pengiriman"}</span>
         </header>
+        {risks.some((risk) => !risk.pengirimanId) ? (
+          <div className="space-y-2 border-b bg-muted/10 px-4 py-3">
+            <div>
+              <p className="text-xs font-semibold">Catatan kejadian lama · belum ditautkan ke kargo</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Catatan ini dibuat sebelum kejadian dikaitkan dengan kargo dan tahap pengiriman.</p>
+            </div>
+            {risks.filter((risk) => !risk.pengirimanId).map((risk) => (
+              <div key={String(risk.id)} className="rounded-md border bg-background px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Dampak {plainText(risk.tingkat) || "belum dinilai"}</span>
+                  <span className="text-muted-foreground">{deliveryDate(risk.createdAt)}</span>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-foreground">{plainText(risk.deskripsi)}</p>
+                {risk.mitigasi ? <p className="mt-1 text-muted-foreground">Tindak lanjut: {plainText(risk.mitigasi)}</p> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div className="space-y-2 bg-muted/10 p-3">
           {shipments.length ? shipments.map((shipment) => {
             const inspections = records(shipment.pemeriksaan);
             const hasInspection = inspections.length > 0;
             const hasReception = receptionDone(shipment);
+            const hasUnloaded = unloadingDone(shipment);
+            const hasReachedDestination = hasReachedDischarge(shipment);
             const hasHandover = handoverDone(shipment);
             const receipt = object(shipment.penerimaan);
             const receiptId = String(receipt.id ?? "");
             const storageRows = storage.filter((row) => String(row.penerimaanId ?? "") === receiptId);
-            const unit = plainText(planning.satuan) || plainText(object(shipment.detail).satuan);
+            const shipmentRisks = risks.filter((risk) => String(risk.pengirimanId ?? "") === String(shipment.id));
+            const unit = plainText(object(shipment.kontrak).satuanKontrak) || plainText(planning.satuan) || plainText(object(shipment.detail).satuan);
             const targetQuantity = Number(receipt.kuantitasDiterima);
             const expectedQuantity = Number.isFinite(targetQuantity) && targetQuantity > 0 ? plainText(receipt.kuantitasDiterima) : "";
             const delivered = deliveredQuantity(shipment);
+            const handoverDocuments = records(shipment.serahTerima).filter((row) => typeof object(row.dokumen).id === "string");
             const progressText = expectedQuantity
               ? `${delivered} / ${expectedQuantity}${unit ? ` ${unit}` : ""} diserahkan`
               : `${records(shipment.serahTerima).length} catatan serah-terima`;
-            const allDone = hasInspection && hasReception && hasHandover;
+            const allDone = hasReachedDestination && hasInspection && hasReception && hasHandover;
             return <article key={String(shipment.id)} className="overflow-hidden rounded-lg border bg-background">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2.5"><div><h4 className="text-sm font-semibold">{plainText(shipment.namaKapal) || "Pengiriman"}</h4><p className="mt-0.5 text-xs text-muted-foreground">B/L {plainText(shipment.nomorBillOfLading) || "belum dicatat"} · {(plainText(shipment.status) || "direncanakan").replaceAll("_", " ")}</p></div><span className={`rounded-full px-2 py-1 text-[11px] font-medium ${allDone ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"}`}>{allDone ? "Selesai" : "Berjalan"}</span></div>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2.5"><div><h4 className="text-sm font-semibold">{plainText(shipment.namaKapal) || "Pengiriman"}</h4><p className="mt-0.5 text-xs text-muted-foreground">Rencana {formatQuantity(shipment.volumeRencana, unit)} · B/L {plainText(shipment.nomorBillOfLading) || "belum dicatat"} · {(plainText(shipment.status) || "direncanakan").replaceAll("_", " ")}</p></div><span className={`rounded-full px-2 py-1 text-[11px] font-medium ${allDone ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"}`}>{allDone ? "Selesai" : "Berjalan"}</span></div>
               <div className="divide-y">
-                {checklistRow("1", "Pemeriksaan kuantitas dan mutu", hasInspection ? `${inspections.length} hasil tercatat` : "Lakukan di titik pemeriksaan yang ditetapkan kontrak.", hasInspection, action("pemeriksaan", hasInspection ? "Tambah hasil" : "Catat pemeriksaan", shipment))}
-                {checklistRow("2", "Penerimaan penyedia / BAST", hasReception ? `BAST ${plainText(receipt.nomorBast) || "tercatat"}` : hasInspection ? "Catat hasil penerimaan setelah pemeriksaan." : "Tersedia setelah hasil pemeriksaan dicatat.", hasReception, !hasReception ? action("penerimaan", "Catat BAST", shipment, !hasInspection) : undefined)}
-                {checklistRow("•", "Penyimpanan", storageRows.length ? `${storageRows.length} catatan persediaan terkait BAST ini.` : "Catat hanya bila kargo disimpan atau dipindahkan ke fasilitas.", storageRows.length > 0, action("penyimpanan", storageRows.length ? "Tambah catatan" : "Catat penyimpanan", shipment, !hasReception), true)}
-                {checklistRow("3", "Serah-terima kepada Penerima Pasokan", hasHandover ? progressText : hasReception ? `${progressText}; catat dokumen penyerahannya.` : "Tersedia setelah BAST penerimaan tercatat.", hasHandover, !hasHandover ? action("serah-terima", "Catat serah-terima", shipment, !hasReception) : undefined)}
+                {checklistRow("1", "Pemeriksaan kuantitas dan mutu", hasInspection ? `${inspections.length} hasil tercatat. Tambah hasil untuk titik pemeriksaan lain atau pemeriksaan ulang.` : "Catat hasil di titik yang ditetapkan kontrak; pemeriksaan bisa dilakukan saat muat maupun setelah tiba.", hasInspection, action("pemeriksaan", hasInspection ? "Tambah hasil" : "Catat pemeriksaan", shipment))}
+                {checklistRow("2", "Penerimaan penyedia / BAST", hasReception ? `BAST ${plainText(receipt.nomorBast) || "tercatat"} · ${formatQuantity(receipt.kuantitasDiterima, unit)}` : !hasUnloaded ? plainText(shipment.status) === "tiba" ? "Kargo sudah tiba. Selesaikan pembongkaran sebelum mencatat BAST." : "Menunggu kargo tiba dan dibongkar. Hasil pemeriksaan saat muat tetap dapat dicatat lebih dulu." : !hasInspection ? "Kargo sudah dibongkar. Catat hasil pemeriksaan sesuai kontrak sebelum membuat BAST." : "Kargo sudah dibongkar dan hasil pemeriksaan tersedia. Catat tanggal, titik serah, kuantitas, mutu, dan nomor BAST.", hasReception, !hasReception ? action("penerimaan", "Catat BAST", shipment, !hasInspection || !hasUnloaded) : undefined)}
+                {checklistRow("•", "Penyimpanan", storageRows.length ? `${storageRows.length} catatan persediaan terkait BAST ini.` : "Opsional setelah BAST. Catat hanya jika kargo benar-benar disimpan atau dipindahkan sebelum diserahkan.", storageRows.length > 0, action("penyimpanan", storageRows.length ? "Tambah catatan" : "Catat penyimpanan", shipment, !hasReception || !hasUnloaded), true)}
+                {checklistRow("3", "Serah-terima kepada Penerima Pasokan", hasHandover ? progressText : hasReception && !hasUnloaded ? "Tersedia setelah kargo berada pada tahap dibongkar." : hasReception ? `${progressText}. Isi penerima, tanggal, titik serah, dokumen, dan kuantitas; catat beberapa kali jika penyerahan bertahap.` : "Tersedia setelah kargo dibongkar dan BAST penerimaan tercatat.", hasHandover, !hasHandover ? action("serah-terima", "Catat serah-terima", shipment, !hasReception || !hasUnloaded) : undefined)}
               </div>
+              {handoverDocuments.length ? (
+                <div className="space-y-1.5 border-t bg-muted/10 px-3 py-2.5">
+                  <p className="text-xs font-semibold">Bukti serah-terima</p>
+                  {handoverDocuments.map((handover) => {
+                    const document = object(handover.dokumen);
+                    return (
+                      <div key={String(document.id)} className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-2.5 py-1.5 text-xs">
+                        <span className="text-muted-foreground">{deliveryDate(handover.tanggalSerah)}{handover.nomorDokumen ? ` · ${plainText(handover.nomorDokumen)}` : ""}</span>
+                        <ReadDocumentButton documentId={String(document.id)} name={plainText(document.nama) || "Buka bukti serah-terima"} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {shipmentRisks.length ? <div className="space-y-2 border-t bg-amber-50/50 px-3 py-2.5 dark:bg-amber-950/10"><p className="text-xs font-semibold">Kejadian tercatat · {shipmentRisks.length}</p>{shipmentRisks.map((risk) => <div key={String(risk.id)} className="rounded-md border bg-background px-2.5 py-2 text-xs"><div className="flex flex-wrap items-center gap-2"><span className="font-medium">Tahap {shipmentStatusLabel(plainText(risk.tahapPengiriman))}</span><span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Dampak {plainText(risk.tingkat) || "belum dinilai"}</span><span className="text-muted-foreground">{deliveryDate(risk.createdAt)}</span></div><p className="mt-1 whitespace-pre-wrap text-foreground">{plainText(risk.deskripsi)}</p>{risk.mitigasi ? <p className="mt-1 text-muted-foreground">Tindak lanjut: {plainText(risk.mitigasi)}</p> : null}</div>)}</div> : null}
             </article>;
           }) : <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">Checklist per kargo muncul setelah pengiriman dicatat.</p>}
         </div>
       </section>
 
-      <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background px-4 py-3">
-        <div><h3 className="text-sm font-semibold">Kejadian dan risiko</h3><p className="mt-1 text-xs text-muted-foreground">Bisa dicatat kapan saja saat ada keterlambatan, selisih, atau ketidaksesuaian. Tidak menghambat checklist.</p></div>
-        <div className="flex items-center gap-2"><span className="rounded-full bg-muted px-2 py-1 text-[11px]">{risks.length} catatan</span>{action("risiko", "Catat kejadian")}</div>
-      </section>
     </section>
   );
 }
@@ -267,6 +379,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const id = useId();
   const [selected, setSelected] = useState<Operation | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [handoverEvidence, setHandoverEvidence] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [documentError, setDocumentError] = useState("");
@@ -327,6 +440,12 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         return field.name !== "vendorIds";
       })
       .map((field) => (selected?.key === "rfq" && field.name === "rfqId" && values.mode === "revisi" ? { ...field, name: "rfqIds", label: "RFQ acuan (pilih satu atau beberapa)", multiple: true, required: true } : field)) ?? [];
+  const statusShipmentForModal = selected?.key === "status-pengiriman"
+    ? records(detail.pengiriman).find((row) => String(row.id) === String(values.entityId ?? ""))
+    : undefined;
+  const riskShipmentForModal = selected?.key === "risiko"
+    ? records(detail.pengiriman).find((row) => String(row.id) === String(values.pengirimanId ?? ""))
+    : undefined;
   const needsVendors = !!selected && fields.some((field) => field.relation === "vendor");
   const vendors = use_query<Entity[], Error, string>({
     tag: "vendor",
@@ -400,7 +519,12 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         label: row.isPublic ? `${String(row.nomor ?? "RFQ")} · RFQ publik · R${String(row.revisi ?? 1)}` : `${String(row.nomor ?? "RFQ")} · ${String(object(row.vendor).nama ?? "vendor")} · R${String(row.revisi ?? 1)}`,
       }));
     }
-    if (field.relation === "kontrak") return contractChoices(records(detail.kontrak));
+    if (field.relation === "kontrak")
+      return contractChoices(
+        records(detail.kontrak).filter((contract) => contract.status === "efektif"),
+        records(detail.pengiriman),
+        selected?.key === "update-pengiriman" ? String(values.entityId ?? "") : undefined,
+      );
     if (field.relation === "pengiriman") return shipmentChoices(records(detail.pengiriman));
     if (field.relation === "penerimaan") {
       return records(detail.penerimaan).flatMap((receipt) => {
@@ -422,19 +546,38 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       label: selected?.key === "verifikasi" && ["selesai", "ditolak", "revisi"].includes(value) ? ({ selesai: "Sesuai", ditolak: "Tidak sesuai", revisi: "Perlu perbaikan" } as Record<string, string>)[value] : value.replaceAll("_", " "),
     }));
   };
-  const mutation = use_mutation<unknown, Error, { operation: Operation; body: Entity }>({
+  const mutation = use_mutation<unknown, Error, { operation: Operation; body: Entity; file?: File }>({
     tag: "siklusTransaksiKomoditas",
     method: "lifecycleBusinessOperation",
     invalidateKeys: [
       apiQueryKeys.resource("siklusTransaksiKomoditas"),
       apiQueryKeys.resource("lifecycleHistory"),
       apiQueryKeys.resource("lifecycleEvidence"),
+      apiQueryKeys.resource("dokumen"),
       apiQueryKeys.resource("pengadaan"),
       apiQueryKeys.resource("approval"),
       apiQueryKeys.resource("dashboard"),
     ],
-    mutationFn: async ({ operation, body }) => {
+    mutationFn: async ({ operation, body, file }) => {
       setBrowserToken();
+      if (operation.key === "serah-terima") {
+        if (!file) throw new Error("Unggah bukti dokumen serah-terima.");
+        const form = new FormData();
+        for (const [key, value] of Object.entries(body)) {
+          if (value !== undefined && value !== null) form.append(key, String(value));
+        }
+        form.append("file", file);
+        return apiData(
+          browserApi.request({
+            path: `/api/pengadaan/${encodeURIComponent(pengadaanId)}/serah-terima`,
+            method: "POST",
+            body: form,
+            type: ContentType.FormData,
+            format: "json",
+            secure: true,
+          }) as Promise<{ data: unknown }>,
+        );
+      }
       return apiData(operation.run(pengadaanId, body) as Promise<{ data: unknown }>);
     },
   });
@@ -488,6 +631,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   }, [detail.rfq, selected?.key, values.mode, values.rfqIds]);
   function open(operation: Operation, negotiation?: Entity, context?: Entity) {
     if (locked || !active) return;
+    setHandoverEvidence(null);
     const continuation = negotiation ?? (operation.key === "negosiasi" ? chosenContinuation : undefined);
     const initial: Record<string, string> = operation.key === "rfq" ? { mode: "baru" } : {};
     if (operation.key === "negosiasi" && continuation) {
@@ -512,6 +656,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     }
     if (context?.id && operation.fields.some((field) => field.name === "entityId")) initial.entityId = String(context.id);
     if (context?.id && operation.fields.some((field) => field.name === "pengirimanId")) initial.pengirimanId = String(context.id);
+    if (operation.key === "status-pengiriman" && context) {
+      const currentStatus = plainText(context.status) || "direncanakan";
+      const needsStatusCorrection = currentStatus === "bermasalah" || (currentStatus === "diserahkan" && !shipmentHandoverComplete(context));
+      initial.status = needsStatusCorrection ? "" : nextShipmentStatus(currentStatus) ?? currentStatus;
+    }
     if (context && operation.key === "penyimpanan") {
       const receipt = object(context.penerimaan);
       if (receipt.id) initial.penerimaanId = String(receipt.id);
@@ -541,6 +690,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   function close() {
     if (submitting.current || mutation.isPending) return;
     setSelected(null);
+    setHandoverEvidence(null);
     setError("");
     mutation.reset();
   }
@@ -568,10 +718,42 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         if (values.mode === "revisi" && !(values.rfqIds ?? "").split(",").filter(Boolean).length) throw new Error("Pilih minimal satu RFQ acuan untuk direvisi.");
         if (values.mode === "revisi" && !values.alasanPerubahan?.trim()) throw new Error("Alasan revisi wajib diisi.");
       }
+      if (selected.key === "penerimaan") {
+        const shipment = records(detail.pengiriman).find((row) => String(row.id) === String(values.pengirimanId ?? ""));
+        if (shipment && Number(values.kuantitasDiterima) !== Number(shipment.volumeRencana) && (values.denganCatatan !== "true" || !values.catatan?.trim()))
+          throw new Error("Kuantitas BAST berbeda dari alokasi rencana. Tandai penerimaan dengan catatan dan jelaskan selisihnya.");
+      }
+      if (selected.key === "pemeriksaan") {
+        const shipment = records(detail.pengiriman).find((row) => String(row.id) === String(values.pengirimanId ?? ""));
+        if (shipment && values.hasilKuantitas && quantityDiffers(values.hasilKuantitas, shipment.volumeRencana) && (values.diterimaDenganCatatan !== "true" || !values.catatan?.trim()))
+          throw new Error("Hasil ukur berbeda dari alokasi rencana. Tandai hasil dengan catatan dan jelaskan selisihnya.");
+      }
+      if (selected.key === "serah-terima" && !handoverEvidence)
+        throw new Error("Unggah bukti dokumen serah-terima sebelum menyimpan.");
+      if (selected.key === "status-pengiriman" && values.status === "diserahkan") {
+        const shipment = records(detail.pengiriman).find((row) => String(row.id) === String(values.entityId ?? ""));
+        if (!shipmentHandoverComplete(shipment)) throw new Error("Catat serah-terima sampai total kuantitasnya sama dengan BAST sebelum menandai kargo diserahkan.");
+      }
+      if (["pengiriman", "update-pengiriman"].includes(selected.key)) {
+        const contract = records(detail.kontrak).find((row) => String(row.id) === String(values.kontrakId ?? ""));
+        const excludeId = selected.key === "update-pengiriman" ? String(values.entityId ?? "") : undefined;
+        const remaining = contract ? remainingContractVolume(contract, records(detail.pengiriman), excludeId) : null;
+        const proposed = Number(values.volumeRencana);
+        const currentShipment = selected.key === "update-pengiriman" ? records(detail.pengiriman).find((row) => String(row.id) === excludeId) : undefined;
+        const allocationChanged = !currentShipment ||
+          String(currentShipment.kontrakId ?? "") !== String(values.kontrakId ?? "") ||
+          quantityUnits(currentShipment.volumeRencana) !== quantityUnits(proposed);
+        if (allocationChanged) {
+          if (!contract || remaining == null) throw new Error("Kontrak belum memiliki volume total yang dapat dialokasikan.");
+          if (!Number.isFinite(proposed) || proposed <= 0) throw new Error("Alokasi volume kargo harus lebih dari 0.");
+          if (quantityUnits(proposed) > quantityUnits(remaining))
+            throw new Error(`Alokasi melebihi sisa volume kontrak sebesar ${formatQuantity(proposed - remaining, contract.satuanKontrak)}.`);
+        }
+      }
       const payloadValues = Object.fromEntries(Object.entries(values).map(([name, value]) => [name, fields.find((field) => field.name === name)?.kind === "json" ? cleanParameterRows(value) : value]));
       const body = operationPayload(fields, payloadValues, options);
       submitting.current = true;
-      await mutation.mutateAsync({ operation: selected, body });
+      await mutation.mutateAsync({ operation: selected, body, file: selected.key === "serah-terima" ? handoverEvidence ?? undefined : undefined });
       setSuccess(
         selected.key === "rfq"
           ? isPublicDirectPurchase
@@ -580,6 +762,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           : `${selected.title}: berhasil.`,
       );
       setSelected(null);
+      setHandoverEvidence(null);
     } catch (cause) {
       setError(getApiErrorMessage(cause));
     } finally {
@@ -623,6 +806,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           active={active}
           locked={locked}
           operations={available.filter((operation) => ["pengiriman", "update-pengiriman", "status-pengiriman", "pemeriksaan", "penerimaan", "penyimpanan", "serah-terima", "risiko"].includes(operation.key))}
+          contracts={records(detail.kontrak)}
           shipments={records(detail.pengiriman)}
           storage={records(detail.penyimpanan)}
           risks={records(detail.risiko)}
@@ -830,8 +1014,18 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
             <Button type="button" variant="outline" disabled={locked} onClick={close}>
               Batal
             </Button>
-            <Button type="submit" form={`${id}-form`} disabled={locked || !permitted || vendorBlocked || missingRelation}>
-              {locked ? "Menyimpan…" : "Simpan"}
+            <Button type="submit" form={`${id}-form`} disabled={locked || !permitted || vendorBlocked || missingRelation || (selected?.key === "serah-terima" && !handoverEvidence) || (selected?.key === "status-pengiriman" && (statusShipmentForModal?.status === "diserahkan" && shipmentHandoverComplete(statusShipmentForModal) || !values.status || (values.status === "diserahkan" && !shipmentHandoverComplete(statusShipmentForModal))))}>
+              {locked
+                ? "Menyimpan…"
+                : selected?.key === "status-pengiriman"
+                  ? statusShipmentForModal?.status === "diserahkan" && shipmentHandoverComplete(statusShipmentForModal)
+                    ? "Progres selesai"
+                    : values.status === "bermasalah"
+                    ? "Tandai bermasalah"
+                    : statusShipmentForModal?.status === "bermasalah" || (statusShipmentForModal?.status === "diserahkan" && !shipmentHandoverComplete(statusShipmentForModal))
+                      ? `Pulihkan ke ${shipmentStatusLabel(values.status ?? "")}`
+                      : `Lanjut ke ${shipmentStatusLabel(values.status ?? "")}`
+                  : "Simpan"}
             </Button>
           </>
         }
@@ -1083,6 +1277,14 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
               })()
             : null}
           <fieldset disabled={locked || !permitted} className="space-y-4">
+            {selected?.key === "risiko" ? (
+              riskShipmentForModal ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-sm dark:border-amber-900 dark:bg-amber-950/20">
+                  <p className="font-medium">{plainText(riskShipmentForModal.namaKapal) || "Kargo"} · Kontrak {plainText(object(riskShipmentForModal.kontrak).nomor) || "—"}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Tahap saat kejadian: <span className="font-medium text-foreground">{shipmentStatusLabel(plainText(riskShipmentForModal.status))}</span>. Tahap disimpan otomatis saat kejadian dicatat.</p>
+                </div>
+              ) : <Alert variant="destructive"><AlertDescription>Buka pencatatan dari Progres pengiriman agar kargo dan tahapnya tercatat otomatis.</AlertDescription></Alert>
+            ) : null}
             {selected?.key === "rfq" ? (
               <p className="text-sm text-muted-foreground">
                 {isPublicDirectPurchase
@@ -1204,7 +1406,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                 <section key={section.title} className={`space-y-3 rounded-lg border bg-card p-4 ${selected && ["pengiriman", "update-pengiriman"].includes(selected.key) ? "" : "shadow-sm"}`}>
                   <div>
                     <h3 className="text-sm font-semibold">{section.title}</h3>
-                    {selected && ["pengiriman", "update-pengiriman"].includes(selected.key) ? <p className="mt-1 text-xs text-muted-foreground">Volume kargo mengikuti kontrak terpilih dan bisa disesuaikan.</p> : null}
+                    {selected?.key === "pengiriman" ? <p className="mt-1 text-xs text-muted-foreground">Alokasikan volume kargo ini. Kapal dan jadwal boleh dilengkapi belakangan jika belum diketahui.</p> : null}
+                    {selected?.key === "update-pengiriman" ? <p className="mt-1 text-xs text-muted-foreground">Edit detail bukan tahap wajib. Gunakan hanya untuk melengkapi informasi yang belum tersedia atau mencatat perubahan kapal dan jadwal.</p> : null}
+                    {selected?.key === "update-pengiriman" ? <p className="mt-1 text-xs text-muted-foreground">Sisa volume kontrak tetap menjadi batas total alokasi seluruh kargo.</p> : null}
                   </div>
                   <div className="grid items-start gap-x-5 gap-y-3 sm:grid-cols-2">
                     {section.fields.map((field) => {
@@ -1213,9 +1417,20 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                       const isLongText = field.payloadPath !== undefined;
                       const selectedContract = records(detail.kontrak).find((row) => String(row.id) === String(values.kontrakId ?? ""));
                       const deliveryField = ["pengiriman", "update-pengiriman"].includes(selected?.key ?? "");
+                      const excludedShipmentId = selected?.key === "update-pengiriman" ? String(values.entityId ?? "") : undefined;
+                      const allocationShipment = excludedShipmentId ? records(detail.pengiriman).find((row) => String(row.id) === excludedShipmentId) : undefined;
+                      const allocationLocked = selected?.key === "update-pengiriman" && Boolean(allocationShipment && (allocationShipment.status !== "direncanakan" || records(allocationShipment.pemeriksaan).length > 0 || allocationShipment.penerimaan));
+                      const allocationRemaining = selectedContract ? remainingContractVolume(selectedContract, records(detail.pengiriman), excludedShipmentId) : null;
+                      const receiptShipment = selected?.key === "penerimaan" ? records(detail.pengiriman).find((row) => String(row.id) === String(values.pengirimanId ?? "")) : undefined;
+                      const inspectionShipment = selected?.key === "pemeriksaan" ? records(detail.pengiriman).find((row) => String(row.id) === String(values.pengirimanId ?? "")) : undefined;
+                      const statusShipment = selected?.key === "status-pengiriman" ? records(detail.pengiriman).find((row) => String(row.id) === String(values.entityId ?? "")) : undefined;
+                      const currentShipmentStatus = plainText(statusShipment?.status) || "direncanakan";
+                      const currentShipmentStatusIndex = shipmentStatusSteps.findIndex((step) => step.value === currentShipmentStatus);
+                      const proposedShipmentStatus = values.status ?? nextShipmentStatus(currentShipmentStatus) ?? currentShipmentStatus;
+                      const statusNeedsCorrection = currentShipmentStatus === "bermasalah" || (currentShipmentStatus === "diserahkan" && !shipmentHandoverComplete(statusShipment));
                       const optionLabel = (value: string) => {
                         if (selected?.key === "status-pengiriman" && field.name === "status") {
-                          return ({ direncanakan: "Direncanakan", dimuat: "Sedang dimuat", dalam_perjalanan: "Dalam perjalanan", tiba: "Tiba", dibongkar: "Sedang dibongkar", diserahkan: "Diserahkan", bermasalah: "Bermasalah" } as Record<string, string>)[value] ?? value;
+                          return shipmentStatusLabel(value);
                         }
                         if (selected?.key === "pemeriksaan" && field.name === "tipe") {
                           return ({ quantity: "Kuantitas", quality: "Mutu", gabungan: "Kuantitas dan mutu" } as Record<string, string>)[value] ?? value;
@@ -1236,12 +1451,16 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               ? "ETD · Kapal berangkat"
                               : deliveryField && field.name === "eta"
                                 ? "ETA · Perkiraan tiba"
-                              : deliveryField && field.name === "volumeKontrak"
-                                ? `Volume kargo${plainText(selectedContract?.satuanKontrak) ? ` (${plainText(selectedContract?.satuanKontrak)})` : ""}`
+                              : deliveryField && field.name === "volumeRencana"
+                                ? `Alokasi volume kargo${plainText(selectedContract?.satuanKontrak) ? ` (${plainText(selectedContract?.satuanKontrak)})` : ""}`
+                              : selected?.key === "status-pengiriman" && field.name === "status"
+                                ? "Tahap pengiriman"
+                              : selected?.key === "status-pengiriman" && field.name === "volumeAktual"
+                                ? `Realisasi volume pengapalan${plainText(object(statusShipment?.kontrak).satuanKontrak) ? ` (${plainText(object(statusShipment?.kontrak).satuanKontrak)})` : ""}`
                                 : field.label;
                       const fullWidth =
-                        (deliveryField && ["entityId", "kontrakId", "volumeKontrak"].includes(field.name)) ||
-                        (selected?.key === "status-pengiriman" && field.name === "entityId") ||
+                        (deliveryField && ["entityId", "kontrakId", "volumeRencana"].includes(field.name)) ||
+                        (selected?.key === "status-pengiriman" && ["entityId", "status"].includes(field.name)) ||
                         (selected?.key === "penyimpanan" && field.name === "penerimaanId") ||
                         (selected?.key === "serah-terima" && field.name === "pengirimanId") ||
                         (field.kind === "json" || field.kind === "textarea") ||
@@ -1265,7 +1484,118 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                           {selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi" ? (
                             <p className="min-h-8 text-xs leading-4 text-muted-foreground">Isi harga per satuan, bukan total volume. Mata uang dan satuan mengikuti penawaran.</p>
                           ) : null}
-                          {field.multiple && field.relation && field.relation !== "vendor" ? (
+                          {deliveryField && field.name === "volumeRencana" && selectedContract ? (
+                            <p className="text-xs text-muted-foreground">
+                              {allocationLocked
+                                ? "Alokasi terkunci setelah kargo dimuat, diperiksa, atau diterima."
+                                : allocationRemaining == null
+                                ? "Volume total belum tersedia pada kontrak."
+                                : allocationRemaining < 0
+                                  ? `Alokasi kargo lain sudah melebihi volume kontrak sebesar ${formatQuantity(Math.abs(allocationRemaining), selectedContract.satuanKontrak)}. Kurangi alokasi sebelum menambah kargo.`
+                                  : `Sisa volume kontrak yang dapat dialokasikan: ${formatQuantity(allocationRemaining, selectedContract.satuanKontrak)}. Alokasi seluruh kargo tidak boleh melebihi volume kontrak.`}
+                            </p>
+                          ) : null}
+                          {selected?.key === "status-pengiriman" && field.name === "volumeAktual" ? (
+                            <p className="text-xs text-muted-foreground">Catat realisasi volume pengapalan di sini. Hasil pemeriksaan dan kuantitas BAST dicatat terpisah.</p>
+                          ) : null}
+                          {selected?.key === "pemeriksaan" && field.name === "hasilKuantitas" ? (
+                            <p className="text-xs text-muted-foreground">Masukkan hasil ukur sesuai titik pemeriksaan dalam kontrak. Sebutkan lokasinya di Catatan, misalnya pelabuhan muat atau titik bongkar. Jika berbeda dari alokasi {formatQuantity(inspectionShipment?.volumeRencana, object(inspectionShipment?.kontrak).satuanKontrak)}, jelaskan selisihnya.</p>
+                          ) : null}
+                          {selected?.key === "penerimaan" && field.name === "kuantitasDiterima" && receiptShipment ? (
+                            <p className="text-xs text-muted-foreground">
+                              {Number(values.kuantitasDiterima) === Number(receiptShipment.volumeRencana)
+                                ? `Alokasi kargo: ${formatQuantity(receiptShipment.volumeRencana, object(receiptShipment.kontrak).satuanKontrak)}.`
+                                : `Alokasi kargo: ${formatQuantity(receiptShipment.volumeRencana, object(receiptShipment.kontrak).satuanKontrak)}. Jika jumlah BAST berbeda, tandai “Ada catatan” dan jelaskan selisihnya.`}
+                            </p>
+                          ) : null}
+                          {selected?.key === "status-pengiriman" && field.name === "status" ? (
+                            <div className="space-y-3">
+                              <input type="hidden" value={values.status ?? ""} />
+                              {statusNeedsCorrection ? (
+                                <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+                                  <div>
+                                    <p className="text-sm font-medium">{currentShipmentStatus === "bermasalah" ? "Pengiriman ditandai bermasalah" : "Status Diserahkan belum didukung checklist lengkap"}</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">Pilih tahap terakhir yang benar-benar tercapai. Status Diserahkan hanya boleh dipakai setelah jumlah serah-terima sama dengan BAST.</p>
+                                  </div>
+                                  <Select value={values.status ?? ""} onValueChange={(value) => setValues((old) => ({ ...old, status: String(value ?? "") }))} disabled={locked || !permitted}>
+                                    <SelectTrigger id={fieldId} aria-required={field.required}>
+                                      <SelectValue placeholder="Pilih tahap untuk melanjutkan" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {shipmentStatusSteps.filter((step) => step.value !== "diserahkan" || shipmentHandoverComplete(statusShipment)).map((step) => <SelectItem key={step.value} value={step.value}>{step.label}</SelectItem>)}
+                                    </SelectContent>
+                                  </Select>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      const riskOperation = available.find((operation) => operation.key === "risiko");
+                                      if (riskOperation && statusShipment) open(riskOperation, undefined, statusShipment);
+                                    }}
+                                  >
+                                    Catat kejadian pada kargo ini
+                                  </Button>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="rounded-lg border bg-muted/20 p-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                      <span className="text-muted-foreground">Posisi sekarang</span>
+                                      <span className="font-medium text-foreground">{shipmentStatusLabel(currentShipmentStatus)}</span>
+                                    </div>
+                                    <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
+                                      {shipmentStatusSteps.map((step, index) => {
+                                        const complete = index < currentShipmentStatusIndex;
+                                        const current = index === currentShipmentStatusIndex;
+                                        return (
+                                          <div key={step.value} className="min-w-0 text-center">
+                                            <span className={`mx-auto grid size-6 place-items-center rounded-full text-[10px] font-semibold ${complete ? "bg-emerald-600 text-white" : current ? "bg-foreground text-background" : "bg-muted text-muted-foreground"}`}>
+                                              {complete ? <Check size={13} /> : index + 1}
+                                            </span>
+                                            <span className={`mt-1 block text-[10px] leading-4 ${current ? "font-semibold text-foreground" : "text-muted-foreground"}`}>{step.label}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                  {proposedShipmentStatus === "bermasalah" ? (
+                                    <Alert variant="destructive"><AlertDescription>Status akan ditandai bermasalah. Catat rincian kejadian pada kargo ini agar tahap dan dampaknya ikut tercatat.</AlertDescription></Alert>
+                                  ) : proposedShipmentStatus === "diserahkan" && !shipmentHandoverComplete(statusShipment) ? (
+                                    <Alert variant="destructive"><AlertDescription>Lengkapi catatan serah-terima sampai jumlahnya sama dengan BAST sebelum menandai kargo diserahkan.</AlertDescription></Alert>
+                                  ) : nextShipmentStatus(currentShipmentStatus) ? (
+                                    <p className="text-xs text-muted-foreground">Simpan untuk maju satu tahap: <span className="font-medium text-foreground">{shipmentStatusLabel(proposedShipmentStatus)}</span>. Volume aktual di bawah dicatat saat hasil pemuatan tersedia.</p>
+                                  ) : (
+                                    <p className="text-xs text-emerald-700">Tahap pengiriman ini sudah selesai.</p>
+                                  )}
+                                  <p className="text-xs text-muted-foreground">Status hanya menandai progres kargo. Hasil pemeriksaan, BAST, dan bukti serah-terima tetap dicatat pada checklist masing-masing.</p>
+                                  {statusShipment ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        const riskOperation = available.find((operation) => operation.key === "risiko");
+                                        if (riskOperation) open(riskOperation, undefined, statusShipment);
+                                      }}
+                                    >
+                                      Catat kejadian pada tahap ini
+                                    </Button>
+                                  ) : null}
+                                  {nextShipmentStatus(currentShipmentStatus) ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => setValues((old) => ({ ...old, status: old.status === "bermasalah" ? nextShipmentStatus(currentShipmentStatus)! : "bermasalah" }))}
+                                    >
+                                      {proposedShipmentStatus === "bermasalah" ? "Batalkan tanda bermasalah" : "Tandai bermasalah"}
+                                    </Button>
+                                  ) : null}
+                                </>
+                              )}
+                            </div>
+                          ) : field.multiple && field.relation && field.relation !== "vendor" ? (
                             <div className="space-y-2">
                               <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border bg-background p-2">
                                 {(values[field.name] ?? "")
@@ -1415,18 +1745,19 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               onValueChange={(value) => {
                                 const contract = records(detail.kontrak).find((row) => String(row.id) === value);
                                 setValues((old) => {
-                                  const currentContract = records(detail.kontrak).find((row) => String(row.id) === String(old[field.name] ?? ""));
-                                  const previousVolumeWasPrefilled = currentContract?.volumeKontrak != null && old.volumeKontrak === String(currentContract.volumeKontrak);
                                   const nextValues = { ...old, [field.name]: value };
-                                  if (deliveryField && contract?.volumeKontrak != null) nextValues.volumeKontrak = String(contract.volumeKontrak);
-                                  else if (deliveryField && previousVolumeWasPrefilled) nextValues.volumeKontrak = "";
+                                  if (deliveryField && contract) {
+                                    const excludeId = selected?.key === "update-pengiriman" ? String(old.entityId ?? "") : undefined;
+                                    const remaining = remainingContractVolume(contract, records(detail.pengiriman), excludeId);
+                                    nextValues.volumeRencana = remaining == null ? "" : String(Math.max(0, Math.round(remaining * 10_000) / 10_000));
+                                  }
                                   return nextValues;
                                 });
                               }}
                               label={field.label}
                               searchPlaceholder="Cari nomor kontrak atau vendor…"
                               emptyLabel="Pilih nomor kontrak"
-                              disabled={locked || !permitted}
+                              disabled={locked || !permitted || (deliveryField && allocationLocked)}
                             />
                           ) : isSelect && field.relation === "pengiriman" ? (
                             <FilterCombobox
@@ -1436,7 +1767,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               label={field.name === "entityId" ? "pengiriman" : field.label}
                               searchPlaceholder="Cari kapal, bill of lading, atau kontrak…"
                               emptyLabel="Pilih pengiriman"
-                              disabled={locked || !permitted}
+                              disabled={locked || !permitted || (selected?.key === "risiko" && field.name === "pengirimanId")}
                             />
                           ) : isSelect && field.relation === "penerimaan" ? (
                             <FilterCombobox
@@ -1614,13 +1945,14 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                             <Input
                               id={fieldId}
                               type={field.kind === "date" ? "date" : field.kind === "number" ? "number" : "text"}
-                              step={field.kind === "number" ? (field.integer ? "1" : "any") : undefined}
+                              step={field.kind === "number" ? (field.integer ? "1" : ["volumeRencana", "volumeAktual", "hasilKuantitas", "kuantitasDiterima", "kuantitasDiserahkan"].includes(field.name) ? "0.0001" : "any") : undefined}
                               min={field.min}
                               maxLength={field.maxLength}
                               required={field.required}
+                              disabled={locked || !permitted || (deliveryField && field.name === "volumeRencana" && allocationLocked)}
                               value={values[field.name] ?? ""}
                               onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
-                              placeholder={field.name === "namaKapal" ? "Contoh: MT Nusantara" : field.name === "nomorBillOfLading" ? "Masukkan nomor bill of lading" : field.name === "pelabuhanMuat" ? "Contoh: Ras Tanura" : field.name === "pelabuhanBongkar" ? "Contoh: Tanjung Priok" : field.name === "volumeKontrak" ? "Masukkan volume kargo" : undefined}
+                              placeholder={field.name === "namaKapal" ? "Contoh: MT Nusantara" : field.name === "nomorBillOfLading" ? "Masukkan nomor bill of lading" : field.name === "pelabuhanMuat" ? "Contoh: Ras Tanura" : field.name === "pelabuhanBongkar" ? "Contoh: Tanjung Priok" : field.name === "volumeRencana" ? "Masukkan volume yang dialokasikan ke kargo ini" : undefined}
                             />
                           )}
                         </div>
@@ -1629,6 +1961,22 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                   </div>
                 </section>
               ))}
+            {selected?.key === "serah-terima" ? (
+              <section className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
+                <div>
+                  <h3 className="text-sm font-semibold">Bukti serah-terima *</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">Unggah dokumen yang membuktikan penyerahan. Nomor dokumen boleh dikosongkan jika sudah tercantum di berkas.</p>
+                </div>
+                <UploadDocumentField
+                  id={`${id}-handover-evidence`}
+                  key={`${id}-handover-evidence-${selected.key}`}
+                  accept="application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp"
+                  disabled={locked || !permitted}
+                  helperText="PDF atau gambar JPG, PNG, WebP · maksimal 10 MB"
+                  onFileChange={setHandoverEvidence}
+                />
+              </section>
+            ) : null}
           </fieldset>
         </form>
       </Modal>

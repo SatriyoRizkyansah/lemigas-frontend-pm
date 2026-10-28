@@ -235,7 +235,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                 <Button
                   type="button"
                   className="shrink-0"
-                  disabled={updateStage.isPending}
+                  disabled={updateStage.isPending || Boolean(completionIssue)}
                   onClick={() => {
                     if (completionIssue) {
                       window.dispatchEvent(new CustomEvent("api:error", { detail: { message: completionIssue } }));
@@ -340,7 +340,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
               if (!updateStage.isPending) setConfirmComplete(false);
             }}
             title="Selesaikan tahap"
-            message="Selesaikan tahap ini? Backend akan memeriksa kelengkapan record dan dokumen wajib sebelum melanjutkan."
+            message="Sistem memeriksa seluruh record dan dokumen wajib. Jika lolos, tahap ini ditandai selesai dan tahap berikutnya langsung aktif."
             confirmLabel="Selesaikan tahap"
             busy={updateStage.isPending}
             onConfirm={() =>

@@ -362,14 +362,14 @@ export interface CreateDokumenOperasionalDto {
 }
 
 export interface CreatePengirimanDto {
-  kontrakId?: string;
+  kontrakId: string;
   namaKapal?: string;
   nomorBillOfLading?: string;
   pelabuhanMuat?: string;
   pelabuhanBongkar?: string;
   etd?: string;
   eta?: string;
-  volumeKontrak?: number;
+  volumeRencana: number;
 }
 
 export interface UpdatePengirimanDto {
@@ -380,7 +380,7 @@ export interface UpdatePengirimanDto {
   pelabuhanBongkar?: string;
   etd?: string;
   eta?: string;
-  volumeKontrak?: number;
+  volumeRencana?: number;
   volumeAktual?: number;
   status?:
     | "direncanakan"
@@ -422,14 +422,14 @@ export interface CreatePenerimaanDto {
   tanggalTerima: string;
   titikSerah: string;
   nomorBast?: string;
-  kuantitasDiterima?: number;
+  kuantitasDiterima: number;
   mutuDiterima?: object;
   denganCatatan?: boolean;
   catatan?: string;
 }
 
 export interface CreatePenyimpananDto {
-  penerimaanId?: string;
+  penerimaanId: string;
   fasilitas: string;
   satuan: string;
   lokasi?: string;
@@ -451,7 +451,7 @@ export interface CreateSerahTerimaKargoDto {
 }
 
 export interface CreateRisikoDto {
-  kategori: string;
+  pengirimanId: string;
   deskripsi: string;
   tingkat: "rendah" | "sedang" | "tinggi" | "kritis";
   mitigasi?: string;
