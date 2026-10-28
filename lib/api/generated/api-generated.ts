@@ -429,11 +429,24 @@ export interface CreatePenerimaanDto {
 }
 
 export interface CreatePenyimpananDto {
+  penerimaanId?: string;
   fasilitas: string;
   satuan: string;
   lokasi?: string;
   kuantitasMasuk?: number;
   kuantitasKeluar?: number;
+  catatan?: string;
+}
+
+export interface CreateSerahTerimaKargoDto {
+  pengirimanId: string;
+  nomorDokumen?: string;
+  tanggalSerah: string;
+  penerimaPasokan: string;
+  titikSerah: string;
+  kuantitasDiserahkan: number;
+  satuan: string;
+  status: "diterima" | "sebagian" | "ditolak";
   catatan?: string;
 }
 

@@ -129,6 +129,8 @@ function operationFieldSections(operationKey: string | undefined, fields: Field[
     "status-pengiriman": [{ title: "Status dan volume aktual", fields: ["entityId", "status", "volumeAktual"] }],
     pemeriksaan: [{ title: "Detail pemeriksaan", fields: ["pengirimanId", "tipe", "tanggalPeriksa", "surveyor", "hasilKuantitas", "hasilMutu", "nomorSertifikat", "diterimaDenganCatatan", "catatan"] }],
     penerimaan: [{ title: "Detail penerimaan / BAST", fields: ["pengirimanId", "tanggalTerima", "titikSerah", "nomorBast", "kuantitasDiterima", "mutuDiterima", "denganCatatan", "catatan"] }],
+    penyimpanan: [{ title: "Catatan persediaan", fields: ["fasilitas", "penerimaanId", "satuan", "lokasi", "kuantitasMasuk", "kuantitasKeluar", "catatan"] }],
+    "serah-terima": [{ title: "Detail penyerahan kepada Penerima Pasokan", fields: ["pengirimanId", "nomorDokumen", "tanggalSerah", "penerimaPasokan", "titikSerah", "kuantitasDiserahkan", "satuan", "status", "catatan"] }],
   };
   const configured = sections[operationKey ?? ""];
   if (!configured) return [{ title: "Informasi", fields }];
@@ -145,23 +147,51 @@ function deliveryDate(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? "—" : new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium" }).format(parsed);
 }
 
-function DeliveryChecklist({ active, locked, operations, shipments, storage, risks, onOpen }: {
+function DeliveryChecklist({ active, locked, operations, shipments, storage, risks, planning, onOpen }: {
   active: boolean; locked: boolean; operations: Operation[]; shipments: Entity[]; storage: Entity[]; risks: Entity[];
+  planning: Entity;
   onOpen: (operation: Operation, context?: Entity) => void;
 }) {
   const operation = (key: string) => operations.find((item) => item.key === key);
   const inspectionDone = (shipment: Entity) => records(shipment.pemeriksaan).length > 0;
   const receptionDone = (shipment: Entity) => Boolean(shipment.penerimaan);
-  const completed = shipments.filter((shipment) => inspectionDone(shipment) && receptionDone(shipment)).length;
+  const deliveredQuantity = (shipment: Entity) =>
+    records(shipment.serahTerima)
+      .filter((row) => row.status !== "ditolak")
+      .reduce((total, row) => total + Math.round(Number(row.kuantitasDiserahkan ?? 0) * 10_000), 0) / 10_000;
+  const handoverDone = (shipment: Entity) => {
+    const accepted = records(shipment.serahTerima).filter((row) => row.status !== "ditolak");
+    if (!accepted.length) return false;
+    const receipt = object(shipment.penerimaan);
+    const target = Number(receipt.kuantitasDiterima);
+    return Number.isFinite(target) && target > 0
+      ? deliveredQuantity(shipment) >= target
+      : accepted.some((row) => row.status === "diterima");
+  };
+  const completed = shipments.filter((shipment) => inspectionDone(shipment) && receptionDone(shipment) && handoverDone(shipment)).length;
   const action = (key: string, label: string, context?: Entity, unavailable = false) => {
     const item = operation(key);
     return item ? <Button type="button" size="sm" variant="outline" disabled={!active || locked || unavailable} onClick={() => onOpen(item, context)}>{label}</Button> : null;
   };
+  const checklistRow = (number: string, title: string, detail: string, done: boolean, control?: React.ReactNode, optional = false) => (
+    <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className={`grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${done ? "bg-emerald-600 text-white" : optional ? "bg-muted text-muted-foreground" : "border text-muted-foreground"}`}>
+          {done ? <Check size={13} /> : number}
+        </span>
+        <span className="min-w-0">
+          <span className="flex flex-wrap items-center gap-2 text-sm font-medium">{title}{optional ? <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Opsional</span> : null}</span>
+          <span className="block text-xs text-muted-foreground">{detail}</span>
+        </span>
+      </div>
+      {control}
+    </div>
+  );
   return (
     <section className="space-y-3" aria-label="Checklist pelaksanaan delivery">
       <section className="overflow-hidden rounded-xl border bg-background">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3">
-          <div><h3 className="text-sm font-semibold">Pengapalan dan pemantauan</h3><p className="mt-1 text-xs text-muted-foreground">Catat kargo satu per satu. Perubahan data dan status dilakukan dari baris pengiriman.</p></div>
+          <div><h3 className="text-sm font-semibold">Pengapalan dan pemantauan</h3><p className="mt-1 text-xs text-muted-foreground">Setiap kargo punya checklist sendiri, jadi pengiriman yang berbeda bisa berjalan bersamaan.</p></div>
           {action("pengiriman", "Catat pengiriman")}
         </header>
         {shipments.length ? (
@@ -175,35 +205,48 @@ function DeliveryChecklist({ active, locked, operations, shipments, storage, ris
               <td className="px-4 py-3"><div className="flex justify-end gap-2">{action("update-pengiriman", "Perbarui data", shipment)}{action("status-pengiriman", "Ubah status", shipment)}</div></td>
             </tr>)}</tbody>
           </table></div>
-        ) : <div className="px-4 py-6 text-center"><p className="text-sm font-medium">Belum ada pengiriman tercatat</p><p className="mt-1 text-xs text-muted-foreground">Catat kargo terlebih dahulu. Checklist pemeriksaan dan BAST muncul per pengiriman.</p></div>}
+        ) : <div className="px-4 py-6 text-center"><p className="text-sm font-medium">Belum ada pengiriman tercatat</p><p className="mt-1 text-xs text-muted-foreground">Catat kargo terlebih dahulu untuk membuka checklist operasionalnya.</p></div>}
       </section>
 
-      <details className="group overflow-hidden rounded-xl border bg-background">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden"><span><span className="block text-sm font-semibold">Checklist per kargo</span><span className="mt-1 block text-xs text-muted-foreground">Pemeriksaan kuantitas dan mutu, lalu penerimaan / BAST.</span></span><span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{shipments.length ? `${completed}/${shipments.length} lengkap` : "Menunggu pengiriman"}</span></summary>
-        <div className="space-y-2 border-t bg-muted/10 p-3">
+      <section className="overflow-hidden rounded-xl border bg-background">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3">
+          <div><h3 className="text-sm font-semibold">Checklist delivery per kargo</h3><p className="mt-1 text-xs text-muted-foreground">Pemeriksaan dan BAST berurutan. Penyimpanan opsional; serah-terima menutup alur kargo.</p></div>
+          <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{shipments.length ? `${completed}/${shipments.length} selesai` : "Menunggu pengiriman"}</span>
+        </header>
+        <div className="space-y-2 bg-muted/10 p-3">
           {shipments.length ? shipments.map((shipment) => {
             const inspections = records(shipment.pemeriksaan);
             const hasInspection = inspections.length > 0;
             const hasReception = receptionDone(shipment);
-            return <article key={String(shipment.id)} className="rounded-lg border bg-background p-3">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div><h4 className="text-sm font-semibold">{plainText(shipment.namaKapal) || "Pengiriman"}</h4><p className="mt-0.5 text-xs text-muted-foreground">B/L {plainText(shipment.nomorBillOfLading) || "belum dicatat"}</p></div><span className={`rounded-full px-2 py-1 text-[11px] font-medium ${hasInspection && hasReception ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"}`}>{hasInspection && hasReception ? "Lengkap" : "Perlu dilengkapi"}</span></div>
-              <div className="divide-y rounded-md border">
-                <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"><div className="flex min-w-0 items-center gap-2"><span className={`grid size-5 shrink-0 place-items-center rounded-full ${hasInspection ? "bg-emerald-600 text-white" : "border text-muted-foreground"}`}>{hasInspection ? <Check size={12} /> : <span className="size-1.5 rounded-full bg-current" />}</span><span><span className="block text-sm font-medium">Pemeriksaan kuantitas dan mutu</span><span className="block text-xs text-muted-foreground">{hasInspection ? `${inspections.length} hasil tercatat` : "Belum ada hasil pemeriksaan"}</span></span></div>{action("pemeriksaan", hasInspection ? "Tambah hasil" : "Catat pemeriksaan", shipment)}</div>
-                <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"><div className="flex min-w-0 items-center gap-2"><span className={`grid size-5 shrink-0 place-items-center rounded-full ${hasReception ? "bg-emerald-600 text-white" : "border text-muted-foreground"}`}>{hasReception ? <Check size={12} /> : <span className="size-1.5 rounded-full bg-current" />}</span><span><span className="block text-sm font-medium">Penerimaan / BAST</span><span className="block text-xs text-muted-foreground">{hasReception ? `BAST ${plainText(object(shipment.penerimaan).nomorBast) || "tercatat"}` : hasInspection ? "Pemeriksaan tersedia; catat hasil penerimaan" : "Catat setelah pemeriksaan kargo"}</span></span></div>{!hasReception ? action("penerimaan", "Catat penerimaan / BAST", shipment, !hasInspection) : null}</div>
+            const hasHandover = handoverDone(shipment);
+            const receipt = object(shipment.penerimaan);
+            const receiptId = String(receipt.id ?? "");
+            const storageRows = storage.filter((row) => String(row.penerimaanId ?? "") === receiptId);
+            const unit = plainText(planning.satuan) || plainText(object(shipment.detail).satuan);
+            const targetQuantity = Number(receipt.kuantitasDiterima);
+            const expectedQuantity = Number.isFinite(targetQuantity) && targetQuantity > 0 ? plainText(receipt.kuantitasDiterima) : "";
+            const delivered = deliveredQuantity(shipment);
+            const progressText = expectedQuantity
+              ? `${delivered} / ${expectedQuantity}${unit ? ` ${unit}` : ""} diserahkan`
+              : `${records(shipment.serahTerima).length} catatan serah-terima`;
+            const allDone = hasInspection && hasReception && hasHandover;
+            return <article key={String(shipment.id)} className="overflow-hidden rounded-lg border bg-background">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2.5"><div><h4 className="text-sm font-semibold">{plainText(shipment.namaKapal) || "Pengiriman"}</h4><p className="mt-0.5 text-xs text-muted-foreground">B/L {plainText(shipment.nomorBillOfLading) || "belum dicatat"} · {(plainText(shipment.status) || "direncanakan").replaceAll("_", " ")}</p></div><span className={`rounded-full px-2 py-1 text-[11px] font-medium ${allDone ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"}`}>{allDone ? "Selesai" : "Berjalan"}</span></div>
+              <div className="divide-y">
+                {checklistRow("1", "Pemeriksaan kuantitas dan mutu", hasInspection ? `${inspections.length} hasil tercatat` : "Lakukan di titik pemeriksaan yang ditetapkan kontrak.", hasInspection, action("pemeriksaan", hasInspection ? "Tambah hasil" : "Catat pemeriksaan", shipment))}
+                {checklistRow("2", "Penerimaan penyedia / BAST", hasReception ? `BAST ${plainText(receipt.nomorBast) || "tercatat"}` : hasInspection ? "Catat hasil penerimaan setelah pemeriksaan." : "Tersedia setelah hasil pemeriksaan dicatat.", hasReception, !hasReception ? action("penerimaan", "Catat BAST", shipment, !hasInspection) : undefined)}
+                {checklistRow("•", "Penyimpanan", storageRows.length ? `${storageRows.length} catatan persediaan terkait BAST ini.` : "Catat hanya bila kargo disimpan atau dipindahkan ke fasilitas.", storageRows.length > 0, action("penyimpanan", storageRows.length ? "Tambah catatan" : "Catat penyimpanan", shipment, !hasReception), true)}
+                {checklistRow("3", "Serah-terima kepada Penerima Pasokan", hasHandover ? progressText : hasReception ? `${progressText}; catat dokumen penyerahannya.` : "Tersedia setelah BAST penerimaan tercatat.", hasHandover, !hasHandover ? action("serah-terima", "Catat serah-terima", shipment, !hasReception) : undefined)}
               </div>
             </article>;
           }) : <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">Checklist per kargo muncul setelah pengiriman dicatat.</p>}
-          <p className="px-1 pt-1 text-xs text-muted-foreground">Setiap pengiriman perlu memiliki hasil pemeriksaan dan BAST sebelum tahap selesai. Dokumen wajib diperiksa pada bagian dokumen operasional.</p>
         </div>
-      </details>
+      </section>
 
-      <details className="group overflow-hidden rounded-xl border bg-background">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden"><span><span className="block text-sm font-semibold">Penyimpanan dan kejadian</span><span className="mt-1 block text-xs text-muted-foreground">Isi bila kargo disimpan atau terjadi gangguan / ketidaksesuaian.</span></span><span className="shrink-0 text-xs text-muted-foreground">Kondisional</span></summary>
-        <div className="grid gap-3 border-t bg-muted/10 p-3 sm:grid-cols-2">
-          <section className="rounded-lg border bg-background p-3"><div className="flex items-start justify-between gap-2"><div><h4 className="text-sm font-semibold">Penyimpanan</h4><p className="mt-1 text-xs text-muted-foreground">Catat perpindahan atau perubahan persediaan bila kargo disimpan.</p></div><span className="rounded-full bg-muted px-2 py-1 text-[11px]">{storage.length} catatan</span></div>{action("penyimpanan", "Catat penyimpanan")}</section>
-          <section className="rounded-lg border bg-background p-3"><div className="flex items-start justify-between gap-2"><div><h4 className="text-sm font-semibold">Kejadian / risiko</h4><p className="mt-1 text-xs text-muted-foreground">Catat keterlambatan, selisih, ketidaksesuaian mutu, atau kejadian lain yang terjadi.</p></div><span className="rounded-full bg-muted px-2 py-1 text-[11px]">{risks.length} catatan</span></div>{action("risiko", "Catat kejadian / risiko")}</section>
-        </div>
-      </details>
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background px-4 py-3">
+        <div><h3 className="text-sm font-semibold">Kejadian dan risiko</h3><p className="mt-1 text-xs text-muted-foreground">Bisa dicatat kapan saja saat ada keterlambatan, selisih, atau ketidaksesuaian. Tidak menghambat checklist.</p></div>
+        <div className="flex items-center gap-2"><span className="rounded-full bg-muted px-2 py-1 text-[11px]">{risks.length} catatan</span>{action("risiko", "Catat kejadian")}</div>
+      </section>
     </section>
   );
 }
@@ -359,6 +402,15 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     }
     if (field.relation === "kontrak") return contractChoices(records(detail.kontrak));
     if (field.relation === "pengiriman") return shipmentChoices(records(detail.pengiriman));
+    if (field.relation === "penerimaan") {
+      return records(detail.penerimaan).flatMap((receipt) => {
+        if (typeof receipt.id !== "string") return [];
+        const shipment = records(detail.pengiriman).find((row) => String(object(row.penerimaan).id ?? "") === String(receipt.id));
+        const identity = plainText(shipment?.namaKapal) || plainText(shipment?.nomorBillOfLading) || "Kargo";
+        const bast = plainText(receipt.nomorBast);
+        return [{ value: String(receipt.id), label: [bast ? `BAST ${bast}` : "Penerimaan", identity].join(" · ") }];
+      });
+    }
     if (field.relation) return choices(field.relation === "laporanDraft" ? records(detail.laporan).filter((row) => row.status === "draft") : records(detail[field.relation]));
     if (field.kind === "boolean")
       return [
@@ -460,6 +512,21 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     }
     if (context?.id && operation.fields.some((field) => field.name === "entityId")) initial.entityId = String(context.id);
     if (context?.id && operation.fields.some((field) => field.name === "pengirimanId")) initial.pengirimanId = String(context.id);
+    if (context && operation.key === "penyimpanan") {
+      const receipt = object(context.penerimaan);
+      if (receipt.id) initial.penerimaanId = String(receipt.id);
+      if (!initial.satuan && object(detail.perencanaan).satuan) initial.satuan = String(object(detail.perencanaan).satuan);
+    }
+    if (context && operation.key === "serah-terima") {
+      const receipt = object(context.penerimaan);
+      const planning = object(detail.perencanaan);
+      initial.tanggalSerah = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta" }).format(new Date());
+      initial.penerimaPasokan = String(planning.penerimaPasokan ?? "");
+      initial.titikSerah = String(planning.titikSerah ?? receipt.titikSerah ?? "");
+      initial.satuan = String(planning.satuan ?? object(context.detail).satuan ?? "");
+      initial.kuantitasDiserahkan = receipt.kuantitasDiterima == null ? "" : String(receipt.kuantitasDiterima);
+      initial.status = "diterima";
+    }
     if (operation.key === "kontrak") {
       const selection = object(detail.pemilihanPenyedia);
       if (selection.status === "disetujui" && typeof selection.vendorTerpilihId === "string") initial.vendorId = selection.vendorTerpilihId;
@@ -555,10 +622,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         <DeliveryChecklist
           active={active}
           locked={locked}
-          operations={available.filter((operation) => ["pengiriman", "update-pengiriman", "status-pengiriman", "pemeriksaan", "penerimaan", "penyimpanan", "risiko"].includes(operation.key))}
+          operations={available.filter((operation) => ["pengiriman", "update-pengiriman", "status-pengiriman", "pemeriksaan", "penerimaan", "penyimpanan", "serah-terima", "risiko"].includes(operation.key))}
           shipments={records(detail.pengiriman)}
           storage={records(detail.penyimpanan)}
           risks={records(detail.risiko)}
+          planning={object(detail.perencanaan)}
           onOpen={(operation, context) => open(operation, undefined, context)}
         />
       ) : (
@@ -1152,6 +1220,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                         if (selected?.key === "pemeriksaan" && field.name === "tipe") {
                           return ({ quantity: "Kuantitas", quality: "Mutu", gabungan: "Kuantitas dan mutu" } as Record<string, string>)[value] ?? value;
                         }
+                        if (selected?.key === "serah-terima" && field.name === "status") {
+                          return ({ diterima: "Diterima lengkap", sebagian: "Diterima sebagian", ditolak: "Ditolak" } as Record<string, string>)[value] ?? value;
+                        }
                         return selected?.key === "verifikasi" && ["selesai", "ditolak", "revisi"].includes(value)
                           ? ({ selesai: "Sesuai", ditolak: "Tidak sesuai", revisi: "Perlu perbaikan" } as Record<string, string>)[value]
                           : value.replaceAll("_", " ");
@@ -1171,6 +1242,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                       const fullWidth =
                         (deliveryField && ["entityId", "kontrakId", "volumeKontrak"].includes(field.name)) ||
                         (selected?.key === "status-pengiriman" && field.name === "entityId") ||
+                        (selected?.key === "penyimpanan" && field.name === "penerimaanId") ||
+                        (selected?.key === "serah-terima" && field.name === "pengirimanId") ||
                         (field.kind === "json" || field.kind === "textarea") ||
                         (selected?.key === "pemeriksaan" && ["pengirimanId", "hasilMutu", "catatan"].includes(field.name)) ||
                         (selected?.key === "penerimaan" && ["pengirimanId", "mutuDiterima", "catatan"].includes(field.name)) ||
@@ -1363,6 +1436,16 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               label={field.name === "entityId" ? "pengiriman" : field.label}
                               searchPlaceholder="Cari kapal, bill of lading, atau kontrak…"
                               emptyLabel="Pilih pengiriman"
+                              disabled={locked || !permitted}
+                            />
+                          ) : isSelect && field.relation === "penerimaan" ? (
+                            <FilterCombobox
+                              options={options(field)}
+                              value={values[field.name] || ""}
+                              onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: value }))}
+                              label={field.label}
+                              searchPlaceholder="Cari nomor BAST atau nama kapal…"
+                              emptyLabel="Pilih penerimaan / BAST"
                               disabled={locked || !permitted}
                             />
                           ) : isSelect ? (

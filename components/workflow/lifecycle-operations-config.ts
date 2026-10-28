@@ -257,7 +257,7 @@ export const lifecycleOperations: Operation[] = [
     run: (id) => browserApi.approval.approvalActionControllerSubmitMemorandum(id, { format: "json" }),
   },
   create("pengiriman", "Catat pengiriman", "delivery", api.transaksiControllerCreatePengiriman, [
-    rel("kontrakId", "Kontrak", "kontrak"),
+    rel("kontrakId", "Kontrak", "kontrak", true),
     text("namaKapal", "Nama kapal", false, 150),
     text("nomorBillOfLading", "Nomor bill of lading", false, 100),
     text("pelabuhanMuat", "Pelabuhan muat"),
@@ -323,6 +323,7 @@ export const lifecycleOperations: Operation[] = [
   ),
   create("penyimpanan", "Catat penyimpanan", "delivery", api.transaksiControllerCreatePenyimpanan, [
     text("fasilitas", "Fasilitas", true, 200),
+    rel("penerimaanId", "Penerimaan / BAST terkait", "penerimaan", true),
     text("satuan", "Satuan", true, 30),
     text("lokasi", "Lokasi", false, 200),
     num("kuantitasMasuk", "Kuantitas masuk", 0),
@@ -337,6 +338,32 @@ export const lifecycleOperations: Operation[] = [
     [text("kategori", "Kategori", true, 100), text("deskripsi", "Deskripsi", true), select("tingkat", "Tingkat", ["rendah", "sedang", "tinggi", "kritis"]), text("mitigasi", "Mitigasi")],
     AOV,
   ),
+  {
+    key: "serah-terima",
+    title: "Catat serah-terima kepada Penerima Pasokan",
+    stages: ["delivery"],
+    roles: AOV,
+    fields: [
+      rel("pengirimanId", "Kargo", "pengiriman", true),
+      text("nomorDokumen", "Nomor dokumen serah-terima", false, 100),
+      date("tanggalSerah", "Tanggal penyerahan", true),
+      text("penerimaPasokan", "Penerima pasokan", true, 200),
+      text("titikSerah", "Titik serah", true, 200),
+      num("kuantitasDiserahkan", "Kuantitas diserahkan", 0, true),
+      text("satuan", "Satuan", true, 30),
+      select("status", "Status penyerahan", ["diterima", "sebagian", "ditolak"]),
+      textarea("catatan", "Catatan"),
+    ],
+    run: (id, body) =>
+      browserApi.request<unknown, unknown>({
+        path: `/api/pengadaan/${encodeURIComponent(id)}/serah-terima`,
+        method: "POST",
+        body,
+        type: ContentType.Json,
+        format: "json",
+        secure: true,
+      }),
+  },
   create("tagihan", "Catat tagihan", "settlement", api.transaksiControllerCreateTagihan, [
     nomor,
     text("pihak", "Pihak", true, 200),
