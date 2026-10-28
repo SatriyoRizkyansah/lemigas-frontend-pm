@@ -13,9 +13,11 @@ type FilterComboboxProps = {
   onValueChange: (value: string) => void;
   label: string;
   disabled?: boolean;
+  searchPlaceholder?: string;
+  emptyLabel?: string;
 };
 
-export function FilterCombobox({ options, value, onValueChange, label, disabled = false }: FilterComboboxProps) {
+export function FilterCombobox({ options, value, onValueChange, label, disabled = false, searchPlaceholder = "Cari opsi…", emptyLabel }: FilterComboboxProps) {
   const selectedOption = options.find((option) => option.value === value) ?? null;
 
   return (
@@ -31,10 +33,10 @@ export function FilterCombobox({ options, value, onValueChange, label, disabled 
       disabled={disabled}
     >
       <Combobox.Trigger
-        aria-label={`Filter ${label.toLocaleLowerCase("id-ID")}`}
-        className="flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-sm text-muted-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label={`Pilih ${label.toLocaleLowerCase("id-ID")}`}
+        className={`flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 ${selectedOption ? "text-foreground" : "text-muted-foreground"}`}
       >
-        <Combobox.Value>{(selected) => <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? label}</span>}</Combobox.Value>
+        <Combobox.Value>{(selected) => <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? emptyLabel ?? label}</span>}</Combobox.Value>
         <Combobox.Icon>
           <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
         </Combobox.Icon>
@@ -47,7 +49,7 @@ export function FilterCombobox({ options, value, onValueChange, label, disabled 
                 <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                 <Combobox.Input
                   aria-label={`Cari opsi ${label.toLocaleLowerCase("id-ID")}`}
-                  placeholder="Search..."
+                  placeholder={searchPlaceholder}
                   className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-foreground outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
                 />
               </div>

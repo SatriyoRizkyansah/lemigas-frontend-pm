@@ -83,6 +83,31 @@ function cleanParameterRows(value: string): string {
 function choices(rows: Entity[]): Choice[] {
   return rows.filter((row) => typeof row.id === "string").map((row) => ({ value: String(row.id), label: [row.nomor ?? row.nama ?? row.namaKapal ?? row.nomorBillOfLading ?? row.jenis ?? row.id].filter(Boolean).join(" · ") }));
 }
+function contractChoices(rows: Entity[]): Choice[] {
+  return rows
+    .filter((row) => typeof row.id === "string")
+    .map((row) => {
+      const number = plainText(row.nomor);
+      const vendor = plainText(object(row.vendor).nama);
+      const status = plainText(row.status).replaceAll("_", " ");
+      return {
+        value: String(row.id),
+        label: [number ? `Kontrak ${number}` : "Kontrak tanpa nomor", vendor, status].filter(Boolean).join(" · "),
+      };
+    });
+}
+function shipmentChoices(rows: Entity[]): Choice[] {
+  return rows
+    .filter((row) => typeof row.id === "string")
+    .map((row) => {
+      const vessel = plainText(row.namaKapal);
+      const bill = plainText(row.nomorBillOfLading);
+      const route = [plainText(row.pelabuhanMuat), plainText(row.pelabuhanBongkar)].filter(Boolean).join(" → ");
+      const contractNumber = plainText(object(row.kontrak).nomor);
+      const identity = vessel || (bill ? `B/L ${bill}` : "") || route || "Kargo tanpa identitas";
+      return { value: String(row.id), label: [identity, bill && vessel ? `B/L ${bill}` : "", contractNumber ? `Kontrak ${contractNumber}` : "", plainText(row.status).replaceAll("_", " ")].filter(Boolean).join(" · ") };
+    });
+}
 function operationFieldSections(operationKey: string | undefined, fields: Field[]): Array<{ title: string; fields: Field[] }> {
   const sections: Record<string, { title: string; fields: string[] }[]> = {
     rfq: [
@@ -99,6 +124,11 @@ function operationFieldSections(operationKey: string | undefined, fields: Field[
       { title: "Analisis dan strategi", fields: ["analisisPasar", "dasarPemilihan", "strategiPengiriman", "strategiPembiayaan"] },
     ],
     negosiasi: [{ title: "Detail negosiasi", fields: ["penawaranId", "batasNegosiasi", "hargaHasilNegosiasi", "hasil"] }],
+    pengiriman: [{ title: "Informasi pengiriman", fields: ["kontrakId", "namaKapal", "nomorBillOfLading", "pelabuhanMuat", "pelabuhanBongkar", "etd", "eta", "volumeKontrak"] }],
+    "update-pengiriman": [{ title: "Informasi pengiriman", fields: ["entityId", "kontrakId", "namaKapal", "nomorBillOfLading", "pelabuhanMuat", "pelabuhanBongkar", "etd", "eta", "volumeKontrak"] }],
+    "status-pengiriman": [{ title: "Status dan volume aktual", fields: ["entityId", "status", "volumeAktual"] }],
+    pemeriksaan: [{ title: "Detail pemeriksaan", fields: ["pengirimanId", "tipe", "tanggalPeriksa", "surveyor", "hasilKuantitas", "hasilMutu", "nomorSertifikat", "diterimaDenganCatatan", "catatan"] }],
+    penerimaan: [{ title: "Detail penerimaan / BAST", fields: ["pengirimanId", "tanggalTerima", "titikSerah", "nomorBast", "kuantitasDiterima", "mutuDiterima", "denganCatatan", "catatan"] }],
   };
   const configured = sections[operationKey ?? ""];
   if (!configured) return [{ title: "Informasi", fields }];
@@ -107,6 +137,75 @@ function operationFieldSections(operationKey: string | undefined, fields: Field[
   const remaining = fields.filter((field) => !assigned.has(field.name));
   if (remaining.length) grouped.push({ title: "Informasi tambahan", fields: remaining });
   return grouped;
+}
+
+function deliveryDate(value: unknown) {
+  if (!value) return "—";
+  const parsed = new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? "—" : new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium" }).format(parsed);
+}
+
+function DeliveryChecklist({ active, locked, operations, shipments, storage, risks, onOpen }: {
+  active: boolean; locked: boolean; operations: Operation[]; shipments: Entity[]; storage: Entity[]; risks: Entity[];
+  onOpen: (operation: Operation, context?: Entity) => void;
+}) {
+  const operation = (key: string) => operations.find((item) => item.key === key);
+  const inspectionDone = (shipment: Entity) => records(shipment.pemeriksaan).length > 0;
+  const receptionDone = (shipment: Entity) => Boolean(shipment.penerimaan);
+  const completed = shipments.filter((shipment) => inspectionDone(shipment) && receptionDone(shipment)).length;
+  const action = (key: string, label: string, context?: Entity, unavailable = false) => {
+    const item = operation(key);
+    return item ? <Button type="button" size="sm" variant="outline" disabled={!active || locked || unavailable} onClick={() => onOpen(item, context)}>{label}</Button> : null;
+  };
+  return (
+    <section className="space-y-3" aria-label="Checklist pelaksanaan delivery">
+      <section className="overflow-hidden rounded-xl border bg-background">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3">
+          <div><h3 className="text-sm font-semibold">Pengapalan dan pemantauan</h3><p className="mt-1 text-xs text-muted-foreground">Catat kargo satu per satu. Perubahan data dan status dilakukan dari baris pengiriman.</p></div>
+          {action("pengiriman", "Catat pengiriman")}
+        </header>
+        {shipments.length ? (
+          <div className="overflow-x-auto"><table className="w-full min-w-[740px] text-left text-sm">
+            <thead className="bg-muted/10 text-xs text-muted-foreground"><tr><th className="px-4 py-2.5 font-medium">Kargo / kapal</th><th className="px-4 py-2.5 font-medium">Bill of lading</th><th className="px-4 py-2.5 font-medium">Status</th><th className="px-4 py-2.5 font-medium">ETA</th><th className="px-4 py-2.5 text-right font-medium">Aksi</th></tr></thead>
+            <tbody className="divide-y">{shipments.map((shipment) => <tr key={String(shipment.id)}>
+              <td className="px-4 py-3"><p className="font-medium">{plainText(shipment.namaKapal) || "Pengiriman"}</p><p className="mt-0.5 text-xs text-muted-foreground">Volume aktual: {plainText(shipment.volumeAktual) || "Belum dicatat"}</p></td>
+              <td className="px-4 py-3 text-muted-foreground">{plainText(shipment.nomorBillOfLading) || "—"}</td>
+              <td className="px-4 py-3"><span className="rounded-full bg-muted px-2 py-1 text-xs font-medium capitalize">{(plainText(shipment.status) || "direncanakan").replaceAll("_", " ")}</span></td>
+              <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{deliveryDate(shipment.eta)}</td>
+              <td className="px-4 py-3"><div className="flex justify-end gap-2">{action("update-pengiriman", "Perbarui data", shipment)}{action("status-pengiriman", "Ubah status", shipment)}</div></td>
+            </tr>)}</tbody>
+          </table></div>
+        ) : <div className="px-4 py-6 text-center"><p className="text-sm font-medium">Belum ada pengiriman tercatat</p><p className="mt-1 text-xs text-muted-foreground">Catat kargo terlebih dahulu. Checklist pemeriksaan dan BAST muncul per pengiriman.</p></div>}
+      </section>
+
+      <details className="group overflow-hidden rounded-xl border bg-background">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden"><span><span className="block text-sm font-semibold">Checklist per kargo</span><span className="mt-1 block text-xs text-muted-foreground">Pemeriksaan kuantitas dan mutu, lalu penerimaan / BAST.</span></span><span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{shipments.length ? `${completed}/${shipments.length} lengkap` : "Menunggu pengiriman"}</span></summary>
+        <div className="space-y-2 border-t bg-muted/10 p-3">
+          {shipments.length ? shipments.map((shipment) => {
+            const inspections = records(shipment.pemeriksaan);
+            const hasInspection = inspections.length > 0;
+            const hasReception = receptionDone(shipment);
+            return <article key={String(shipment.id)} className="rounded-lg border bg-background p-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div><h4 className="text-sm font-semibold">{plainText(shipment.namaKapal) || "Pengiriman"}</h4><p className="mt-0.5 text-xs text-muted-foreground">B/L {plainText(shipment.nomorBillOfLading) || "belum dicatat"}</p></div><span className={`rounded-full px-2 py-1 text-[11px] font-medium ${hasInspection && hasReception ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"}`}>{hasInspection && hasReception ? "Lengkap" : "Perlu dilengkapi"}</span></div>
+              <div className="divide-y rounded-md border">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"><div className="flex min-w-0 items-center gap-2"><span className={`grid size-5 shrink-0 place-items-center rounded-full ${hasInspection ? "bg-emerald-600 text-white" : "border text-muted-foreground"}`}>{hasInspection ? <Check size={12} /> : <span className="size-1.5 rounded-full bg-current" />}</span><span><span className="block text-sm font-medium">Pemeriksaan kuantitas dan mutu</span><span className="block text-xs text-muted-foreground">{hasInspection ? `${inspections.length} hasil tercatat` : "Belum ada hasil pemeriksaan"}</span></span></div>{action("pemeriksaan", hasInspection ? "Tambah hasil" : "Catat pemeriksaan", shipment)}</div>
+                <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"><div className="flex min-w-0 items-center gap-2"><span className={`grid size-5 shrink-0 place-items-center rounded-full ${hasReception ? "bg-emerald-600 text-white" : "border text-muted-foreground"}`}>{hasReception ? <Check size={12} /> : <span className="size-1.5 rounded-full bg-current" />}</span><span><span className="block text-sm font-medium">Penerimaan / BAST</span><span className="block text-xs text-muted-foreground">{hasReception ? `BAST ${plainText(object(shipment.penerimaan).nomorBast) || "tercatat"}` : hasInspection ? "Pemeriksaan tersedia; catat hasil penerimaan" : "Catat setelah pemeriksaan kargo"}</span></span></div>{!hasReception ? action("penerimaan", "Catat penerimaan / BAST", shipment, !hasInspection) : null}</div>
+              </div>
+            </article>;
+          }) : <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">Checklist per kargo muncul setelah pengiriman dicatat.</p>}
+          <p className="px-1 pt-1 text-xs text-muted-foreground">Setiap pengiriman perlu memiliki hasil pemeriksaan dan BAST sebelum tahap selesai. Dokumen wajib diperiksa pada bagian dokumen operasional.</p>
+        </div>
+      </details>
+
+      <details className="group overflow-hidden rounded-xl border bg-background">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden"><span><span className="block text-sm font-semibold">Penyimpanan dan kejadian</span><span className="mt-1 block text-xs text-muted-foreground">Isi bila kargo disimpan atau terjadi gangguan / ketidaksesuaian.</span></span><span className="shrink-0 text-xs text-muted-foreground">Kondisional</span></summary>
+        <div className="grid gap-3 border-t bg-muted/10 p-3 sm:grid-cols-2">
+          <section className="rounded-lg border bg-background p-3"><div className="flex items-start justify-between gap-2"><div><h4 className="text-sm font-semibold">Penyimpanan</h4><p className="mt-1 text-xs text-muted-foreground">Catat perpindahan atau perubahan persediaan bila kargo disimpan.</p></div><span className="rounded-full bg-muted px-2 py-1 text-[11px]">{storage.length} catatan</span></div>{action("penyimpanan", "Catat penyimpanan")}</section>
+          <section className="rounded-lg border bg-background p-3"><div className="flex items-start justify-between gap-2"><div><h4 className="text-sm font-semibold">Kejadian / risiko</h4><p className="mt-1 text-xs text-muted-foreground">Catat keterlambatan, selisih, ketidaksesuaian mutu, atau kejadian lain yang terjadi.</p></div><span className="rounded-full bg-muted px-2 py-1 text-[11px]">{risks.length} catatan</span></div>{action("risiko", "Catat kejadian / risiko")}</section>
+        </div>
+      </details>
+    </section>
+  );
 }
 
 /** Standalone: parent supplies unwrapped GET siklus detail; mutations invalidate lifecycle and related lists. */
@@ -258,6 +357,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         label: row.isPublic ? `${String(row.nomor ?? "RFQ")} · RFQ publik · R${String(row.revisi ?? 1)}` : `${String(row.nomor ?? "RFQ")} · ${String(object(row.vendor).nama ?? "vendor")} · R${String(row.revisi ?? 1)}`,
       }));
     }
+    if (field.relation === "kontrak") return contractChoices(records(detail.kontrak));
+    if (field.relation === "pengiriman") return shipmentChoices(records(detail.pengiriman));
     if (field.relation) return choices(field.relation === "laporanDraft" ? records(detail.laporan).filter((row) => row.status === "draft") : records(detail[field.relation]));
     if (field.kind === "boolean")
       return [
@@ -333,7 +434,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       dokumenDiminta: documentRequirementText(canonical("dokumenDiminta")),
     }));
   }, [detail.rfq, selected?.key, values.mode, values.rfqIds]);
-  function open(operation: Operation, negotiation?: Entity) {
+  function open(operation: Operation, negotiation?: Entity, context?: Entity) {
     if (locked || !active) return;
     const continuation = negotiation ?? (operation.key === "negosiasi" ? chosenContinuation : undefined);
     const initial: Record<string, string> = operation.key === "rfq" ? { mode: "baru" } : {};
@@ -343,7 +444,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       initial.hargaHasilNegosiasi = continuation.hargaHasilNegosiasi == null ? "" : String(continuation.hargaHasilNegosiasi);
       initial.hasil = continuation.hasil == null ? "" : String(continuation.hasil);
     }
-    const seed = object(operation.seed ? detail[operation.seed] : null);
+    const seed = object(context ?? (operation.seed ? detail[operation.seed] : null));
     for (const field of operation.fields) {
       const value = seed[field.name];
       const seedValue = field.payloadPath ? field.payloadPath.split(".").reduce<unknown>((current, key) => (current && typeof current === "object" ? (current as Entity)[key] : undefined), seed) : value;
@@ -357,6 +458,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
             ? String(seedValue).slice(0, 10)
             : String(seedValue);
     }
+    if (context?.id && operation.fields.some((field) => field.name === "entityId")) initial.entityId = String(context.id);
+    if (context?.id && operation.fields.some((field) => field.name === "pengirimanId")) initial.pengirimanId = String(context.id);
     if (operation.key === "kontrak") {
       const selection = object(detail.pemilihanPenyedia);
       if (selection.status === "disetujui" && typeof selection.vendorTerpilihId === "string") initial.vendorId = selection.vendorTerpilihId;
@@ -448,6 +551,17 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       {active && !user.isPending && !user.isError && !available.length && !canManageRecommendation ? (
         <p className="rounded-lg border border-dashed bg-background px-4 py-5 text-center text-sm text-muted-foreground">Belum ada operasi yang tersedia untuk peran atau status saat ini.</p>
       ) : null}
+      {stage === "delivery" ? (
+        <DeliveryChecklist
+          active={active}
+          locked={locked}
+          operations={available.filter((operation) => ["pengiriman", "update-pengiriman", "status-pengiriman", "pemeriksaan", "penerimaan", "penyimpanan", "risiko"].includes(operation.key))}
+          shipments={records(detail.pengiriman)}
+          storage={records(detail.penyimpanan)}
+          risks={records(detail.risiko)}
+          onOpen={(operation, context) => open(operation, undefined, context)}
+        />
+      ) : (
       <div className="space-y-4">
         {available
           // Keep manual offer-entry operation configured for future use, but hide it from current workflow.
@@ -603,6 +717,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
             );
           })}
       </div>
+      )}
       {error ? (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -1015,17 +1130,50 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                   );
                 })()
               : null}
-            {operationFieldSections(selected?.key, fields)
+          {operationFieldSections(selected?.key, fields)
               .filter((section) => section.fields.length > 0)
               .map((section) => (
-                <section key={section.title} className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
-                  <h3 className="text-sm font-semibold">{section.title}</h3>
-                  <div className="grid gap-4 sm:grid-cols-2">
+                <section key={section.title} className={`space-y-3 rounded-lg border bg-card p-4 ${selected && ["pengiriman", "update-pengiriman"].includes(selected.key) ? "" : "shadow-sm"}`}>
+                  <div>
+                    <h3 className="text-sm font-semibold">{section.title}</h3>
+                    {selected && ["pengiriman", "update-pengiriman"].includes(selected.key) ? <p className="mt-1 text-xs text-muted-foreground">Volume kargo mengikuti kontrak terpilih dan bisa disesuaikan.</p> : null}
+                  </div>
+                  <div className="grid items-start gap-x-5 gap-y-3 sm:grid-cols-2">
                     {section.fields.map((field) => {
                       const fieldId = `${id}-${field.name}`;
                       const isSelect = !!field.relation || !!field.options || field.kind === "boolean";
                       const isLongText = field.payloadPath !== undefined;
+                      const selectedContract = records(detail.kontrak).find((row) => String(row.id) === String(values.kontrakId ?? ""));
+                      const deliveryField = ["pengiriman", "update-pengiriman"].includes(selected?.key ?? "");
+                      const optionLabel = (value: string) => {
+                        if (selected?.key === "status-pengiriman" && field.name === "status") {
+                          return ({ direncanakan: "Direncanakan", dimuat: "Sedang dimuat", dalam_perjalanan: "Dalam perjalanan", tiba: "Tiba", dibongkar: "Sedang dibongkar", diserahkan: "Diserahkan", bermasalah: "Bermasalah" } as Record<string, string>)[value] ?? value;
+                        }
+                        if (selected?.key === "pemeriksaan" && field.name === "tipe") {
+                          return ({ quantity: "Kuantitas", quality: "Mutu", gabungan: "Kuantitas dan mutu" } as Record<string, string>)[value] ?? value;
+                        }
+                        return selected?.key === "verifikasi" && ["selesai", "ditolak", "revisi"].includes(value)
+                          ? ({ selesai: "Sesuai", ditolak: "Tidak sesuai", revisi: "Perlu perbaikan" } as Record<string, string>)[value]
+                          : value.replaceAll("_", " ");
+                      };
+                      const fieldLabel =
+                        selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi"
+                          ? "Harga negosiasi per satuan"
+                          : field.name === "entityId" && field.relation === "pengiriman"
+                            ? "Pilih pengiriman"
+                            : deliveryField && field.name === "etd"
+                              ? "ETD · Kapal berangkat"
+                              : deliveryField && field.name === "eta"
+                                ? "ETA · Perkiraan tiba"
+                              : deliveryField && field.name === "volumeKontrak"
+                                ? `Volume kargo${plainText(selectedContract?.satuanKontrak) ? ` (${plainText(selectedContract?.satuanKontrak)})` : ""}`
+                                : field.label;
                       const fullWidth =
+                        (deliveryField && ["entityId", "kontrakId", "volumeKontrak"].includes(field.name)) ||
+                        (selected?.key === "status-pengiriman" && field.name === "entityId") ||
+                        (field.kind === "json" || field.kind === "textarea") ||
+                        (selected?.key === "pemeriksaan" && ["pengirimanId", "hasilMutu", "catatan"].includes(field.name)) ||
+                        (selected?.key === "penerimaan" && ["pengirimanId", "mutuDiterima", "catatan"].includes(field.name)) ||
                         (selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "syaratPenyerahan", "syaratPembayaran", "dokumenDiminta"].includes(field.name)) ||
                         (selected?.key === "negosiasi" && ["penawaranId", "hasil"].includes(field.name)) ||
                         (selected?.key === "verifikasi" && ["kepatuhan", "hasil", "catatan"].includes(field.name));
@@ -1035,7 +1183,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                           className={`min-w-0 space-y-1.5${fullWidth ? " sm:col-span-2" : ""}`}
                         >
                           <Label htmlFor={fieldId} className="block min-h-0 leading-5">
-                            {selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi" ? "Harga negosiasi per satuan" : field.label}
+                            {fieldLabel}
                             {field.required ? " *" : ""}
                           </Label>
                           {selected?.key === "negosiasi" && field.name === "batasNegosiasi" ? (
@@ -1187,6 +1335,36 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               label={field.label}
                               disabled={locked || !permitted || vendorBlocked}
                             />
+                          ) : isSelect && field.relation === "kontrak" ? (
+                            <FilterCombobox
+                              options={options(field)}
+                              value={values[field.name] || ""}
+                              onValueChange={(value) => {
+                                const contract = records(detail.kontrak).find((row) => String(row.id) === value);
+                                setValues((old) => {
+                                  const currentContract = records(detail.kontrak).find((row) => String(row.id) === String(old[field.name] ?? ""));
+                                  const previousVolumeWasPrefilled = currentContract?.volumeKontrak != null && old.volumeKontrak === String(currentContract.volumeKontrak);
+                                  const nextValues = { ...old, [field.name]: value };
+                                  if (deliveryField && contract?.volumeKontrak != null) nextValues.volumeKontrak = String(contract.volumeKontrak);
+                                  else if (deliveryField && previousVolumeWasPrefilled) nextValues.volumeKontrak = "";
+                                  return nextValues;
+                                });
+                              }}
+                              label={field.label}
+                              searchPlaceholder="Cari nomor kontrak atau vendor…"
+                              emptyLabel="Pilih nomor kontrak"
+                              disabled={locked || !permitted}
+                            />
+                          ) : isSelect && field.relation === "pengiriman" ? (
+                            <FilterCombobox
+                              options={options(field)}
+                              value={values[field.name] || ""}
+                              onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: value }))}
+                              label={field.name === "entityId" ? "pengiriman" : field.label}
+                              searchPlaceholder="Cari kapal, bill of lading, atau kontrak…"
+                              emptyLabel="Pilih pengiriman"
+                              disabled={locked || !permitted}
+                            />
                           ) : isSelect ? (
                             <Select value={values[field.name] || ""} onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: String(value ?? "") }))} disabled={locked || !permitted}>
                               <SelectTrigger id={fieldId} aria-required={field.required} className={selected?.key === "negosiasi" && field.name === "penawaranId" ? "min-w-0" : undefined}>
@@ -1196,14 +1374,14 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                                     <SelectValue className="sr-only" />
                                   </>
                                 ) : (
-                                  <SelectValue placeholder="Pilih penawaran…" />
+                                  <SelectValue placeholder={field.kind === "boolean" ? "Pilih ya atau tidak" : `Pilih ${field.label.toLocaleLowerCase("id-ID")}…`} />
                                 )}
                               </SelectTrigger>
                               <SelectContent>
                                 {!field.required ? <SelectItem value="">Tidak diisi</SelectItem> : null}
                                 {options(field).map((option) => (
                                   <SelectItem key={option.value} value={option.value}>
-                                    {selected?.key === "rfq" && field.name === "mode" ? (({ baru: "RFQ baru", tambah_vendor: "Tambah vendor", revisi: "Ubah RFQ" } as Record<string, string>)[option.value] ?? option.label) : option.label}
+                                    {selected?.key === "rfq" && field.name === "mode" ? (({ baru: "RFQ baru", tambah_vendor: "Tambah vendor", revisi: "Ubah RFQ" } as Record<string, string>)[option.value] ?? option.label) : optionLabel(option.value)}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -1279,15 +1457,20 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                           ) : field.kind === "json" ? (
                             <div className="space-y-3" aria-describedby={`${fieldId}-hint`}>
                               <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
-                                Isi kolom parameter dan nilai. Contoh parameter sesuai kebutuhan:{" "}
-                                {field.name === "kesiapanPenerima" ? "Fasilitas, kapasitas, jadwal penerimaan." : field.name === "analisisPasar" ? "Pasokan, harga, risiko pasar." : "Kadar sulfur, densitas, viskositas."}
+                                {field.name === "hasilMutu" || field.name === "mutuDiterima"
+                                  ? "Catat hasil uji mutu, misalnya kadar sulfur, densitas, atau viskositas."
+                                  : field.name === "kesiapanPenerima"
+                                    ? "Isi parameter dan nilai, misalnya fasilitas, kapasitas, atau jadwal penerimaan."
+                                    : field.name === "analisisPasar"
+                                      ? "Isi parameter dan nilai, misalnya pasokan, harga, atau risiko pasar."
+                                      : "Isi setiap parameter beserta nilainya."}
                               </p>
                               <div className="space-y-2">
                                 {parseParameterRows(values[field.name] ?? "").map((row, index, rows) => (
-                                  <div key={`${fieldId}-row-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] items-center gap-2">
+                                  <div key={`${fieldId}-row-${index}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-end">
                                     <Input
                                       aria-label={`${field.label}: parameter ${index + 1}`}
-                                      placeholder="Parameter"
+                                      placeholder={field.name === "hasilMutu" || field.name === "mutuDiterima" ? "Contoh: Kadar sulfur" : "Parameter"}
                                       value={row.name}
                                       onChange={(event) => {
                                         const next = [...rows];
@@ -1297,7 +1480,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                                     />
                                     <Input
                                       aria-label={`${field.label}: nilai ${index + 1}`}
-                                      placeholder="Nilai"
+                                      placeholder={field.name === "hasilMutu" || field.name === "mutuDiterima" ? "Contoh: 0,5%" : "Nilai"}
                                       value={row.value}
                                       onChange={(event) => {
                                         const next = [...rows];
@@ -1310,6 +1493,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                                       variant="outline"
                                       size="sm"
                                       aria-label={`Hapus parameter ${index + 1}`}
+                                      className={rows.length === 1 ? "hidden" : undefined}
                                       disabled={rows.length === 1}
                                       onClick={() => {
                                         const next = rows.filter((_, rowIndex) => rowIndex !== index);
@@ -1353,6 +1537,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               required={field.required}
                               value={values[field.name] ?? ""}
                               onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
+                              placeholder={field.name === "namaKapal" ? "Contoh: MT Nusantara" : field.name === "nomorBillOfLading" ? "Masukkan nomor bill of lading" : field.name === "pelabuhanMuat" ? "Contoh: Ras Tanura" : field.name === "pelabuhanBongkar" ? "Contoh: Tanjung Priok" : field.name === "volumeKontrak" ? "Masukkan volume kargo" : undefined}
                             />
                           )}
                         </div>
