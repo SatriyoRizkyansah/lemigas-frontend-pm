@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, LockKeyhole, RefreshCw, ClipboardList, FileText, Settings2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, LockKeyhole, RefreshCw, ClipboardList, FileText, Settings2 } from "lucide-react";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
 import { use_query } from "@/lib/api/use_query";
@@ -115,6 +115,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
   const accessibleStages = stageRestricted ? stages.filter((stage) => assignedStageKeys.has(stage.key)) : stages;
   const fallbackStage = accessibleStages[0]?.key ?? stages[0].key;
   const finalStageComplete = stageStatus.some((item: any) => item.tahap === "selesai" && item.status === "selesai");
+  const completedStageCount = stageStatus.filter((item: any) => item.status === "selesai").length;
   const preferredStage = currentStage ?? (finalStageComplete ? "selesai" : fallbackStage);
   const selectedStage = stageKey && accessibleStages.some((stage) => stage.key === stageKey)
     ? stageKey
@@ -186,44 +187,84 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <CardTitle className="text-base">Tahapan transaksi</CardTitle>
-                  <CardDescription className="mt-1">Pilih tahap untuk melihat aktivitas dan dokumen terkait.</CardDescription>
+                  <CardDescription className="mt-1">Ikuti urutan tahap. Pilih satu tahap untuk membuka aktivitas dan dokumennya.</CardDescription>
                 </div>
-                <p className="text-xs font-medium text-muted-foreground">
-                  {stageStatus.filter((item: any) => item.status === "selesai").length} dari {stages.length} tahap selesai
-                </p>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-foreground">{completedStageCount} dari {stages.length} selesai</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {stages.find((stage) => stage.key === currentStage)?.label
+                      ? `Tahap aktif: ${stages.find((stage) => stage.key === currentStage)?.label}`
+                      : "Belum ada tahap aktif"}
+                  </p>
+                </div>
               </div>
-              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted" aria-label="Progres siklus">
-                <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${(stageStatus.filter((item: any) => item.status === "selesai").length / stages.length) * 100}%` }} />
+              <div
+                className="mt-3 h-2 overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-label="Progres penyelesaian siklus"
+                aria-valuemin={0}
+                aria-valuemax={stages.length}
+                aria-valuenow={completedStageCount}
+              >
+                <div className="h-full rounded-full bg-emerald-600 transition-[width]" style={{ width: `${(completedStageCount / stages.length) * 100}%` }} />
               </div>
             </CardHeader>
-            <CardContent className="px-4 py-4 sm:px-5">
-              <ol className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <CardContent className="space-y-3 px-4 py-4 sm:px-5">
+              <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-muted-foreground" aria-label="Keterangan status tahap">
+                <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-emerald-600" />Selesai</span>
+                <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-primary" />Sedang berjalan</span>
+                <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full border border-border bg-background" />Belum dimulai</span>
+              </div>
+              <ol className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-6">
                 {stages.map((stage, index) => {
                   const status = stagesStatusMap.get(stage.key) as string | undefined;
                   const complete = status === "selesai";
                   const active = currentStage === stage.key || status === "aktif";
                   const isSelectedStage = selectedStage === stage.key;
                   const locked = stageLocked(stage.key);
+                  const statusText = locked
+                    ? "Terkunci · bukan tanggung jawab Anda"
+                    : active
+                      ? "Sedang berjalan"
+                      : complete
+                        ? "Selesai"
+                        : !status || status === "draft"
+                          ? "Belum dimulai"
+                          : status === "menunggu"
+                            ? "Menunggu tahap sebelumnya"
+                            : status.replaceAll("_", " ");
+                  const columnsRemaining = stages.length % 3;
+                  const isInLastIncompleteRow = columnsRemaining > 0 && index >= stages.length - columnsRemaining;
+                  const fillsLastTwoColumns = columnsRemaining === 2 && isInLastIncompleteRow;
+                  const fillsLastSingleColumn = columnsRemaining === 1 && isInLastIncompleteRow;
+                  const fillsLastSingleSmColumn = stages.length % 2 === 1 && index === stages.length - 1;
+                  const columnSpan = fillsLastTwoColumns
+                    ? "sm:col-span-1 xl:col-span-3"
+                    : fillsLastSingleColumn
+                      ? "sm:col-span-1 xl:col-span-6"
+                      : fillsLastSingleSmColumn
+                        ? "sm:col-span-2 xl:col-span-2"
+                        : "sm:col-span-1 xl:col-span-2";
                   return (
-                    <li key={stage.key} className="min-w-0">
+                    <li key={stage.key} className={`min-w-0 ${columnSpan}`}>
                       <Button
                         type="button"
                         variant="ghost"
                         disabled={locked}
                         aria-current={isSelectedStage ? "step" : undefined}
-                        className={`h-auto min-h-[4.25rem] w-full justify-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${isSelectedStage ? "border-primary/40 bg-primary/5 shadow-sm hover:bg-primary/10" : "border-transparent hover:border-border hover:bg-muted/50"}`}
+                        className={`group h-auto min-h-[4.75rem] w-full justify-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${isSelectedStage ? "border-primary/50 bg-primary/[0.06] shadow-sm hover:bg-primary/10" : "border-border/70 bg-background hover:border-primary/30 hover:bg-muted/40"}`}
                         onClick={() => setStageKey(stage.key)}
                       >
                         <span
-                          className={`grid size-9 shrink-0 place-items-center rounded-full border ${locked ? "border-muted bg-muted text-muted-foreground" : complete ? "border-emerald-600 bg-emerald-600 text-white" : active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground"}`}
+                          className={`grid size-9 shrink-0 place-items-center rounded-full border text-xs font-semibold ${locked ? "border-muted bg-muted text-muted-foreground" : complete ? "border-emerald-600 bg-emerald-600 text-white" : active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground"}`}
                           aria-label={locked ? `Tahap ${index + 1} terkunci` : `Tahap ${index + 1}`}
                         >
-                          {locked ? <LockKeyhole size={15} aria-hidden="true" /> : complete ? <Check size={16} aria-hidden="true" /> : <span className="text-xs font-semibold">{index + 1}</span>}
+                          {locked ? <LockKeyhole size={15} aria-hidden="true" /> : <span>{index + 1}</span>}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <strong className="block whitespace-normal text-sm font-semibold leading-5">{stage.label}</strong>
-                          <span className={`mt-0.5 block text-xs font-normal ${active ? "text-primary" : "text-muted-foreground"}`}>
-                            {active ? "Sedang berjalan" : complete ? "Selesai" : (status?.replaceAll("_", " ") ?? "Belum dimulai")}
+                          <strong className="block whitespace-normal text-sm font-semibold leading-5 text-foreground">{stage.label}</strong>
+                          <span className={`mt-1 block text-xs font-normal ${active ? "text-primary" : complete ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                            {statusText}
                           </span>
                           {stage.assignments?.length ? (
                             <span className="mt-1 block truncate text-[11px] text-muted-foreground">
@@ -235,7 +276,10 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                             </span>
                           ) : null}
                         </span>
-                        {isSelectedStage && <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="Tahap dipilih" />}
+                        <span className="flex shrink-0 flex-col items-end gap-1 self-stretch">
+                          {isSelectedStage ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">Dibuka</span> : null}
+                          <ChevronRight size={16} aria-hidden="true" className="mt-auto text-muted-foreground/70 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+                        </span>
                       </Button>
                     </li>
                   );
