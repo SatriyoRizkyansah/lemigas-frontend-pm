@@ -3452,6 +3452,16 @@ export class Api<
         tipePenyimpanan?: "upload_lokal" | "link_eksternal";
         tahap?:
           | "perencanaan"
+          | "justifikasi_penunjukan"
+          | "pemilihan_penyedia"
+          | "penawaran_vendor"
+          | "verifikasi_evaluasi"
+          | "klarifikasi_negosiasi"
+          | "rekomendasi_pemenang"
+          | "verifikasi_vendor"
+          | "permintaan_penawaran"
+          | "uji_kewajaran_negosiasi"
+          | "memorandum_keputusan"
           | "sourcing"
           | "evaluasi_negosiasi"
           | "approval"

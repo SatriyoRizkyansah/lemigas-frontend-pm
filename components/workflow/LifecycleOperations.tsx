@@ -318,6 +318,7 @@ function operationFieldSections(operationKey: string | undefined, fields: Field[
     penyimpanan: [{ title: "Catatan persediaan", fields: ["fasilitas", "penerimaanId", "satuan", "lokasi", "kuantitasMasuk", "kuantitasKeluar", "catatan"] }],
     "serah-terima": [{ title: "Detail penyerahan kepada Penerima Pasokan", fields: ["pengirimanId", "nomorDokumen", "tanggalSerah", "penerimaPasokan", "titikSerah", "kuantitasDiserahkan", "satuan", "status", "catatan"] }],
     "terbitkan-laporan": [{ title: "Pilih laporan akhir", fields: ["laporanId"] }],
+    "pemilihan-penyedia": [{ title: "Calon Penyedia dan dasar penunjukan", fields: ["vendorIds", "justifikasiPenunjukan"] }],
   };
   const configured = sections[operationKey ?? ""];
   if (!configured) return [{ title: "Informasi", fields }];
@@ -755,6 +756,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
   const revisionSeedKey = useRef("");
   const uninitialized = stage === "perencanaan" && Array.isArray(detail.tahapan) && detail.tahapan.length === 0;
   const isPublicDirectPurchase = String(detail.metode) === "pengadaan_langsung";
+  const isDirectAppointment = String(detail.metode) === "penunjukan_langsung";
   const latestNegotiations: Entity[] = records(detail.penawaran).flatMap((offer) => {
     const latest = [...records(offer.negosiasi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0];
     return latest ? [{ ...latest, penawaranId: offer.id, vendor: offer.vendor }] : [];
@@ -765,22 +767,41 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
       .map((participant) => String(participant.vendorId ?? object(participant.vendor).id ?? "")),
   );
   const verificationRecords = records(detail.verifikasi);
-  const verificationVendors = [...records(detail.penawaran)]
-    .filter((offer) => offer.isCurrent !== false && !!offer.submittedAt)
-    .sort((left, right) => Number(right.revisi ?? 0) - Number(left.revisi ?? 0))
-    .reduce<Entity[]>((vendors, offer) => {
-      const vendorId = String(offer.vendorId ?? object(offer.vendor).id ?? "");
-      if (vendorId && !vendors.some((vendor) => vendor.id === vendorId)) {
-        vendors.push({
-          id: vendorId,
-          nama: object(offer.vendor).nama ?? "Vendor",
-          verifikasi: verificationRecords.find((row) => String(row.vendorId) === vendorId),
-        });
-      }
-      return vendors;
-    }, []);
-  const verifiedVendors = verificationVendors.filter((vendor) => Boolean(vendor.verifikasi));
-  const pendingVendors = verificationVendors.filter((vendor) => !vendor.verifikasi);
+  const verificationVendors = isDirectAppointment
+    ? records(object(detail.pemilihanPenyedia).peserta).reduce<Entity[]>((vendors, participant) => {
+        const vendorId = String(participant.vendorId ?? object(participant.vendor).id ?? "");
+        if (vendorId && !vendors.some((vendor) => vendor.id === vendorId)) {
+          vendors.push({
+            id: vendorId,
+            nama: plainText(object(participant.vendor).nama) || "Calon Penyedia",
+            verifikasi: verificationRecords.find((row) => String(row.vendorId) === vendorId),
+          });
+        }
+        return vendors;
+      }, [])
+    : [...records(detail.penawaran)]
+        .filter((offer) => offer.isCurrent !== false && !!offer.submittedAt)
+        .sort((left, right) => Number(right.revisi ?? 0) - Number(left.revisi ?? 0))
+        .reduce<Entity[]>((vendors, offer) => {
+          const vendorId = String(offer.vendorId ?? object(offer.vendor).id ?? "");
+          if (vendorId && !vendors.some((vendor) => vendor.id === vendorId)) {
+            vendors.push({
+              id: vendorId,
+              nama: object(offer.vendor).nama ?? "Vendor",
+              verifikasi: verificationRecords.find((row) => String(row.vendorId) === vendorId),
+            });
+          }
+          return vendors;
+        }, []);
+  const directAppointmentNominee = verificationVendors.length === 1 ? verificationVendors[0] : undefined;
+  const appointmentRequiredVendorDocuments = ["AKTA_PERUSAHAAN", "NIB", "NPWP", "SURAT_DOMISILI", "REKENING_BANK"];
+  const isAppointmentVerificationPassed = (verification: unknown) => {
+    const row = object(verification);
+    return row.hasil === "selesai" && row.kepatuhan === "selesai" && row.kewenangan === "selesai" && Boolean(plainText(row.catatan).trim());
+  };
+  const directAppointmentActiveRfqs = directAppointmentNominee
+    ? records(detail.rfq).filter((row) => row.status === "aktif" && String(row.vendorId ?? object(row.vendor).id ?? "") === String(directAppointmentNominee.id))
+    : [];
   const startableOffers = records(detail.penawaran).filter((offer) => {
     const latest = [...records(offer.negosi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0];
     return offer.isCurrent !== false && !!offer.submittedAt && passedVendorIds.has(String(offer.vendorId ?? object(offer.vendor).id ?? "")) && (!latest || latest.status === "ditolak");
@@ -788,8 +809,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
   const offersWithoutNegotiation = startableOffers.filter((offer) => records(offer.negosiasi).length === 0);
   const chosenNegotiation = latestNegotiations.find((row) => String(row.id) === selectedNegotiationId) ?? null;
   const chosenContinuation = chosenNegotiation?.status === "ditolak" ? chosenNegotiation : undefined;
+  const directAppointmentVerificationStageComplete = records(detail.tahapan).some(
+    (row) => row.tahap === "verifikasi_vendor" && row.status === "selesai",
+  );
   const available = lifecycleOperations.filter(
-    (op) => op.stages.includes(stage) && op.roles.includes(role) && (op.key !== "verifikasi" || role !== "member" || isAssignedMember) && (!uninitialized || op.key === "perencanaan") && (!op.available || op.available(detail)),
+    (op) => op.stages.includes(stage) && op.roles.includes(role) && (op.key !== "verifikasi" || role !== "member" || isAssignedMember) && (!uninitialized || op.key === "perencanaan") && (!op.available || op.available(detail)) && (op.key !== "rfq" || !isDirectAppointment || directAppointmentVerificationStageComplete),
   );
   const settlementHistory = use_query<Entity, Error, string>({
     tag: "lifecycleHistory",
@@ -804,6 +828,17 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
   const canManageRecommendation = active && stage === "rekomendasi_pemenang" && ["admin", "operator", "verifikator", "member"].includes(role) && (role !== "member" || isAssignedMember);
   const fields =
     selected?.fields
+      .map((field) => {
+        if (selected.key === "rfq" && isDirectAppointment && ["rfqId", "rfqIds"].includes(field.name)) {
+          return { ...field, label: "Pilih RFQ aktif yang akan direvisi" };
+        }
+        if (selected.key !== "verifikasi" || !isDirectAppointment) return field;
+        if (field.name === "kewenangan") return { ...field, label: "Identitas & kewenangan penandatangan" };
+        if (field.name === "kepatuhan") return { ...field, label: "Kelayakan awal calon Penyedia" };
+        if (field.name === "hasil") return { ...field, label: "Kesimpulan verifikasi" };
+        if (field.name === "catatan") return { ...field, label: "Catatan pemeriksaan, sumber, dan tindak lanjut", kind: "textarea" as const, required: true, maxLength: 4000 };
+        return field;
+      })
       .filter((field) => {
         if (role === "vendor" && field.name === "vendorId") return false;
         if (selected.key === "tutupRfq" || selected.key === "bukaKembaliRfq") return false;
@@ -833,7 +868,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
     : undefined;
   const paidOnPaymentInvoice = records(paymentInvoiceForModal?.pembayaran).filter((row) => row.status === "selesai").reduce((sum, row) => sum + Number(row.nilai ?? 0), 0);
   const paymentInvoiceOutstanding = paymentInvoiceForModal ? Math.max(Number(paymentInvoiceForModal.nilai ?? 0) - paidOnPaymentInvoice, 0) : 0;
-  const needsVendors = !!selected && fields.some((field) => field.relation === "vendor");
+  const needsVendors = !!selected && (fields.some((field) => field.relation === "vendor") || (selected.key === "rfq" && isDirectAppointment));
   const vendors = use_query<Entity[], Error, string>({
     tag: "vendor",
     method: "lifecycleOperationsVendors",
@@ -856,12 +891,54 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
       return [...result.values()];
     },
   });
+  const directAppointmentNomineeActive = Boolean(
+    directAppointmentNominee &&
+      (vendors.data ?? []).some((row) => String(row.id) === String(directAppointmentNominee.id) && row.status === "aktif"),
+  );
+  const vendorDocumentsFor = (vendorId: unknown) => {
+    const id = String(vendorId ?? "");
+    const directoryDocuments = vendors.data?.find((row) => String(row.id) === id)?.vendorDocuments;
+    if (records(directoryDocuments).length) return directoryDocuments;
+    return object(verificationRecords.find((row) => String(row.vendorId) === id)?.vendor).vendorDocuments;
+  };
+  const directAppointmentNomineePassed = Boolean(
+    directAppointmentNominee &&
+      isAppointmentVerificationPassed(directAppointmentNominee.verifikasi),
+  );
+  const directAppointmentVerificationIssues = (candidate: Entity | undefined) => {
+    if (!candidate) return ["Tetapkan tepat satu calon Penyedia pada tahap Justifikasi Penunjukan."];
+    const verification = object(candidate.verifikasi);
+    if (!candidate.verifikasi) return ["Hasil verifikasi awal calon belum disimpan."];
+    const issues: string[] = [];
+    const verificationFields = [
+      ["kewenangan", "Identitas dan kewenangan penandatangan"],
+      ["kepatuhan", "Kelayakan awal dan kepatuhan"],
+      ["hasil", "Kesimpulan verifikasi"],
+    ] as const;
+    for (const [field, label] of verificationFields) {
+      if (verification[field] !== "selesai") issues.push(`${label} belum dinyatakan sesuai.`);
+    }
+    if (!plainText(verification.catatan).trim()) issues.push("Catatan sumber pemeriksaan dan tindak lanjut belum disimpan.");
+    return issues;
+  };
+  const verifiedVendors = verificationVendors.filter((vendor) =>
+    isDirectAppointment
+      ? isAppointmentVerificationPassed(vendor.verifikasi)
+      : Boolean(vendor.verifikasi),
+  );
+  const pendingVendors = verificationVendors.filter((vendor) => !verifiedVendors.includes(vendor));
+  const directAppointmentNomineeName = directAppointmentNominee
+    ? (plainText(directAppointmentNominee.nama) && plainText(directAppointmentNominee.nama) !== "Calon Penyedia"
+        ? plainText(directAppointmentNominee.nama)
+        : plainText(vendors.data?.find((row) => String(row.id) === String(directAppointmentNominee.id))?.nama) || "Calon Penyedia")
+    : "";
   const options = (field: Field): Choice[] => {
     if (field.relation === "vendor") {
       const related = ["rfq", "penawaran", "verifikasi", "kontrak"].flatMap((key) => records(detail[key]).map((row) => object(row.vendor)));
+      const appointed = records(object(detail.pemilihanPenyedia).peserta).map((participant) => object(participant.vendor));
       // Full directory remains source of status; detail-only rows fill gaps, never replace fetched rows.
       const all = new Map<string, Entity>();
-      for (const row of [...related, ...(vendors.data ?? [])]) if (typeof row.id === "string") all.set(row.id, row);
+      for (const row of [...related, ...appointed, ...(vendors.data ?? [])]) if (typeof row.id === "string") all.set(row.id, row);
       const winnerId = String(object(detail.pemilihanPenyedia).vendorTerpilihId ?? "");
       const winnerApproved = object(detail.pemilihanPenyedia).status === "disetujui";
       const biddingVendorIds = new Set(
@@ -869,11 +946,18 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
           .filter((offer) => offer.isCurrent !== false && offer.submittedAt)
           .map((offer) => String(offer.vendorId)),
       );
+      const appointedVendorIds = new Set(
+        records(object(detail.pemilihanPenyedia).peserta)
+          .map((participant) => String(participant.vendorId ?? object(participant.vendor).id ?? ""))
+          .filter(Boolean),
+      );
       return choices(
         [...all.values()].filter(
           (row) =>
             (selected?.key !== "penawaran" || row.status === "aktif") &&
-            (selected?.key !== "verifikasi" || biddingVendorIds.has(String(row.id))) &&
+            (selected?.key !== "pemilihan-penyedia" || row.status === "aktif") &&
+            (selected?.key !== "rfq" || !isDirectAppointment || (row.status === "aktif" && appointedVendorIds.has(String(row.id)))) &&
+            (selected?.key !== "verifikasi" || (isDirectAppointment ? appointedVendorIds.has(String(row.id)) : biddingVendorIds.has(String(row.id)))) &&
             (selected?.key !== "kontrak" || !winnerApproved || !winnerId || String(row.id) === winnerId),
         ),
       );
@@ -894,7 +978,10 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
         .filter((choice) => choice.value);
     }
     if (field.relation === "rfqAktif" || field.relation === "rfqTertutup") {
-      const rows = records(detail.rfq).filter((row) => row.status === (field.relation === "rfqAktif" ? "aktif" : "selesai"));
+      const rows = records(detail.rfq).filter((row) =>
+        row.status === (field.relation === "rfqAktif" ? "aktif" : "selesai") &&
+        !(selected?.key === "rfq" && isDirectAppointment && field.relation === "rfqAktif" && directAppointmentNominee && String(row.vendorId ?? object(row.vendor).id ?? "") !== String(directAppointmentNominee.id)),
+      );
       const unique = new Map<string, Entity>();
       for (const row of rows) {
         const key = String(row.kelompokId ?? row.id ?? "");
@@ -1058,7 +1145,32 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
   const locked = mutation.isPending || closeMutation.isPending || submitting.current;
   const permitted = !!selected && active && available.some((op) => op.key === selected.key);
   const vendorBlocked = needsVendors && (vendors.isPending || vendors.isError);
-  const missingRelation = fields.some((field) => field.required && field.relation && !options(field).length);
+  const missingRelation = fields.some((field) =>
+    field.required && field.relation &&
+    !(selected?.key === "rfq" && isDirectAppointment && ["mode", "vendorIds"].includes(field.name)) &&
+    !options(field).length,
+  );
+  const directAppointmentRfqBlockers = selected?.key === "rfq" && isDirectAppointment
+    ? !directAppointmentNominee
+      ? directAppointmentVerificationIssues(undefined)
+      : vendorBlocked
+        ? undefined
+        : !directAppointmentVerificationStageComplete
+          ? ["Tahap Verifikasi Vendor harus ditandai selesai terlebih dahulu."]
+        : !directAppointmentNomineeActive
+          ? ["Calon yang ditetapkan tidak aktif sebagai vendor. Perbarui calon pada tahap Justifikasi Penunjukan."]
+          : !directAppointmentNomineePassed
+            ? directAppointmentVerificationIssues(directAppointmentNominee)
+            : undefined
+    : undefined;
+  const rfqSubmitBlockers = selected?.key === "rfq"
+    ? [
+        ...(!permitted ? ["Tahap ini tidak aktif atau peran Anda tidak memiliki akses untuk mengirim RFQ."] : []),
+        ...(vendorBlocked ? [vendors.isPending ? "Daftar vendor masih dimuat." : "Daftar vendor gagal dimuat; coba muat ulang."] : []),
+        ...(missingRelation ? ["Data relasi RFQ wajib belum tersedia."] : []),
+        ...(directAppointmentRfqBlockers ?? []),
+      ]
+    : [];
   const settlementTotals = object(settlementHistory.data?.totals ?? detail.totals);
   const reconciliationReadiness = getReconciliationReadiness(
     object(detail.perencanaan),
@@ -1106,6 +1218,29 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
     setHandoverEvidence(null);
     const continuation = negotiation ?? (operation.key === "negosiasi" ? chosenContinuation : undefined);
     const initial: Record<string, string> = operation.key === "rfq" ? { mode: "baru" } : {};
+    if (operation.key === "rfq" && isDirectAppointment && directAppointmentNominee) {
+      const activeRfqIds = directAppointmentActiveRfqs.map((row) => String(row.id ?? "")).filter(Boolean);
+      if (activeRfqIds.length) {
+        initial.mode = "revisi";
+        initial.rfqIds = activeRfqIds.join(",");
+      } else {
+        initial.vendorIds = String(directAppointmentNominee.id);
+      }
+    }
+    if (operation.key === "verifikasi" && isDirectAppointment) {
+      const candidates = records(object(detail.pemilihanPenyedia).peserta);
+      if (candidates.length === 1) {
+        const vendorId = String(candidates[0].vendorId ?? object(candidates[0].vendor).id ?? "");
+        const previous = verificationRecords.find((row) => String(row.vendorId) === vendorId);
+        if (vendorId) initial.vendorId = vendorId;
+        if (previous) {
+          initial.kewenangan = String(previous.kewenangan ?? "");
+          initial.kepatuhan = String(previous.kepatuhan ?? "");
+          initial.hasil = String(previous.hasil ?? "");
+          initial.catatan = String(previous.catatan ?? "");
+        }
+      }
+    }
     if (operation.key === "laporan" && stage === "selesai") initial.jenis = "akhir";
     if (operation.key === "negosiasi" && continuation) {
       initial.penawaranId = String(continuation.penawaranId ?? "");
@@ -1204,9 +1339,22 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
     setSuccess("");
     try {
       if (selected.key === "rfq") {
+        if (isDirectAppointment && (!directAppointmentNominee || !directAppointmentNomineeActive)) throw new Error("Penunjukan Langsung harus memiliki tepat satu calon Penyedia aktif pada tahap justifikasi.");
+        if (isDirectAppointment && (!directAppointmentVerificationStageComplete || !directAppointmentNomineePassed)) throw new Error("Selesaikan tahap Verifikasi Vendor dan nyatakan calon layak dimintai penawaran sebelum mengirim RFQ.");
+        if (isDirectAppointment && values.mode === "tambah_vendor") throw new Error("Penunjukan Langsung hanya mengirim permintaan kepada calon yang sudah dijustifikasi. Untuk mengganti calon, perbarui justifikasi terlebih dahulu.");
         if (values.mode === "tambah_vendor" && !values.rfqId) throw new Error("Pilih RFQ acuan untuk tambah vendor.");
         if (values.mode === "revisi" && !(values.rfqIds ?? "").split(",").filter(Boolean).length) throw new Error("Pilih minimal satu RFQ acuan untuk direvisi.");
         if (values.mode === "revisi" && !values.alasanPerubahan?.trim()) throw new Error("Alasan revisi wajib diisi.");
+        if (isDirectAppointment && values.mode === "baru") {
+          const vendorIds = (values.vendorIds ?? "").split(",").filter(Boolean);
+          if (!directAppointmentNominee || vendorIds.length !== 1 || vendorIds[0] !== String(directAppointmentNominee.id))
+            throw new Error("RFQ Penunjukan Langsung hanya dapat dikirim kepada satu calon yang tercatat dalam justifikasi.");
+        }
+      }
+      if (selected.key === "pemilihan-penyedia") {
+        const vendorIds = (values.vendorIds ?? "").split(",").filter(Boolean);
+        if (vendorIds.length !== 1) throw new Error("Penunjukan Langsung harus menggunakan tepat satu calon Penyedia.");
+        if (!values.justifikasiPenunjukan?.trim()) throw new Error("Justifikasi Penunjukan Langsung wajib diisi.");
       }
       if (selected.key === "tagihan") {
         const selectedIds = (values.pengirimanIds ?? "").split(",").filter(Boolean);
@@ -1274,7 +1422,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
         selected.key === "rfq"
           ? isPublicDirectPurchase
             ? "RFQ publik berhasil diterbitkan. Vendor yang telah disetujui dapat mengirim penawaran hingga batas respons."
-            : `RFQ berhasil diterbitkan kepada ${(body.vendorIds as string[] | undefined)?.length ?? 1} vendor.`
+            : isDirectAppointment
+              ? values.mode === "revisi"
+                ? `Permintaan penawaran direvisi untuk ${directAppointmentNomineeName || "calon Penyedia"}.`
+                : `Permintaan penawaran dikirim kepada ${directAppointmentNomineeName || "calon Penyedia"}.`
+              : `RFQ berhasil diterbitkan kepada ${(body.vendorIds as string[] | undefined)?.length ?? 1} vendor.`
           : `${selected.title}: berhasil.`,
       );
       setSelected(null);
@@ -1288,7 +1440,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
   const operationPresentation: Record<string, { description: string; icon: typeof ClipboardList }> = {
     perencanaan: { description: "Catat kebutuhan transaksi dan jadwal pengadaan.", icon: ClipboardList },
     strategi: { description: "Tentukan metode seleksi dan pendekatan transaksi.", icon: Settings2 },
-    rfq: { description: isPublicDirectPurchase ? "Terbitkan RFQ publik untuk vendor yang telah disetujui." : "Kirim atau perbarui permintaan penawaran kepada vendor.", icon: Send },
+    rfq: { description: isPublicDirectPurchase ? "Terbitkan RFQ publik untuk vendor yang telah disetujui." : isDirectAppointment ? "Kirim permintaan kepada satu calon dari justifikasi; sistem mengunci penerima dan mengatur revisi RFQ aktif." : "Kirim atau perbarui permintaan penawaran kepada vendor.", icon: Send },
     tutupRfq: { description: "Akhiri penerimaan penawaran untuk RFQ aktif.", icon: FileCheck2 },
     bukaKembaliRfq: { description: "Aktifkan kembali RFQ yang telah ditutup.", icon: FileText },
     verifikasi: { description: "Periksa legalitas, kepatuhan, dan rekening vendor.", icon: FileCheck2 },
@@ -1300,6 +1452,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
   };
   const guidedPurchaseStages = new Set(["perencanaan", "pemilihan_penyedia", "verifikasi_evaluasi", "klarifikasi_negosiasi", "rekomendasi_pemenang", "approval", "selesai"]);
   const guidedPurchase = isPublicDirectPurchase && guidedPurchaseStages.has(stage);
+  const guidedDirectAppointment = isDirectAppointment && stage === "uji_kewajaran_negosiasi";
+  const guidedDirectAppointmentMemorandum = isDirectAppointment && stage === "memorandum_keputusan";
+  const guidedDirectAppointmentApproval = isDirectAppointment && stage === "approval";
   const findOperation = (key: string) => available.find((item) => item.key === key);
   const actionFor = (key: string, label: string, context?: Entity) => {
     const item = findOperation(key);
@@ -1319,11 +1474,248 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
   const submittedVoteCount = new Set(recommendationVotes.map((vote) => String(object(vote.assignment).id ?? vote.assignmentId ?? ""))).size;
   const hasRecommendation = selection.status === "direkomendasikan" && Boolean(selection.vendorTerpilihId);
   const memorandumStatus = String(object(detail.memorandum).status ?? "");
-  const memorandumSubmitted = Boolean(detail.memorandum) && !["draft", "revisi", ""].includes(memorandumStatus);
+  const memorandumSubmitted = Boolean(detail.memorandum) && ["menunggu_persetujuan", "selesai"].includes(memorandumStatus);
   const memorandumApproved = ["selesai", "disetujui"].includes(memorandumStatus);
   const finalReport = records(detail.laporan).find((report) => report.jenis === "akhir");
   const finalReportPublished = Boolean(finalReport && ["diterbitkan", "disetujui"].includes(String(finalReport.status)));
   const guideGroups: GuidedTaskGroup[] = [];
+
+  if (guidedDirectAppointment) {
+    const nomineeId = String(directAppointmentNominee?.id ?? "");
+    const directOffer = activeOffers.find((offer) => String(offer.vendorId ?? object(offer.vendor).id ?? "") === nomineeId);
+    const directParticipant = participants.find((participant) => String(participant.vendorId ?? object(participant.vendor).id ?? "") === nomineeId);
+    const evaluationIsCurrent = Boolean(
+      directOffer &&
+      directParticipant &&
+      String(directParticipant.penawaranId ?? "") === String(directOffer.id) &&
+      ["lulus", "tidak_lulus"].includes(String(directParticipant.status)),
+    );
+    const evaluationPassed = evaluationIsCurrent && directParticipant?.status === "lulus";
+    const directNegotiation = directOffer
+      ? latestNegotiations.find((negotiation) => String(negotiation.penawaranId) === String(directOffer.id))
+      : undefined;
+    const negotiationAgreed = directNegotiation?.status === "disepakati";
+    const negotiationRejected = directNegotiation?.status === "ditolak";
+    const negotiationOperation = findOperation("negosiasi");
+    const requiredStageDocuments = records(detail.persyaratanDokumen).filter(
+      (document) => document.tahap === stage && document.wajib === true,
+    );
+    const fulfilledStageDocuments = requiredStageDocuments.filter((document) => document.terpenuhi === true).length;
+    const stageDocumentsComplete = fulfilledStageDocuments === requiredStageDocuments.length;
+    const negotiationStarted = Boolean(directNegotiation);
+    guideGroups.push({
+      title: "Uji kewajaran dan negosiasi calon",
+      description: "RFQ diterbitkan pada tahap 4. Di tahap ini, nilai penawaran yang masuk terlebih dahulu; negosiasi baru dapat dicatat setelah calon lulus evaluasi.",
+      tasks: [
+        {
+          title: "Nilai penawaran di tabel Pemilihan Penyedia",
+          description: !directOffer
+            ? "Menunggu calon mengirim penawaran melalui Portal Vendor. Setelah penawaran masuk, buka tabel Pemilihan Penyedia dan pilih Nilai."
+            : evaluationIsCurrent
+              ? evaluationPassed
+                ? `Penawaran ${plainText(directOffer.nomorRfq) ? `RFQ ${plainText(directOffer.nomorRfq)}` : "aktif"} sudah dinilai dan lulus; calon dapat dilanjutkan ke negosiasi.`
+                : "Penawaran sudah dinilai tetapi tidak lulus. Jangan mulai negosiasi; tinjau hasil evaluasi dan tindak lanjuti sesuai keputusan pengadaan."
+              : `Penawaran ${plainText(directOffer.nomorRfq) ? `RFQ ${plainText(directOffer.nomorRfq)}` : "aktif"} dari ${directAppointmentNominee?.nama ?? "calon Penyedia"} sudah diterima. Isi pemeriksaan dan harga acuan melalui tabel Pemilihan Penyedia.`,
+          state: evaluationIsCurrent ? "done" : directOffer ? "next" : "waiting",
+          ...(directOffer && onOpenRecords ? { actionLabel: evaluationIsCurrent ? "Tinjau evaluasi" : "Buka tabel penilaian", onAction: onOpenRecords } : {}),
+        },
+        {
+          title: "Negosiasikan penawaran yang lulus",
+          description: !evaluationPassed
+            ? evaluationIsCurrent
+              ? "Langkah ini tidak tersedia karena penawaran belum lulus evaluasi."
+              : "Menunggu evaluasi lulus. Harga dan biaya hasil evaluasi menjadi acuan saat membuat putaran negosiasi."
+            : negotiationAgreed
+              ? `Negosiasi dengan ${directAppointmentNominee?.nama ?? "calon Penyedia"} sudah disepakati; hasilnya menjadi dasar memorandum keputusan.`
+              : negotiationRejected
+                ? "Calon menolak usulan terakhir. Buat putaran lanjutan atau akhiri negosiasi tanpa kesepakatan."
+                : directNegotiation
+                  ? `Putaran ${directNegotiation.putaran} sedang menunggu tanggapan calon melalui Portal Vendor.`
+                  : "Catat putaran pertama. Sistem mengisi harga penawaran dan biaya evaluasi sebagai konteks; masukkan usulan harga yang akan dikirim.",
+          state: negotiationAgreed ? "done" : evaluationPassed ? directNegotiation ? "in_progress" : "next" : "waiting",
+          ...(evaluationPassed && negotiationOperation ? {
+            actionLabel: negotiationRejected ? "Buka putaran lanjutan" : directNegotiation ? "Lihat negosiasi" : "Catat negosiasi",
+            onAction: () => document.getElementById(`${id}-negotiation-workspace`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+          } : {}),
+        },
+        {
+          title: "Lengkapi dokumen tahap",
+          description: requiredStageDocuments.length
+            ? `${fulfilledStageDocuments}/${requiredStageDocuments.length} dokumen wajib sudah terpenuhi. Unggah bukti evaluasi dan hasil negosiasi melalui panel Dokumen Pengadaan.`
+            : "Tidak ada dokumen wajib tambahan yang ditetapkan untuk tahap ini.",
+          state: stageDocumentsComplete ? "done" : negotiationStarted ? "next" : "waiting",
+          ...(!stageDocumentsComplete && negotiationStarted && onOpenDocuments ? { actionLabel: "Buka dokumen", onAction: onOpenDocuments } : {}),
+        },
+      ],
+    });
+  }
+
+  if (guidedDirectAppointmentMemorandum) {
+    const nomineeId = String(directAppointmentNominee?.id ?? "");
+    const directOffer = activeOffers.find((offer) => String(offer.vendorId ?? object(offer.vendor).id ?? "") === nomineeId);
+    const directParticipant = participants.find((participant) => String(participant.vendorId ?? object(participant.vendor).id ?? "") === nomineeId);
+    const verificationPassed = Boolean(directAppointmentNominee && isAppointmentVerificationPassed(directAppointmentNominee.verifikasi));
+    const evaluationCurrent = Boolean(directOffer && directParticipant && String(directParticipant.penawaranId ?? "") === String(directOffer.id));
+    const evaluationPassed = evaluationCurrent && directParticipant?.status === "lulus";
+    const directNegotiation = directOffer
+      ? latestNegotiations.find((negotiation) => String(negotiation.penawaranId) === String(directOffer.id))
+      : undefined;
+    const negotiationAgreed = directNegotiation?.status === "disepakati";
+    const basisReady = verificationPassed && evaluationPassed && negotiationAgreed;
+    const requiredStageDocuments = records(detail.persyaratanDokumen).filter(
+      (document) => document.tahap === stage && document.wajib === true,
+    );
+    const fulfilledStageDocuments = requiredStageDocuments.filter((document) => document.terpenuhi === true).length;
+    const stageDocumentsComplete = fulfilledStageDocuments === requiredStageDocuments.length;
+    const memoExists = Boolean(detail.memorandum);
+    const memoEditable = memoExists && ["draft", "revisi"].includes(memorandumStatus);
+    const memoCanBeSubmitted = memoExists && memoEditable && basisReady && stageDocumentsComplete;
+    const memorandumOperation = findOperation("memorandum");
+    const submitOperation = findOperation("submit-memorandum");
+
+    guideGroups.push({
+      title: "Susun dan ajukan Memorandum Keputusan",
+      description: "Untuk Penunjukan Langsung, memorandum merangkum justifikasi satu calon, verifikasi, evaluasi, kewajaran harga, hasil negosiasi, pembiayaan, risiko, dan rekomendasi. Tidak ada pemungutan suara kolektif; keputusan diproses berjenjang pada tahap Approval.",
+      tasks: [
+        {
+          title: "Pastikan verifikasi calon selesai",
+          description: verificationPassed
+            ? `${directAppointmentNomineeName} sudah dinyatakan layak pada tahap Verifikasi Vendor.`
+            : "Calon tunggal belum memiliki hasil verifikasi awal yang lengkap dan sesuai. Selesaikan verifikasi sebelum menyusun memorandum.",
+          state: verificationPassed ? "done" : "waiting",
+        },
+        {
+          title: "Pastikan penawaran aktif lulus evaluasi",
+          description: !directOffer
+            ? "Penawaran aktif dari calon belum tersedia. Periksa hasil penerimaan penawaran dan evaluasi di tabel Pemilihan Penyedia."
+            : !evaluationCurrent
+              ? "Hasil evaluasi belum terkait dengan revisi penawaran aktif. Tinjau kembali evaluasi sebelum melanjutkan."
+              : evaluationPassed
+                ? `Penawaran aktif ${plainText(directOffer.nomorRfq) ? `RFQ ${plainText(directOffer.nomorRfq)}` : "calon"} dinyatakan lulus.`
+                : "Hasil evaluasi calon belum lulus; memorandum belum dapat disusun dari penawaran ini.",
+          state: evaluationPassed ? "done" : evaluationCurrent ? "waiting" : directOffer ? "next" : "waiting",
+          ...(!evaluationPassed && onOpenRecords ? { actionLabel: "Buka tabel penilaian", onAction: onOpenRecords } : {}),
+        },
+        {
+          title: "Pastikan kewajaran harga dan negosiasi disepakati",
+          description: negotiationAgreed
+            ? `Negosiasi putaran ${plainText(directNegotiation?.putaran) || "terakhir"} sudah disepakati. Harga dan hasilnya menjadi bagian dasar keputusan.`
+            : !evaluationPassed
+              ? "Negosiasi baru dapat menjadi dasar keputusan setelah penawaran calon lulus evaluasi."
+              : directNegotiation
+                ? `Negosiasi berstatus ${plainText(directNegotiation.status).replaceAll("_", " ")}; memorandum hanya dapat dibuat setelah ada kesepakatan.`
+                : "Belum ada hasil negosiasi yang disepakati untuk penawaran aktif calon.",
+          state: negotiationAgreed ? "done" : directNegotiation ? "in_progress" : evaluationPassed ? "next" : "waiting",
+        },
+        {
+          title: "Simpan memorandum keputusan",
+          description: memoExists
+            ? `Memorandum tersimpan dengan status ${memorandumStatus.replaceAll("_", " ") || "draft"}. Pastikan rekomendasi, analisis harga, pembiayaan, serta risiko dan mitigasinya konsisten dengan penawaran akhir.`
+            : "Sistem mengisi dasar metode, calon, evaluasi, dan analisis harga dari record sebelumnya. Lengkapi rekomendasi, risiko dan mitigasi, serta kesiapan pembiayaan.",
+          state: memorandumSubmitted ? "done" : memoEditable ? "in_progress" : basisReady ? "next" : "waiting",
+          ...(memorandumOperation && (!memoExists || memoEditable) ? {
+            actionLabel: memoExists ? "Perbarui memorandum" : "Buat memorandum",
+            onAction: () => open(memorandumOperation),
+            disabled: !basisReady,
+          } : {}),
+        },
+        {
+          title: "Lengkapi dokumen wajib memorandum",
+          description: requiredStageDocuments.length
+            ? `${fulfilledStageDocuments}/${requiredStageDocuments.length} dokumen wajib tahap ini sudah terpenuhi. Pastikan dokumen memorandum dan lampiran pendukung sudah terhubung.`
+            : "Tidak ada dokumen wajib tambahan yang ditetapkan untuk tahap ini.",
+          state: stageDocumentsComplete ? "done" : memoExists ? "next" : "waiting",
+          ...(!stageDocumentsComplete && memoExists && onOpenDocuments ? { actionLabel: "Buka dokumen", onAction: onOpenDocuments } : {}),
+        },
+        {
+          title: "Ajukan memorandum ke tahap Approval",
+          description: memorandumSubmitted
+            ? "Memorandum sudah diajukan. Proses review dan keputusan berlanjut pada tahap Approval."
+            : !basisReady
+              ? "Pengajuan menunggu verifikasi, evaluasi lulus, dan kesepakatan negosiasi calon tunggal."
+              : !memoExists
+                ? "Simpan memorandum terlebih dahulu."
+                : !stageDocumentsComplete
+                  ? "Lengkapi dokumen wajib memorandum sebelum mengajukan persetujuan."
+                  : "Ajukan memorandum setelah isi dan dokumen pendukung siap diperiksa.",
+          state: memorandumSubmitted ? "done" : memoCanBeSubmitted ? "next" : "waiting",
+          ...(submitOperation && !memorandumSubmitted ? {
+            actionLabel: "Ajukan memorandum",
+            onAction: () => open(submitOperation),
+            disabled: !memoCanBeSubmitted,
+          } : {}),
+        },
+      ],
+    });
+  }
+
+  if (guidedDirectAppointmentApproval) {
+    const memoExists = Boolean(detail.memorandum);
+    const memoEditable = memoExists && ["draft", "revisi"].includes(memorandumStatus);
+    const memorandumOperation = findOperation("memorandum");
+    const approvalSteps = records(detail.approvalSteps)
+      .filter((item) => item.jenis === "memorandum" || String(item.memorandumId ?? "") === String(object(detail.memorandum).id ?? ""))
+      .sort((left, right) => Number(left.urutan ?? 0) - Number(right.urutan ?? 0));
+    const approvalLabels = ["Review Memorandum", "Verifikasi Memorandum", "Persetujuan Pimpinan"];
+    const requiredStageDocuments = records(detail.persyaratanDokumen).filter(
+      (document) => document.tahap === stage && document.wajib === true,
+    );
+    const fulfilledStageDocuments = requiredStageDocuments.filter((document) => document.terpenuhi === true).length;
+    const stageDocumentsComplete = fulfilledStageDocuments === requiredStageDocuments.length;
+    const approvalTasks: GuidedTask[] = approvalLabels.map((label, index) => {
+      const step = approvalSteps.find((item) => Number(item.urutan) === index + 1);
+      const status = String(step?.status ?? "");
+      const approved = status === "disetujui";
+      const pending = status === "menunggu";
+      const needsRevision = status === "revisi";
+      const rejected = status === "ditolak";
+      const priorStepsComplete = approvalLabels.slice(0, index).every((_, priorIndex) => approvalSteps.find((item) => Number(item.urutan) === priorIndex + 1)?.status === "disetujui");
+      const current = pending && priorStepsComplete;
+      return {
+        title: label,
+        description: approved
+          ? "Persetujuan pada langkah ini sudah diberikan."
+          : needsRevision
+            ? `Memorandum diminta untuk direvisi${plainText(step?.catatan) ? `: ${plainText(step?.catatan)}` : "."}`
+            : rejected
+              ? `Memorandum ditolak${plainText(step?.catatan) ? `: ${plainText(step?.catatan)}` : "."}`
+              : current
+                ? "Sedang menunggu keputusan petugas yang berwenang di Pusat Persetujuan."
+                : step
+                  ? "Menunggu langkah persetujuan sebelumnya selesai."
+                  : memorandumSubmitted
+                    ? "Langkah persetujuan belum tercatat atau belum dimulai."
+                    : "Dimulai setelah memorandum diajukan.",
+        state: approved ? "done" : current || needsRevision || rejected ? "in_progress" : "waiting",
+        ...((current || needsRevision || rejected) ? { actionLabel: needsRevision || rejected ? "Tinjau memorandum" : "Buka Pusat Persetujuan", onAction: () => needsRevision || rejected ? (memorandumOperation ? open(memorandumOperation) : window.location.assign("/dashboard/approval")) : window.location.assign("/dashboard/approval") } : {}),
+      };
+    });
+    guideGroups.push({
+      title: "Persetujuan Memorandum Keputusan",
+      description: "Memorandum Penunjukan Langsung ditinjau secara berjenjang. Persetujuan menetapkan keputusan transaksi; setelah selesai, tahap berikutnya adalah Kontrak.",
+      tasks: [
+        {
+          title: "Pastikan memorandum sudah diajukan",
+          description: memorandumSubmitted
+            ? "Memorandum telah masuk ke alur persetujuan."
+            : memoEditable
+              ? "Memorandum berstatus draft atau revisi dan perlu diperiksa lalu diajukan kembali."
+              : "Memorandum belum diajukan.",
+          state: memorandumSubmitted ? "done" : memoExists ? "next" : "waiting",
+          ...(memoEditable && memorandumOperation ? { actionLabel: "Perbarui memorandum", onAction: () => open(memorandumOperation) } : {}),
+        },
+        ...approvalTasks,
+        {
+          title: "Lengkapi bukti persetujuan",
+          description: requiredStageDocuments.length
+            ? `${fulfilledStageDocuments}/${requiredStageDocuments.length} dokumen wajib Approval sudah terpenuhi.`
+            : "Tidak ada dokumen wajib tambahan yang ditetapkan untuk tahap Approval.",
+          state: stageDocumentsComplete ? "done" : memorandumApproved ? "next" : "waiting",
+          ...(!stageDocumentsComplete && memorandumApproved && onOpenDocuments ? { actionLabel: "Buka dokumen", onAction: onOpenDocuments } : {}),
+        },
+      ],
+    });
+  }
 
   if (guidedPurchase) {
     if (stage === "perencanaan") {
@@ -1350,7 +1742,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
         title: "Permintaan dan penerimaan penawaran",
         description: "Terbitkan permintaan, pantau masa respons, lalu tutup sebelum evaluasi dimulai.",
         tasks: [
-          { title: "Terbitkan RFQ", description: publishedRfqs.length ? `${publishedRfqs.length} RFQ sudah diterbitkan.` : "Tetapkan syarat dan batas waktu penawaran untuk vendor.", state: publishedRfqs.length ? "done" : "next", ...actionFor("rfq", publishedRfqs.length ? "Kelola RFQ" : "Buat RFQ") },
+          { title: isDirectAppointment ? "Kirim permintaan kepada calon" : "Terbitkan RFQ", description: publishedRfqs.length ? `${publishedRfqs.length} RFQ sudah diterbitkan${isDirectAppointment && directAppointmentNomineeName ? ` kepada ${directAppointmentNomineeName}` : ""}.` : isDirectAppointment ? `Permintaan hanya dikirim kepada ${directAppointmentNomineeName || "calon tunggal dari justifikasi"}.` : "Tetapkan syarat dan batas waktu penawaran untuk vendor.", state: publishedRfqs.length ? "done" : "next", ...actionFor("rfq", publishedRfqs.length ? isDirectAppointment ? "Revisi / kelola RFQ" : "Kelola RFQ" : isDirectAppointment ? "Kirim permintaan" : "Buat RFQ") },
           { title: "Pantau penawaran vendor", description: offerCount ? `${offerCount} penawaran sudah masuk dari Portal Vendor.` : "Vendor mengirim penawaran melalui Portal Vendor selama RFQ masih terbuka.", state: offerCount ? openRfqs.length ? "in_progress" : "done" : publishedRfqs.length ? "in_progress" : "waiting" },
           { title: "Tutup RFQ setelah batas respons", description: "Setelah tenggat berakhir, tutup RFQ agar penawaran dapat dievaluasi.", state: openRfqs.length ? offerCount ? "next" : "in_progress" : publishedRfqs.length ? "done" : "waiting", ...(openRfqs.length && closeOperation ? { actionLabel: "Tutup RFQ", onAction: () => open(closeOperation) } : {}) },
           ...(!openRfqs.length && publishedRfqs.length && reopenOperation ? [{ title: "Buka kembali RFQ bila tenggat perlu diperpanjang", description: "Pilihan khusus jika proses penerimaan penawaran perlu dibuka kembali.", state: "optional" as const, actionLabel: "Buka kembali RFQ", onAction: () => open(reopenOperation) }] : []),
@@ -1473,7 +1865,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
   }
   return (
     <section className="space-y-4" aria-label="Operasi bisnis tahap">
-      {guidedPurchase && guideGroups.length ? (
+      {(guidedPurchase || guidedDirectAppointment || guidedDirectAppointmentMemorandum || guidedDirectAppointmentApproval) && guideGroups.length ? (
         <LifecycleStageGuide
           groups={guideGroups}
           active={active}
@@ -1494,7 +1886,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
         </Alert>
       ) : null}
       {!active ? <p className="text-sm text-muted-foreground">Operasi dinonaktifkan: tahap ini tidak aktif.</p> : null}
-      {active && !user.isPending && !user.isError && !available.length && !canManageRecommendation && !guidedPurchase ? (
+      {active && !user.isPending && !user.isError && !available.length && !canManageRecommendation && !guidedPurchase && !guidedDirectAppointment && !guidedDirectAppointmentMemorandum && !guidedDirectAppointmentApproval ? (
         <p className="rounded-lg border border-dashed bg-background px-4 py-5 text-center text-sm text-muted-foreground">Belum ada operasi yang tersedia untuk peran atau status saat ini.</p>
       ) : null}
       {stage === "delivery" ? (
@@ -1533,7 +1925,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
           // Keep manual offer-entry operation configured for future use, but hide it from current workflow.
           .filter((operation) => guidedPurchase
             ? stage === "klarifikasi_negosiasi" && operation.key === "negosiasi"
-            : !["tutupRfq", "bukaKembaliRfq", "penawaran"].includes(operation.key))
+            : guidedDirectAppointmentMemorandum || guidedDirectAppointmentApproval
+              ? !["memorandum", "submit-memorandum"].includes(operation.key)
+              : !["tutupRfq", "bukaKembaliRfq", "penawaran"].includes(operation.key))
           .map((operation) => {
             if (operation.key === "negosiasi") {
               const activeNegotiations = latestNegotiations;
@@ -1718,14 +2112,35 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
       <Modal
         open={!!selected}
         onClose={close}
-        title={selected?.title ?? "Operasi transaksi"}
-        size={selected?.key === "rekonsiliasi" ? "xl" : selected?.key === "status-rekonsiliasi" ? "lg" : "md"}
+        title={
+          selected?.key === "verifikasi" && isDirectAppointment
+            ? "Verifikasi awal calon Penyedia"
+            : selected?.key === "rfq" && isDirectAppointment
+              ? values.mode === "revisi" ? "Revisi permintaan penawaran" : "Kirim permintaan penawaran"
+              : selected?.title ?? "Operasi transaksi"
+        }
+        description={
+          selected?.key === "pemilihan-penyedia"
+            ? "Tetapkan satu calon Penyedia dan catat alasan Penunjukan Langsung sebelum permintaan penawaran dikirim. Ini belum menetapkan pemenang."
+            : selected?.key === "verifikasi" && isDirectAppointment
+              ? "Periksa calon tunggal dari tahap justifikasi sebelum permintaan penawaran dikirim."
+              : selected?.key === "rfq" && isDirectAppointment
+                ? "Kirim permintaan hanya kepada calon yang sudah dijustifikasi dan diverifikasi."
+              : undefined
+        }
+        size={selected?.key === "rekonsiliasi" ? "xl" : selected?.key === "status-rekonsiliasi" || (isDirectAppointment && ["verifikasi", "rfq"].includes(selected?.key ?? "")) ? "lg" : "md"}
         footer={
-          <>
-            <Button type="button" variant="outline" disabled={locked} onClick={close}>
-              Batal
-            </Button>
-            <Button type="submit" form={`${id}-form`} disabled={locked || !permitted || vendorBlocked || missingRelation || (selected?.key === "rekonsiliasi" && (!reconciliationSnapshotReady || reconciliationStatus === "selesai")) || (selected?.key === "serah-terima" && !handoverEvidence) || (selected?.key === "status-pengiriman" && (statusShipmentForModal?.status === "diserahkan" && shipmentHandoverComplete(statusShipmentForModal) || !values.status || (values.status === "diserahkan" && !shipmentHandoverComplete(statusShipmentForModal))))}>
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            {rfqSubmitBlockers.length ? (
+              <p role="status" className="max-w-2xl text-xs leading-5 text-amber-800 dark:text-amber-300">
+                Belum dapat dikirim: {rfqSubmitBlockers.join(" ")}
+              </p>
+            ) : <span />}
+            <div className="flex shrink-0 justify-end gap-2">
+              <Button type="button" variant="outline" disabled={locked} onClick={close}>
+                Batal
+              </Button>
+              <Button type="submit" form={`${id}-form`} disabled={locked || !permitted || vendorBlocked || missingRelation || Boolean(directAppointmentRfqBlockers?.length) || (selected?.key === "rekonsiliasi" && (!reconciliationSnapshotReady || reconciliationStatus === "selesai")) || (selected?.key === "serah-terima" && !handoverEvidence) || (selected?.key === "status-pengiriman" && (statusShipmentForModal?.status === "diserahkan" && shipmentHandoverComplete(statusShipmentForModal) || !values.status || (values.status === "diserahkan" && !shipmentHandoverComplete(statusShipmentForModal))))}>
               {locked
                 ? "Menyimpan…"
                 : selected?.key === "status-pengiriman"
@@ -1740,9 +2155,12 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                     ? "Simpan snapshot"
                     : selected?.key === "status-rekonsiliasi"
                       ? values.status === "selesai" ? "Finalisasi rekonsiliasi" : "Mulai peninjauan"
-                    : "Simpan"}
-            </Button>
-          </>
+                      : selected?.key === "rfq" && isDirectAppointment
+                        ? values.mode === "revisi" ? "Terbitkan revisi RFQ" : "Kirim permintaan"
+                      : "Simpan"}
+              </Button>
+            </div>
+          </div>
         }
       >
         <form id={`${id}-form`} onSubmit={submit} className="space-y-4 px-1" aria-busy={locked}>
@@ -1768,10 +2186,38 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
               </AlertDescription>
             </Alert>
           ) : null}
-          {missingRelation && !vendorBlocked ? (
+          {missingRelation && !vendorBlocked && !(selected?.key === "rfq" && isDirectAppointment && (!directAppointmentNominee || !directAppointmentNomineeActive)) ? (
             <Alert>
-              <AlertDescription>Relasi wajib belum tersedia. Buat catatan terkait terlebih dahulu.</AlertDescription>
+              <AlertDescription>
+                {selected?.key === "verifikasi" && isDirectAppointment
+                  ? "Calon Penyedia belum tercatat. Simpan justifikasi Penunjukan Langsung terlebih dahulu."
+                  : selected?.key === "rfq" && isDirectAppointment
+                    ? "Data calon RFQ belum tersedia. Periksa kembali calon dan RFQ aktif pada tahap sebelumnya."
+                  : "Relasi wajib belum tersedia. Buat catatan terkait terlebih dahulu."}
+              </AlertDescription>
             </Alert>
+          ) : null}
+          {selected?.key === "verifikasi" && isDirectAppointment ? (
+            <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-3.5 py-3 text-xs leading-5 text-sky-950 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100">
+              <p className="font-medium">Pemeriksaan sebelum RFQ</p>
+              <p className="mt-0.5 text-sky-900/80 dark:text-sky-100/80">Pastikan legalitas, kewenangan, dan kelayakan dasar calon Penyedia. Harga serta kesesuaian penawaran diperiksa setelah penawaran diterima.</p>
+            </div>
+          ) : null}
+          {selected?.key === "pemilihan-penyedia" ? (
+            <section className="space-y-2.5 rounded-lg border border-sky-200 bg-sky-50/70 p-3.5 text-sm text-sky-950 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100" aria-label="Panduan dasar Penunjukan Langsung">
+              <div>
+                <h3 className="font-semibold">Kapan Penunjukan Langsung dapat digunakan?</h3>
+                <p className="mt-1 text-xs leading-5 text-sky-900/80 dark:text-sky-100/80">Pilih satu dasar yang benar-benar sesuai dengan kebutuhan dan calon Penyedia:</p>
+              </div>
+              <ul className="grid list-disc gap-x-5 gap-y-1 pl-4 text-xs leading-5 sm:grid-cols-2">
+                <li>Penyedia atau sumber pasokan ditentukan dalam Penugasan.</li>
+                <li>Hanya satu Penyedia yang mampu memenuhi spesifikasi, sumber, volume, jadwal, atau logistik.</li>
+                <li>Penyedia memiliki hak eksklusif atau penguasaan sah atas kargo.</li>
+                <li>Kesinambungan kontrak diperlukan dan penggantian tidak layak secara teknis, operasional, atau ekonomis.</li>
+                <li className="sm:col-span-2">Permintaan berulang didukung kinerja baik, kesesuaian teknis atau mutu, efisiensi, dan harga pasar yang wajar.</li>
+              </ul>
+              <p className="border-t border-sky-200 pt-2 text-xs leading-5 text-sky-900/80 dark:border-sky-900 dark:text-sky-100/80">Riwayat transaksi, afiliasi, atau keinginan mempercepat proses saja tidak cukup sebagai alasan. Penawaran tetap dievaluasi dan dinegosiasikan sebelum rekomendasi dan persetujuan.</p>
+            </section>
           ) : null}
           {selected?.key === "rekonsiliasi" ? (
             <ReconciliationSnapshotPanel
@@ -1819,58 +2265,172 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
             ? (() => {
                 const strategy = object(detail.strategi);
                 const selection = object(detail.pemilihanPenyedia);
+                const directAppointment = detail.metode === "penunjukan_langsung";
                 const winnerId = String(selection.vendorTerpilihId ?? "");
-                const participant = records(selection.peserta).find((row) => String(row.vendorId) === winnerId);
-                const offer = records(detail.penawaran).find((row) => String(row.id) === String(participant?.penawaranId ?? ""));
+                const candidates = records(selection.peserta);
+                const participant = directAppointment
+                  ? candidates.length === 1
+                    ? candidates[0]
+                    : undefined
+                  : candidates.find((row) => String(row.vendorId) === winnerId);
+                const participantVendorId = String(
+                  participant?.vendorId ?? object(participant?.vendor).id ?? "",
+                );
+                const participantOfferId = String(
+                  participant?.penawaranId ?? object(participant?.penawaran).id ?? "",
+                );
+                const offers = records(detail.penawaran);
+                const offer =
+                  offers.find((row) => String(row.id) === participantOfferId) ??
+                  (directAppointment
+                    ? offers.find(
+                        (row) =>
+                          String(row.vendorId ?? object(row.vendor).id ?? "") ===
+                            participantVendorId &&
+                          row.isCurrent !== false &&
+                          Boolean(row.submittedAt),
+                      )
+                    : undefined);
                 const negotiation = [...records(offer?.negosiasi)].sort((a, b) => Number(b.putaran) - Number(a.putaran))[0];
                 const assignments = records(detail.tahapan).find((row) => row.tahap === "rekomendasi_pemenang");
                 const votes = records(selection.votes);
+                const vendorName =
+                  plainText(object(selection.vendorTerpilih).nama) ||
+                  plainText(object(participant?.vendor).nama);
                 const amount = (value: unknown, currency = "") => {
                   if (value == null || value === "") return "—";
                   const number = Number(value);
                   return [currency, Number.isFinite(number) ? new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(number) : String(value)].filter(Boolean).join(" ");
                 };
+                const offeredPrice =
+                  offer?.hargaPenawaran == null || offer.hargaPenawaran === ""
+                    ? Number.NaN
+                    : Number(offer.hargaPenawaran);
+                const negotiatedPrice =
+                  negotiation?.hargaHasilNegosiasi == null ||
+                  negotiation.hargaHasilNegosiasi === ""
+                    ? Number.NaN
+                    : Number(negotiation.hargaHasilNegosiasi);
+                const hasPriceComparison =
+                  Number.isFinite(offeredPrice) &&
+                  Number.isFinite(negotiatedPrice);
+                const priceDifference = hasPriceComparison
+                  ? negotiatedPrice - offeredPrice
+                  : null;
+                const evaluationStatus = plainText(participant?.status);
+                const evaluationLabel = evaluationStatus
+                  .replaceAll("_", " ")
+                  .replace(/^./, (character) => character.toUpperCase());
                 return (
-                  <section className="space-y-4 rounded-xl border border-primary/20 bg-primary/[0.03] p-4" aria-label="Bukti rekomendasi sistem">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">Keputusan hulu · hanya baca</p>
-                      <h3 className="mt-1 font-semibold">{plainText(object(selection.vendorTerpilih).nama) || "Vendor rekomendasi belum tersedia"}</h3>
-                      <p className="mt-1 text-sm text-muted-foreground">Metode dan vendor ditetapkan dari strategi serta rekomendasi kolektif. Form tidak dapat menggantinya.</p>
+                  <section className="overflow-hidden rounded-xl border bg-card shadow-sm" aria-label="Ringkasan dasar memorandum">
+                    <header className="flex flex-wrap items-start justify-between gap-3 border-b bg-muted/20 px-4 py-3.5 sm:px-5">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                          <FileCheck2 size={18} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            {directAppointment ? "Dasar penunjukan" : "Keputusan hulu"} · hanya baca
+                          </p>
+                          <h3 className="mt-0.5 truncate font-semibold">
+                            {vendorName || (directAppointment ? "Calon Penyedia belum tersedia" : "Vendor rekomendasi belum tersedia")}
+                          </h3>
+                          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                            {directAppointment
+                              ? "Calon tunggal dari justifikasi; evaluasi dan negosiasi menjadi dasar memorandum."
+                              : "Vendor dan rekomendasi mengikuti hasil pemilihan penyedia."}
+                          </p>
+                        </div>
+                      </div>
+                      {directAppointment ? (
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${evaluationStatus === "lulus" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"}`}>
+                          {evaluationLabel || "Belum dievaluasi"}
+                        </span>
+                      ) : null}
+                    </header>
+
+                    <div className="space-y-4 p-4 sm:p-5">
+                      <dl className="grid gap-x-5 gap-y-3 text-sm sm:grid-cols-2">
+                        <div>
+                          <dt className="text-xs text-muted-foreground">Metode seleksi</dt>
+                          <dd className="mt-1 font-medium">{procurementMethodLabel(plainText(strategy.metodeSeleksi) || plainText(detail.metode))}</dd>
+                        </div>
+                        {directAppointment ? (
+                          <div>
+                            <dt className="text-xs text-muted-foreground">Skor evaluasi</dt>
+                            <dd className="mt-1 font-medium">{plainText(participant?.skor) || "—"}</dd>
+                          </div>
+                        ) : (
+                          <>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">Status rekomendasi</dt>
+                              <dd className="mt-1 font-medium">{plainText(selection.status).replaceAll("_", " ") || "—"}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">Peringkat / skor</dt>
+                              <dd className="mt-1 font-medium">{participant ? `${plainText(participant.peringkat) || "—"} / ${plainText(participant.skor) || "—"}` : "—"}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">Kuorum suara</dt>
+                              <dd className="mt-1 font-medium">{votes.length} / {records(assignments?.assignments).length}</dd>
+                            </div>
+                          </>
+                        )}
+                      </dl>
+
+                      <section className="rounded-lg border bg-muted/10 p-3.5" aria-label="Perbandingan harga">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h4 className="text-xs font-semibold text-muted-foreground">PERBANDINGAN HARGA</h4>
+                          {negotiation?.status ? (
+                            <span className="rounded-full bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                              Putaran {plainText(negotiation.putaran)} · {plainText(negotiation.status).replaceAll("_", " ")}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
+                          <div className="min-w-0">
+                            <p className="text-xs text-muted-foreground">Harga penawaran</p>
+                            <p className="mt-1 break-words text-base font-semibold tabular-nums">
+                              {offer ? amount(offer.hargaPenawaran, plainText(offer.mataUang)) : "Belum tersedia"}
+                            </p>
+                          </div>
+                          <ArrowRight className="hidden text-muted-foreground sm:block" size={17} />
+                          <div className="min-w-0 sm:text-right">
+                            <p className="text-xs text-muted-foreground">Harga hasil negosiasi</p>
+                            <p className="mt-1 break-words text-base font-semibold tabular-nums text-primary">
+                              {negotiation ? amount(negotiation.hargaHasilNegosiasi, plainText(offer?.mataUang)) : "Belum tersedia"}
+                            </p>
+                          </div>
+                        </div>
+                        {priceDifference !== null ? (
+                          <p className="mt-3 border-t pt-2.5 text-xs text-muted-foreground">
+                            Perubahan {amount(Math.abs(priceDifference), plainText(offer?.mataUang))} {priceDifference === 0 ? "dari harga penawaran" : priceDifference < 0 ? "lebih rendah dari harga penawaran" : "lebih tinggi dari harga penawaran"}.
+                          </p>
+                        ) : null}
+                      </section>
+
+                      <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-muted-foreground">
+                            {directAppointment ? "Justifikasi penunjukan" : "Ringkasan rekomendasi"}
+                          </p>
+                          <p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-5">
+                            {directAppointment
+                              ? plainText(selection.justifikasiPenunjukan) || "Justifikasi belum tercatat."
+                              : plainText(selection.rekomendasi) || "Belum ada ringkasan rekomendasi."}
+                          </p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-muted-foreground">Catatan hasil negosiasi</p>
+                          <p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-5">
+                            {plainText(negotiation?.hasil) || "Belum dicatat."}
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                    <dl className="grid gap-3 text-sm sm:grid-cols-2">
-                      <div>
-                        <dt className="text-muted-foreground">Metode seleksi</dt>
-                        <dd className="font-medium">{procurementMethodLabel(plainText(strategy.metodeSeleksi) || plainText(detail.metode))}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Status rekomendasi</dt>
-                        <dd className="font-medium">{plainText(selection.status).replaceAll("_", " ") || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Peringkat / skor</dt>
-                        <dd className="font-medium">{participant ? `${plainText(participant.peringkat) || "—"} / ${plainText(participant.skor) || "—"}` : "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Kuorum suara</dt>
-                        <dd className="font-medium">
-                          {votes.length} / {records(assignments?.assignments).length}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Harga penawaran</dt>
-                        <dd className="font-medium">{amount(offer?.hargaPenawaran, plainText(offer?.mataUang))}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Harga negosiasi</dt>
-                        <dd className="font-medium">{amount(negotiation?.hargaHasilNegosiasi, plainText(offer?.mataUang))}</dd>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <dt className="text-muted-foreground">Hasil negosiasi</dt>
-                        <dd className="font-medium">{plainText(negotiation?.hasil) || "—"}</dd>
-                      </div>
-                    </dl>
-                    {votes.length ? (
-                      <div>
+
+                    {!directAppointment && votes.length ? (
+                      <div className="border-t bg-muted/10 px-4 py-3.5 sm:px-5">
                         <h4 className="text-sm font-semibold">Alasan anggota</h4>
                         <ul className="mt-2 space-y-2">
                           {votes.map((vote) => (
@@ -1888,8 +2448,6 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
             : null}
           {selected?.key === "verifikasi"
             ? (() => {
-                const vendor = values.vendorId ? (vendors.data ?? []).find((row) => row.id === values.vendorId) : undefined;
-                const documents = records(vendor?.vendorDocuments).filter((doc) => doc.status !== "replaced");
                 const downloadDocument = async (documentId: string, filename: string) => {
                   try {
                     setDocumentError("");
@@ -1909,13 +2467,108 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                     setDocumentError(cause instanceof Error ? cause.message : "Dokumen gagal dibuka.");
                   }
                 };
+                if (isDirectAppointment) {
+                  const candidate = verificationVendors.length === 1 ? verificationVendors[0] : undefined;
+                  const vendorId = String(values.vendorId ?? candidate?.id ?? "");
+                  const vendor = (vendors.data ?? []).find((row) => String(row.id) === vendorId);
+                  const verificationVendor = object(object(candidate?.verifikasi).vendor);
+                  const vendorDocuments = records(vendor?.vendorDocuments).length
+                    ? records(vendor?.vendorDocuments)
+                    : records(verificationVendor.vendorDocuments);
+                  const documents = vendorDocuments.filter((doc) => doc.status !== "replaced");
+                  const requiredDocumentLabels: Record<string, string> = {
+                    AKTA_PERUSAHAAN: "Akta perusahaan",
+                    NIB: "Nomor Induk Berusaha (NIB)",
+                    NPWP: "NPWP perusahaan",
+                    SURAT_DOMISILI: "Surat keterangan domisili",
+                    REKENING_BANK: "Informasi rekening bank",
+                  };
+                  const onboardingDocumentRows = appointmentRequiredVendorDocuments.map((kind) => {
+                    const matches = documents.filter((doc) => String(doc.jenis) === kind);
+                    const document = matches.find((doc) => doc.status === "verified") ?? matches[0];
+                    return {
+                      kind,
+                      label: requiredDocumentLabels[kind] ?? kind.replaceAll("_", " "),
+                      document,
+                      status: !document ? "Belum diunggah" : document.status === "verified" ? "Terverifikasi" : "Menunggu verifikasi",
+                      complete: document?.status === "verified",
+                    };
+                  });
+                  const powerOfAttorney = documents.find((doc) => String(doc.jenis) === "SURAT_KUASA_PENUNJUKAN_PENANDATANGAN");
+                  const verificationPassed = isAppointmentVerificationPassed(candidate?.verifikasi);
+                  const verificationStatus = !candidate
+                    ? verificationVendors.length > 1 ? "Periksa justifikasi" : "Calon belum tersedia"
+                    : verificationPassed
+                      ? "Layak dimintai penawaran"
+                      : candidate.verifikasi
+                        ? "Perlu dilengkapi"
+                        : "Belum diverifikasi";
+                  const verificationBadge = verificationPassed
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                    : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300";
+                  return (
+                    <section className="space-y-3 rounded-lg border bg-card p-4" aria-label="Calon Penyedia dan dokumen onboarding">
+                      <div className="flex flex-wrap items-start justify-between gap-2 border-b pb-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-muted-foreground">Calon dari tahap Justifikasi Penunjukan</p>
+                          <h3 className="mt-1 truncate text-sm font-semibold">{candidate ? plainText(candidate.nama) || "Calon Penyedia" : verificationVendors.length > 1 ? `${verificationVendors.length} calon ditemukan` : "Belum ada calon Penyedia"}</h3>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${verificationBadge}`}>{verificationStatus}</span>
+                      </div>
+                      {candidate ? (
+                        <>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                            <h4 className="text-sm font-semibold">Dokumen onboarding yang tersedia</h4>
+                              <p className="mt-0.5 text-xs text-muted-foreground">Dokumen yang belum tersedia tidak menghalangi RFQ bila verifikasi awal sudah lolos. Lengkapi dokumen yang relevan sebelum penetapan dan kontrak.</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{onboardingDocumentRows.filter((row) => row.complete).length}/{onboardingDocumentRows.length} terverifikasi</span>
+                          </div>
+                          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                            {onboardingDocumentRows.map((row) => (
+                              <li key={row.kind} className="flex min-w-0 items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-medium" title={row.label}>{row.label}</p>
+                                  <p className={`mt-0.5 text-[11px] ${row.complete ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>{row.status}</p>
+                                </div>
+                                {row.document ? (
+                                  <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 px-2 text-xs" onClick={() => void downloadDocument(String(row.document.id), `${row.kind}.pdf`)}>
+                                    <ExternalLink size={13} className="mr-1" /> Lihat
+                                  </Button>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="text-xs leading-5 text-muted-foreground">
+                            Surat kuasa penandatangan hanya diperlukan bila kewenangannya tidak tercantum dalam Akta.
+                            {powerOfAttorney ? ` Status dokumen: ${powerOfAttorney.status === "verified" ? "terverifikasi" : "menunggu verifikasi"}.` : ""}
+                            {powerOfAttorney ? <Button type="button" variant="link" size="sm" className="ml-1 h-auto p-0 text-xs" onClick={() => void downloadDocument(String(powerOfAttorney.id), "Surat-Kuasa.pdf")}>Lihat surat kuasa</Button> : null}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
+                          {verificationVendors.length > 1
+                            ? "Penunjukan Langsung hanya memverifikasi satu calon. Perbaiki daftar pada tahap Justifikasi Penunjukan agar tersisa tepat satu calon."
+                            : "Simpan justifikasi dengan satu calon Penyedia untuk memulai verifikasi awal."}
+                        </p>
+                      )}
+                      {documentError ? <p role="alert" className="text-sm text-destructive">{documentError}</p> : null}
+                    </section>
+                  );
+                }
+                const vendor = values.vendorId ? (vendors.data ?? []).find((row) => row.id === values.vendorId) : undefined;
+                const documents = records(vendor?.vendorDocuments).filter((doc) => doc.status !== "replaced");
                 return (
                   <div className="space-y-3">
                     <section className="space-y-3 rounded-lg border bg-card p-4">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <h3 className="text-sm font-semibold">Daftar verifikasi vendor</h3>
-                          <p className="mt-1 text-xs text-muted-foreground">Vendor yang sudah mengirim penawaran pada pengadaan ini.</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {isDirectAppointment
+                              ? "Calon tunggal dari justifikasi Penunjukan Langsung; diverifikasi sebelum RFQ dikirim."
+                              : "Vendor yang sudah mengirim penawaran pada pengadaan ini."}
+                          </p>
                         </div>
                         <p className="text-xs text-muted-foreground">{verifiedVendors.length} sudah | {pendingVendors.length} belum</p>
                       </div>
@@ -1934,7 +2587,12 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                                 <ul className="max-h-36 space-y-1 overflow-y-auto">
                                   {group.rows.map((row) => {
                                     const result = plainText(object(row.verifikasi).hasil);
-                                    const resultLabel = ({ selesai: "Sesuai", revisi: "Perlu perbaikan", ditolak: "Tidak sesuai" } as Record<string, string>)[result] ?? result.replaceAll("_", " ");
+                                    const resultLabels = (isDirectAppointment
+                                      ? { selesai: "Layak dimintai penawaran", revisi: "Perlu dilengkapi", ditolak: "Tidak layak" }
+                                      : { selesai: "Sesuai", revisi: "Perlu perbaikan", ditolak: "Tidak sesuai" }) as Record<string, string>;
+                                    const resultLabel = isDirectAppointment && result === "selesai" && !isAppointmentVerificationPassed(row.verifikasi)
+                                      ? "Verifikasi awal belum lengkap"
+                                      : resultLabels[result] ?? result.replaceAll("_", " ");
                                     const selectedVendor = values.vendorId === row.id;
                                     return (
                                       <li key={String(row.id)}>
@@ -1959,7 +2617,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                           ))}
                         </div>
                       ) : (
-                        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Belum ada vendor yang mengirimkan penawaran.</p>
+                        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                          {isDirectAppointment
+                            ? "Belum ada calon Penyedia dari tahap justifikasi. Selesaikan justifikasi terlebih dahulu."
+                            : "Belum ada vendor yang mengirimkan penawaran."}
+                        </p>
                       )}
                     </section>
                     <section className="space-y-2 rounded-lg border bg-card p-4">
@@ -2053,7 +2715,44 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                 </div>
               ) : <Alert variant="destructive"><AlertDescription>Buka pencatatan dari Progres pengiriman agar kargo dan tahapnya tercatat otomatis.</AlertDescription></Alert>
             ) : null}
-            {selected?.key === "rfq" ? (
+            {selected?.key === "rfq" && isDirectAppointment ? (
+              <>
+                {directAppointmentRfqBlockers?.length ? (
+                  <Alert>
+                    <AlertDescription>
+                      <p className="font-medium">Permintaan belum bisa dikirim. Selesaikan prasyarat berikut:</p>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                        {directAppointmentRfqBlockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                <section className="space-y-2 rounded-lg border bg-muted/20 px-3.5 py-3" aria-label="Tujuan permintaan penawaran">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Penerima yang ditetapkan</p>
+                      <p className="mt-0.5 font-medium">{directAppointmentNomineeName || "Belum ada calon tunggal"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Jenis permintaan</p>
+                      <p className="mt-0.5 font-medium">{values.mode === "revisi" ? "Revisi RFQ aktif" : "Permintaan baru"}</p>
+                    </div>
+                  </div>
+                  {values.mode === "revisi" && directAppointmentActiveRfqs.length ? (
+                    <p className="text-xs text-muted-foreground">
+                      RFQ acuan: <span className="font-medium text-foreground">{directAppointmentActiveRfqs.map((row) => `${plainText(row.nomor) || "RFQ"} · R${String(row.revisi ?? 1)}`).join(", ")}</span>
+                    </p>
+                  ) : null}
+                  <p className="border-t pt-2 text-xs leading-5 text-muted-foreground">
+                    {values.mode === "revisi"
+                      ? "RFQ aktif kepada calon ini akan diterbitkan sebagai revisi baru. Penerima tetap sama; perubahan syarat perlu diberi alasan."
+                      : directAppointmentRfqBlockers?.length
+                        ? "Penerima sudah ditetapkan dari justifikasi. Selesaikan tahap Verifikasi Vendor dan nyatakan calon layak sebelum RFQ dikirim."
+                        : "Penerima berasal dari calon tunggal yang sudah dijustifikasi dan diverifikasi. Untuk mengganti calon, perbarui justifikasi terlebih dahulu."}
+                  </p>
+                </section>
+              </>
+            ) : selected?.key === "rfq" ? (
               <p className="text-sm text-muted-foreground">
                 {isPublicDirectPurchase
                   ? "Terbitkan RFQ publik. Vendor yang telah disetujui dapat mengirim penawaran hingga batas respons."
@@ -2200,6 +2899,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                   </div>
                   <div className="grid items-start gap-x-5 gap-y-3 sm:grid-cols-2">
                     {section.fields.map((field) => {
+                      if (selected?.key === "verifikasi" && isDirectAppointment && field.name === "vendorId") return null;
+                      if (selected?.key === "rfq" && isDirectAppointment && ["mode", "vendorIds"].includes(field.name)) return null;
+                      if (selected?.key === "rfq" && isDirectAppointment && values.mode === "revisi" && field.name === "rfqIds" && directAppointmentActiveRfqs.length === 1) return null;
                       if (selected?.key === "perencanaan" && field.name === "namaImportir" && values.pihakImportir !== "pihak_lain") return null;
                       const importerNameRequired = selected?.key === "perencanaan" && field.name === "namaImportir" && values.pihakImportir === "pihak_lain";
                       const recipientImporterRequired = selected?.key === "perencanaan" && field.name === "penerimaPasokan" && values.pihakImportir === "penerima_pasokan";
@@ -2237,6 +2939,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                       const finalReportDrafts = publishingFinalReport
                         ? records(detail.laporan).filter((row) => row.status === "draft" && row.jenis === "akhir")
                         : [];
+                      const selectingAppointmentVendor = selected?.key === "pemilihan-penyedia" && field.name === "vendorIds";
                       const selectedFinalReport = finalReportDrafts.find((row) => String(row.id) === String(values[field.name] ?? ""));
                       const selectedFinalReportSummary = plainText(selectedFinalReport?.ringkasan).replace(/\s+/g, " ").trim();
                       const selectedFinalReportPeriod = [formatReportDate(selectedFinalReport?.periodeMulai), formatReportDate(selectedFinalReport?.periodeSelesai)].filter(Boolean).join(" – ");
@@ -2256,6 +2959,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                         if (selected?.key === "serah-terima" && field.name === "status") {
                           return ({ diterima: "Diterima lengkap", sebagian: "Diterima sebagian", ditolak: "Ditolak" } as Record<string, string>)[value] ?? value;
                         }
+                        if (selected?.key === "verifikasi" && isDirectAppointment && field.name === "hasil") {
+                          return ({ selesai: "Layak dimintai penawaran", ditolak: "Tidak layak", revisi: "Perlu dilengkapi" } as Record<string, string>)[value] ?? value;
+                        }
                         return selected?.key === "verifikasi" && ["selesai", "ditolak", "revisi"].includes(value)
                           ? ({ selesai: "Sesuai", ditolak: "Tidak sesuai", revisi: "Perlu perbaikan" } as Record<string, string>)[value]
                           : value.replaceAll("_", " ");
@@ -2267,6 +2973,10 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                       const fieldLabel =
                         publishingFinalReport
                           ? "Draft laporan akhir"
+                          : selectingAppointmentVendor
+                            ? "Pilih satu calon Penyedia"
+                            : selected?.key === "pemilihan-penyedia" && field.name === "justifikasiPenunjukan"
+                              ? "Alasan dan bukti dasar penunjukan"
                           : selected?.key === "tagihan" && field.name === "nilai"
                           ? "Nilai tagihan"
                           : selected?.key === "tagihan" && field.name === "pengirimanIds"
@@ -2288,6 +2998,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                                 : field.label;
                       const fullWidth =
                         (selected?.key === "terbitkan-laporan" && field.name === "laporanId") ||
+                        (selected?.key === "pemilihan-penyedia" && ["vendorIds", "justifikasiPenunjukan"].includes(field.name)) ||
                         (selected?.key === "tagihan" && field.name === "nomor") ||
                         (deliveryField && ["entityId", "kontrakId", "volumeRencana"].includes(field.name)) ||
                         (selected?.key === "status-pengiriman" && ["entityId", "status"].includes(field.name)) ||
@@ -2299,7 +3010,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                         (selected?.key === "penerimaan" && ["pengirimanId", "mutuDiterima", "catatan"].includes(field.name)) ||
                         (selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "syaratPenyerahan", "syaratPembayaran", "dokumenDiminta"].includes(field.name)) ||
                         (selected?.key === "negosiasi" && ["penawaranId", "hasil"].includes(field.name)) ||
-                        (selected?.key === "verifikasi" && ["kepatuhan", "hasil", "catatan"].includes(field.name));
+                        (selected?.key === "verifikasi" && (isDirectAppointment ? field.name === "catatan" : ["kepatuhan", "hasil", "catatan"].includes(field.name)));
                       return (
                         <div
                           key={field.name}
@@ -2309,14 +3020,23 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                             {fieldLabel}
                             {field.required ? " *" : ""}
                           </Label>
+                          {selected?.key === "pemilihan-penyedia" && field.name === "justifikasiPenunjukan" ? (
+                            <p className="text-xs leading-5 text-muted-foreground">Jelaskan dasar yang berlaku, kaitannya dengan Penyedia yang dipilih, bukti pendukung, mengapa pilihan lain tidak layak, serta risiko dan mitigasinya.</p>
+                          ) : null}
                           {selected?.key === "rekonsiliasi" && field.name === "catatan" ? (
                             <p className="text-xs leading-5 text-muted-foreground">Tuliskan keputusan atas selisih yang ditemukan, alasan saldo yang belum dapat dicocokkan, atau tindak lanjut yang disepakati. Angka ringkasan di atas dihitung otomatis.</p>
+                          ) : null}
+                          {selected?.key === "verifikasi" && isDirectAppointment && field.name === "catatan" ? (
+                            <p className="text-xs leading-5 text-muted-foreground">Wajib mencatat dokumen atau sumber yang diperiksa, tanggal pemeriksaan, bukti kewenangan menyediakan/menjual Kargo, pembatasan yang ditemukan, serta keterbatasan dan mitigasi.</p>
                           ) : null}
                           {selected?.key === "negosiasi" && field.name === "batasNegosiasi" ? (
                             <p className="min-h-8 text-xs leading-4 text-muted-foreground">Opsional. Harga per satuan untuk acuan internal; tidak dikirim kepada vendor.</p>
                           ) : null}
                           {selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi" ? (
                             <p className="min-h-8 text-xs leading-4 text-muted-foreground">Isi harga per satuan, bukan total volume. Mata uang dan satuan mengikuti penawaran.</p>
+                          ) : null}
+                          {selected?.key === "negosiasi" && field.name === "hasil" ? (
+                            <p className="text-xs leading-5 text-muted-foreground">Opsional. Catat konteks atau perubahan syarat selain harga. Tanggapan dan kesepakatan vendor dicatat setelah vendor merespons.</p>
                           ) : null}
                           {deliveryField && field.name === "volumeRencana" && selectedContract ? (
                             <p className="text-xs text-muted-foreground">
@@ -2431,6 +3151,21 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                                   ) : null}
                                 </>
                               )}
+                            </div>
+                          ) : selectingAppointmentVendor ? (
+                            <div className="space-y-2">
+                              <FilterCombobox
+                                id={fieldId}
+                                required={field.required}
+                                options={options(field)}
+                                value={(values[field.name] ?? "").split(",").filter(Boolean)[0] ?? ""}
+                                onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: value }))}
+                                label={fieldLabel}
+                                searchPlaceholder="Cari vendor aktif..."
+                                emptyLabel="Pilih satu calon Penyedia"
+                                disabled={locked || !permitted || vendorBlocked}
+                              />
+                              <p className="text-xs leading-5 text-muted-foreground">Hanya satu calon Penyedia yang dapat dipilih. Penyedia ini akan dimintai penawaran setelah dasar penunjukannya dicatat.</p>
                             </div>
                           ) : field.multiple && field.relation && field.relation !== "vendor" ? (
                             <div className="space-y-2">
@@ -2842,8 +3577,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                               value={values[field.name] ?? ""}
                               onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
                               required={field.required || importerNameRequired || recipientImporterRequired}
-                              rows={selected?.key === "laporan" && ["ringkasan", "rekomendasi"].includes(field.name) ? 5 : 3}
-                              placeholder={`${field.label}…`}
+                              rows={selected?.key === "pemilihan-penyedia" && field.name === "justifikasiPenunjukan" ? 5 : selected?.key === "laporan" && ["ringkasan", "rekomendasi"].includes(field.name) ? 5 : 3}
+                              maxLength={field.maxLength}
+                              placeholder={selected?.key === "pemilihan-penyedia" && field.name === "justifikasiPenunjukan" ? "Jelaskan dasar penunjukan dan alasan calon Penyedia ini memenuhi kebutuhan..." : `${field.label}…`}
                               className="w-full rounded-md border border-input bg-background p-3 text-sm leading-6"
                             />
                           ) : (

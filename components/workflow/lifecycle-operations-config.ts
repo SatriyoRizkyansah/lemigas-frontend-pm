@@ -134,10 +134,10 @@ export const lifecycleOperations: Operation[] = [
   ),
   {
     key: "pemilihan-penyedia",
-    title: "Inisialisasi penunjukan penyedia",
-    stages: ["justifikasi_penunjukan", "permintaan_penawaran"],
+    title: "Catat justifikasi Penunjukan Langsung",
+    stages: ["justifikasi_penunjukan"],
     roles: AO,
-    fields: [vendorMultiple, textarea("justifikasiPenunjukan", "Justifikasi penunjukan langsung", true)],
+    fields: [vendorMultiple, { ...textarea("justifikasiPenunjukan", "Justifikasi penunjukan langsung", true), maxLength: 5000 }],
     available: (d) => String(d.metode) === "penunjukan_langsung",
     run: (id, body) =>
       browserApi.request<unknown, unknown>({
@@ -234,7 +234,7 @@ export const lifecycleOperations: Operation[] = [
       rel("penawaranId", "Penawaran vendor", "penawaran", true),
       num("batasNegosiasi", "Target harga internal per satuan", 0),
       num("hargaHasilNegosiasi", "Harga yang diajukan ke vendor per satuan", 0, true),
-      textarea("hasil", "Catatan hasil dan kesepakatan"),
+      textarea("hasil", "Catatan usulan negosiasi"),
     ]),
     stages: ["klarifikasi_negosiasi", "uji_kewajaran_negosiasi", "evaluasi_negosiasi"],
   },

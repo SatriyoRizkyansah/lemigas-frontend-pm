@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ClipboardCheck, FileText, Send } from "lucide-react";
+import { ArrowUpRight, CalendarClock, Check, ClipboardCheck, FileText, LockKeyhole, MessageSquareText, Send, ShieldCheck, UserRound } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
@@ -112,9 +112,10 @@ const statusLabels: Record<string, string> = {
   perlu_revisi: "perlu revisi",
   revisi: "perlu revisi",
   ditolak: "ditolak",
+  disetujui_bersyarat: "disetujui bersyarat",
 };
 function Status({ value }: { value: string }) {
-  const variant = value === "ditolak" ? "danger" : value === "disetujui" || value === "selesai" ? "ok" : "warn";
+  const variant = value === "ditolak" ? "danger" : ["disetujui", "selesai", "disetujui_bersyarat"].includes(value) ? "ok" : "warn";
   return <StatusBadge status={variant}>{statusLabels[value] ?? value.replaceAll("_", " ")}</StatusBadge>;
 }
 const hiddenDetailKeys = new Set(["id", "createdAt", "updatedAt", "deletedAt"]);
@@ -195,6 +196,7 @@ function MemorandumEvidence({ memorandum, context }: { memorandum: Procurement["
   const evaluation = record(memo.hasilEvaluasi);
   const collective = record(evaluation.rekomendasiKolektif);
   const quorum = record(collective.kuorum);
+  const directAppointment = memo.metodeSeleksi === "penunjukan_langsung";
   return (
     <section className="space-y-3" aria-label="Bukti memorandum">
       <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-4">
@@ -209,9 +211,13 @@ function MemorandumEvidence({ memorandum, context }: { memorandum: Procurement["
             <dd className="font-medium">{entityText(vendor.nama) || entityText(record(evaluation.vendorTerpilih).nama)}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">Kuorum rekomendasi</dt>
+            <dt className="text-muted-foreground">
+              {directAppointment ? "Dasar calon" : "Kuorum rekomendasi"}
+            </dt>
             <dd className="font-medium">
-              {entityText(quorum.masuk)} / {entityText(quorum.wajib)}
+              {directAppointment
+                ? "Calon tunggal berdasarkan justifikasi"
+                : `${entityText(quorum.masuk)} / ${entityText(quorum.wajib)}`}
             </dd>
           </div>
           <div>
@@ -226,7 +232,10 @@ function MemorandumEvidence({ memorandum, context }: { memorandum: Procurement["
           </div>
         </dl>
       </div>
-      <Context title="Hasil evaluasi dan suara kolektif" value={memo.hasilEvaluasi} />
+      <Context
+        title={directAppointment ? "Evaluasi dan dasar penunjukan" : "Hasil evaluasi dan suara kolektif"}
+        value={memo.hasilEvaluasi}
+      />
       <Context title="Analisis harga dan negosiasi" value={memo.analisisHarga} />
       <Context title="Risiko dan mitigasi" value={memo.analisisRisiko} />
       <Context title="Kesiapan pembiayaan" value={memo.kesiapanPembiayaan} />
@@ -822,10 +831,13 @@ export default function ApprovalPage() {
             decide.reset();
           }
         }}
-        title={`Detail approval ${selected?.jenis ?? jenis}`}
+        title={selected?.jenis === "memorandum" ? "Detail approval memorandum" : "Detail approval pengadaan"}
+        description="Tinjau ringkasan pengajuan, urutan pemeriksaan, dan keputusan yang perlu diberikan."
+        size="lg"
+        bodyClassName="space-y-5 bg-muted/[0.12]"
         footer={
           <>
-            <Button type="button" variant="outline" disabled={decide.isPending} onClick={() => setSelected(null)}>
+            <Button type="button" variant="outline" className="mr-auto" disabled={decide.isPending} onClick={() => setSelected(null)}>
               Tutup
             </Button>
             {!mySubmissions ? (
@@ -837,7 +849,7 @@ export default function ApprovalPage() {
                   Tolak
                 </Button>
                 <Button type="button" disabled={!allowed || decide.isPending} onClick={() => void submit("disetujui")}>
-                  {decide.isPending ? "Memproses…" : "Setujui"}
+                  <Check size={16} /> {decide.isPending ? "Memproses…" : "Setujui"}
                 </Button>
               </>
             ) : null}
@@ -845,70 +857,162 @@ export default function ApprovalPage() {
         }
       >
         {selected && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="font-semibold text-foreground">{selected.row.judul}</h2>
-              <p>{entityText(selected.row.nomorSurat)}</p>
-              <p>Pemohon: {entityText(selected.row.diajukanOlehUser)}</p>
-              <Link className="underline" href={`/dashboard/pengadaan/${selected.row.id}/siklus`}>
-                Buka siklus pengadaan
-              </Link>
-            </div>
+          <div className="mx-auto w-full max-w-4xl space-y-5">
+            <section className="overflow-hidden rounded-xl border bg-background shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b bg-gradient-to-r from-primary/[0.07] via-background to-background px-4 py-4 sm:px-5">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                    {selected.jenis === "memorandum" ? <FileText size={19} /> : <ClipboardCheck size={19} />}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      {selected.jenis === "memorandum" ? "Memorandum keputusan" : "Persetujuan pengadaan"}
+                    </p>
+                    <h2 className="mt-1 break-words text-base font-semibold leading-snug">{selected.row.judul}</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">{entityText(selected.row.nomorSurat)}</p>
+                  </div>
+                </div>
+                <Status value={selected.jenis === "memorandum" ? selected.row.memorandum?.status ?? "menunggu" : selected.row.status} />
+              </div>
+              <div className="grid gap-3 px-4 py-3.5 text-sm sm:grid-cols-[1fr_1fr_auto] sm:items-center sm:px-5">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <UserRound size={16} className="shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-muted-foreground">Diajukan oleh</p>
+                    <p className="truncate font-medium">{entityText(selected.row.diajukanOlehUser)}</p>
+                  </div>
+                </div>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <ShieldCheck size={16} className="shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-muted-foreground">Langkah aktif</p>
+                    <p className="truncate font-medium">{activeStep ? `${activeStep.urutan}. ${activeStep.namaLangkah}` : "Tidak ada langkah aktif"}</p>
+                  </div>
+                </div>
+                <Link className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline" href={`/dashboard/pengadaan/${selected.row.id}/siklus`}>
+                  Buka siklus <ArrowUpRight size={15} />
+                </Link>
+              </div>
+            </section>
+
             {selected.jenis === "pengadaan" && !mySubmissions ? <Context title="Item pengadaan" value={selected.row.items} /> : null}
             {context.isPending ? (
               <LoadingState />
             ) : context.isError ? (
-              errorAlert(context.error, () => {
-                void context.refetch();
-              })
+              errorAlert(context.error, () => { void context.refetch(); })
             ) : selected.jenis === "memorandum" ? (
               <MemorandumEvidence memorandum={selected.row.memorandum} context={context.data} />
             ) : (
               <Context title="Konteks siklus pengadaan" value={context.data} />
             )}
-            <h3 className="font-semibold text-foreground">Riwayat approval</h3>
-            {history.isPending ? (
-              <LoadingState />
-            ) : history.isError ? (
-              errorAlert(history.error, () => {
-                void history.refetch();
-              })
-            ) : (
-              <div className="space-y-3">
-                {(["pengadaan", "memorandum"] as const).map((kind) => (
-                  <div key={kind}>
-                    <h4 className="font-medium capitalize">{kind}</h4>
-                    {stepsFor(history.data ?? [], kind).length ? (
-                      <ol className="space-y-2">
-                        {stepsFor(history.data ?? [], kind).map((step) => (
-                          <li key={step.id} className="rounded border p-2">
-                            <p>
-                              {step.urutan}. {step.namaLangkah}
-                            </p>
+
+            <section className="overflow-hidden rounded-xl border bg-background shadow-sm" aria-label={`Alur persetujuan ${selected.jenis}`}>
+              <header className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3.5 sm:px-5">
+                <div>
+                  <h3 className="text-sm font-semibold">Alur persetujuan {selected.jenis}</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">Tiap langkah berjalan berurutan. Hanya langkah aktif yang dapat diputuskan.</p>
+                </div>
+                {activeStep ? <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900">Langkah {activeStep.urutan} dari {stepsFor(history.data ?? [], selected.jenis).length}</span> : null}
+              </header>
+              {history.isPending ? (
+                <div className="p-4"><LoadingState /></div>
+              ) : history.isError ? (
+                <div className="p-4">{errorAlert(history.error, () => { void history.refetch(); })}</div>
+              ) : stepsFor(history.data ?? [], selected.jenis).length ? (
+                <ol className="divide-y">
+                  {stepsFor(history.data ?? [], selected.jenis).map((step, index, rows) => {
+                    const current = activeStep?.id === step.id;
+                    const approved = ["disetujui", "disetujui_bersyarat"].includes(step.status);
+                    const negative = ["revisi", "ditolak", "perlu_revisi"].includes(step.status);
+                    return (
+                      <li key={step.id} className={`relative flex gap-3.5 px-4 py-3.5 sm:gap-4 sm:px-5 ${current ? "bg-primary/[0.035]" : ""}`}>
+                        <div className="relative flex w-8 shrink-0 justify-center">
+                          {index < rows.length - 1 ? <span className={`absolute bottom-[-1rem] top-8 w-px ${approved ? "bg-emerald-300" : "bg-border"}`} aria-hidden="true" /> : null}
+                          <span className={`relative z-[1] grid size-8 place-items-center rounded-full border text-xs font-semibold ${approved ? "border-emerald-600 bg-emerald-600 text-white" : negative ? "border-rose-300 bg-rose-50 text-rose-700" : current ? "border-primary bg-primary text-primary-foreground" : "bg-background text-muted-foreground"}`}>
+                            {approved ? <Check size={15} /> : step.urutan}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <h4 className="text-sm font-semibold">{step.namaLangkah}</h4>
+                              {current ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">LANGKAH AKTIF</span> : null}
+                            </div>
                             <Status value={step.status} />
-                            <p>Peran wajib: {requiredRole(step)}</p>
-                            <p>Approver: {entityText(step.penanggungJawabUser)}</p>
-                            <p>Waktu: {step.tanggalKeputusan ? new Date(step.tanggalKeputusan).toLocaleString("id-ID") : "—"}</p>
-                            <p className="whitespace-pre-wrap break-words">Catatan: {step.catatan || "—"}</p>
-                          </li>
-                        ))}
-                      </ol>
-                    ) : (
-                      <p>Belum ada riwayat.</p>
-                    )}
+                          </div>
+                          <div className="grid gap-x-5 gap-y-1.5 text-xs sm:grid-cols-3">
+                            <p className="flex items-center gap-1.5 text-muted-foreground"><ShieldCheck size={13} /> Peran wajib <span className="font-medium text-foreground">{requiredRole(step)}</span></p>
+                            <p className="flex items-center gap-1.5 text-muted-foreground"><UserRound size={13} /> Approver <span className="truncate font-medium text-foreground">{entityText(step.penanggungJawabUser)}</span></p>
+                            <p className="flex items-center gap-1.5 text-muted-foreground"><CalendarClock size={13} /> {step.tanggalKeputusan ? new Date(step.tanggalKeputusan).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }) : "Belum diputuskan"}</p>
+                          </div>
+                          {step.catatan ? (
+                            <div className="flex gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-5">
+                              <MessageSquareText size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+                              <p className="whitespace-pre-wrap break-words"><span className="font-medium">Catatan:</span> {step.catatan}</p>
+                            </div>
+                          ) : null}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <div className="px-5 py-8 text-center">
+                  <span className="mx-auto grid size-10 place-items-center rounded-full bg-muted text-muted-foreground"><FileText size={18} /></span>
+                  <p className="mt-2 text-sm font-medium">Riwayat approval belum tersedia</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Langkah persetujuan akan tampil setelah pengajuan dikirim.</p>
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-xl border bg-background p-4 shadow-sm sm:p-5">
+              <div className="flex items-start gap-3">
+                <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${allowed ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
+                  {allowed ? <ShieldCheck size={17} /> : <LockKeyhole size={17} />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold">Keputusan Anda</h3>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${allowed ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground"}`}>{allowed ? "Dapat memutuskan" : "Hanya baca"}</span>
                   </div>
-                ))}
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {mySubmissions
+                      ? "Pengajuan milik Anda ditampilkan sebagai informasi dan tidak dapat diputuskan dari akun ini."
+                      : history.isPending || history.isFetching || context.isPending || context.isFetching
+                        ? "Memuat konteks pengadaan dan riwayat keputusan. Tombol keputusan aktif setelah data siap."
+                      : !activeStep
+                        ? "Tidak ada langkah menunggu keputusan."
+                        : !roleAllows(role, activeStep)
+                          ? `Langkah ini memerlukan role ${requiredRole(activeStep)} atau ADMIN. Role akun Anda ${role || "belum diketahui"}.`
+                          : !workflowWaiting(selected.row, selected.jenis)
+                            ? "Status pengajuan tidak lagi menunggu persetujuan."
+                            : allowed
+                              ? `Role ${role} sesuai untuk langkah ${activeStep.namaLangkah}. Berikan keputusan setelah memeriksa informasi dan dokumen pendukung.`
+                              : "Keputusan tidak tersedia. Periksa status pengajuan dan urutan persetujuan."}
+                  </p>
+                </div>
               </div>
-            )}
-            <p>
-              Role Anda: {role || "Memuat…"}. {activeStep ? `Langkah aktif: ${activeStep.namaLangkah}. Membutuhkan ${requiredRole(activeStep)} atau ADMIN.` : "Tidak ada langkah aktif."}
-            </p>
-            {mySubmissions ? <p>Pengajuan saya: detail dan riwayat hanya baca.</p> : !allowed && <p>Keputusan terkunci: periksa role, urutan, status workflow, dan pemuatan konteks/riwayat. Status akun tetap diverifikasi server.</p>}
+            </section>
+
             {!mySubmissions ? (
-              <div className="space-y-2">
-                <Label htmlFor="approval-comment">Catatan keputusan</Label>
-                <Input id="approval-comment" value={catatan} disabled={decide.isPending} onChange={(event) => setCatatan(event.target.value)} aria-describedby="approval-comment-help" />
-                <p id="approval-comment-help">Wajib untuk permintaan revisi dan penolakan.</p>
+              <div className="space-y-2 rounded-xl border bg-background p-4 shadow-sm sm:p-5">
+                <div className="flex items-start gap-2">
+                  <MessageSquareText size={16} className="mt-0.5 text-muted-foreground" />
+                  <div>
+                    <Label htmlFor="approval-comment" className="text-sm font-semibold">Catatan keputusan</Label>
+                    <p id="approval-comment-help" className="mt-1 text-xs leading-5 text-muted-foreground">Jelaskan alasan atau arahan tindak lanjut. Wajib diisi untuk meminta revisi atau menolak.</p>
+                  </div>
+                </div>
+                <textarea
+                  id="approval-comment"
+                  value={catatan}
+                  disabled={decide.isPending}
+                  onChange={(event) => setCatatan(event.target.value)}
+                  aria-describedby="approval-comment-help"
+                  rows={3}
+                  placeholder="Tulis catatan keputusan atau bagian yang perlu diperbaiki…"
+                  className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm leading-5 outline-none transition placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                />
               </div>
             ) : null}
             {decide.isError && (

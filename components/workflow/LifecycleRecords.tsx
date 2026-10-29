@@ -326,8 +326,40 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
     },
   });
   const selection = detail.pemilihanPenyedia as RecordData | undefined;
+  const isDirectAppointment = String(detail.metode ?? detail.strategi?.metodeSeleksi ?? "") === "penunjukan_langsung";
   const currentOffers = list(detail.penawaran).filter((offer) => offer.isCurrent !== false && offer.submittedAt);
   const bidByVendor = new Map<string, RecordData>(currentOffers.map((offer) => [String(offer.vendorId), offer]));
+  const rfqByVendor = new Map<string, RecordData[]>(
+    list(detail.rfq).reduce<Map<string, RecordData[]>>((byVendor, rfq) => {
+      const vendorId = rfq.vendorId ?? rfq.vendor?.id;
+      if (vendorId == null) return byVendor;
+      const key = String(vendorId);
+      byVendor.set(key, [...(byVendor.get(key) ?? []), rfq]);
+      return byVendor;
+    }, new Map()),
+  );
+  const nominatedParticipants = list(selection?.peserta).map<RecordData>((participant) => {
+    const vendorId = participant.vendorId ?? participant.vendor?.id;
+    const offer = vendorId == null ? undefined : bidByVendor.get(String(vendorId));
+    const rfqs = vendorId == null ? [] : (rfqByVendor.get(String(vendorId)) ?? []);
+    const activeRfq = rfqs.find((rfq) => rfq.status === "aktif");
+    const latestRfq = [...rfqs].sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")))[0];
+    const evaluationComplete = participant.status === "lulus" || participant.status === "tidak_lulus";
+    const processStatus = offer
+      ? evaluationComplete
+        ? participant.status === "lulus" ? "Lulus evaluasi" : "Tidak lulus evaluasi"
+        : "Penawaran diterima · menunggu evaluasi"
+      : activeRfq
+        ? "Menunggu penawaran"
+        : latestRfq
+          ? latestRfq.status === "draft"
+            ? "RFQ disiapkan"
+            : latestRfq.status === "selesai" || latestRfq.status === "dibatalkan"
+              ? "RFQ ditutup tanpa penawaran"
+              : "RFQ belum aktif"
+          : "Menunggu RFQ";
+    return { ...participant, vendorId, penawaran: offer, rfq: activeRfq ?? latestRfq, processStatus };
+  });
   const selectionParticipantsBase = list(selection?.peserta)
     .filter((participant) => bidByVendor.has(String(participant.vendorId)))
     .map<RecordData>((participant) => ({ ...participant, penawaran: bidByVendor.get(String(participant.vendorId)) }));
@@ -491,8 +523,8 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
             <span>Pemilihan penyedia</span>
             <span className="flex items-center gap-2">
-              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">Ada data</span>
-              <span className="text-xs font-normal text-muted-foreground">{String(selection.status ?? "draft").replaceAll("_", " ")}</span>
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isDirectAppointment && nominatedParticipants.length === 0 ? "bg-muted text-muted-foreground" : "bg-emerald-100 text-emerald-800"}`}>{isDirectAppointment ? `${nominatedParticipants.length} calon ditetapkan` : "Ada data"}</span>
+              {!isDirectAppointment ? <span className="text-xs font-normal text-muted-foreground">{String(selection.status ?? "draft").replaceAll("_", " ")}</span> : null}
             </span>
           </summary>
           <div className="space-y-3 border-t py-4">
@@ -501,11 +533,84 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                 <strong>Justifikasi:</strong> {String(selection.justifikasiPenunjukan)}
               </p>
             ) : null}
+            {isDirectAppointment ? (
+              <p className="text-xs text-muted-foreground">
+                Penunjukan Langsung tidak memakai peringkat antarvendor. Calon tetap tampil sebelum penawaran diterima; evaluasi dapat dicatat setelah penawaran masuk.
+              </p>
+            ) : null}
             <DataTable
-              rows={selectionParticipants}
+              rows={isDirectAppointment ? nominatedParticipants : selectionParticipants}
               rowKey={(row) => row.id}
-              emptyMessage="Belum ada peserta pemilihan."
-              columns={[
+              emptyMessage={isDirectAppointment ? "Belum ada calon Penyedia dari tahap Justifikasi Penunjukan." : "Belum ada peserta pemilihan."}
+              columns={isDirectAppointment ? [
+                { key: "vendor", header: "Vendor", render: (row) => text(row.vendor?.nama ?? row.vendorId) },
+                { key: "processStatus", header: "Status proses", render: (row) => text(row.processStatus) },
+                {
+                  key: "offer",
+                  header: "Penawaran",
+                  render: (row) => row.penawaran
+                    ? `${text(row.penawaran.mataUang)} ${text(row.penawaran.hargaPenawaran)}`
+                    : "Belum diterima",
+                },
+                {
+                  key: "evaluationStatus",
+                  header: "Evaluasi",
+                  render: (row) => row.status === "lulus" || row.status === "tidak_lulus"
+                    ? (row.status === "lulus" ? "Selesai · lulus" : "Selesai · tidak lulus")
+                    : row.penawaran ? "Belum dinilai" : "Menunggu penawaran",
+                },
+                { key: "skor", header: "Skor", render: (row) => row.skor == null ? "Belum dinilai" : text(row.skor) },
+                {
+                  key: "kelulusan",
+                  header: "Kelulusan",
+                  render: (row) => {
+                    if (!row.penawaran) return "Menunggu penawaran";
+                    if (row.status !== "lulus" && row.status !== "tidak_lulus") return "Belum dievaluasi";
+                    return row.status === "lulus" ? "Memenuhi persyaratan" : "Tidak memenuhi persyaratan";
+                  },
+                },
+                {
+                  key: "aksi",
+                  header: "Aksi",
+                  render: (row) => (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!active || stage !== "uji_kewajaran_negosiasi" || !row.penawaran || !canManageSelection || selectionMutation.isPending}
+                      onClick={() => {
+                        setEvaluation({
+                          administrasi: Boolean(row.lulusAdministrasi),
+                          dokumen: Boolean(row.lulusDokumen),
+                          teknis: Boolean(row.lulusTeknis),
+                          legal: Boolean(row.lulusLegal),
+                          komersial: Boolean(row.lulusKomersial),
+                          delivery: Boolean(row.lulusDelivery),
+                          terms: Boolean(row.lulusTerms),
+                          sumberHargaAcuan: String(row.sumberHargaAcuan ?? ""),
+                          nilaiHargaAcuan: row.nilaiHargaAcuan == null ? "" : String(row.nilaiHargaAcuan),
+                          komponenBiayaPerolehan: Object.fromEntries(
+                            ACQUISITION_COST_FIELDS.map(({ key }) => {
+                              const saved = row.komponenBiayaPerolehan?.[key];
+                              return [key, {
+                                nilai: saved?.nilai == null ? "" : String(saved.nilai),
+                                includedInOffer: Boolean(saved?.includedInOffer),
+                                sumber: String(saved?.sumber ?? ""),
+                                statusNilai: saved?.statusNilai === "final" ? "final" : "estimasi",
+                              }];
+                            }),
+                          ) as Record<AcquisitionCostKey, AcquisitionCostComponent>,
+                          skor: row.skor == null ? "" : String(row.skor),
+                          alasan: String(row.alasan ?? ""),
+                          catatanEvaluasi: String(row.catatanEvaluasi ?? ""),
+                        });
+                        setEvaluating(row);
+                      }}
+                    >
+                      {row.status === "lulus" || row.status === "tidak_lulus" ? "Ubah nilai" : "Nilai"}
+                    </Button>
+                  ),
+                },
+              ] : [
                 { key: "vendor", header: "Vendor", render: (row) => text(row.vendor?.nama ?? row.vendorId) },
                 {
                   key: "status",
@@ -946,9 +1051,11 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
               placeholder="0–100"
             />
             {evaluation.skor !== "" && (Number(evaluation.skor) < 0 || Number(evaluation.skor) > 100) ? <p className="text-xs text-destructive">Skor harus berada pada rentang 0 sampai 100.</p> : null}
-            <p className="text-sm text-muted-foreground">
-              Peringkat saat ini: <strong className="text-foreground">{evaluating?.peringkat ? `#${evaluating.peringkat}` : "Belum dihitung"}</strong>
-            </p>
+            {!isDirectAppointment ? (
+              <p className="text-sm text-muted-foreground">
+                Peringkat saat ini: <strong className="text-foreground">{evaluating?.peringkat ? `#${evaluating.peringkat}` : "Belum dihitung"}</strong>
+              </p>
+            ) : null}
           </section>
           <section className="space-y-3">
             <div>

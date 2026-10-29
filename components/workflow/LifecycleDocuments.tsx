@@ -34,6 +34,7 @@ type Action = { mode: "upload" | "fulfill"; requirementId: string };
 type GeneratedDocument = { id: string; nama: string };
 const uploadStages: string[] = [
   "perencanaan",
+  "justifikasi_penunjukan",
   "pemilihan_penyedia",
   "penawaran_vendor",
   "verifikasi_evaluasi",

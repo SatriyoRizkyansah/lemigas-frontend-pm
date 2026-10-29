@@ -473,8 +473,15 @@ function NegotiationWorkspace({
   );
   const baseline = selected.penawaran.detail?.rfqBaseline as
     Record<string, unknown> | undefined;
-  const initial = Number(selected.penawaran.hargaPenawaran);
-  const negotiated = Number(selected.hargaHasilNegosiasi);
+  const initial =
+    selected.penawaran.hargaPenawaran == null ||
+    selected.penawaran.hargaPenawaran === ""
+      ? Number.NaN
+      : Number(selected.penawaran.hargaPenawaran);
+  const negotiated =
+    selected.hargaHasilNegosiasi == null || selected.hargaHasilNegosiasi === ""
+      ? Number.NaN
+      : Number(selected.hargaHasilNegosiasi);
   const unit = String(baseline?.satuan ?? linkedRfq?.satuan ?? "");
   const price = (value: string | number | null | undefined) => {
     if (value == null || value === "") return "Belum tersedia";
@@ -514,319 +521,233 @@ function NegotiationWorkspace({
       )
     : [];
   const display = (value: unknown) => formatRfqValue(value);
+  const volume = Number(baseline?.volume ?? linkedRfq?.volume);
+  const hasVolume = Number.isFinite(volume) && volume > 0;
+  const hasInitialPrice = Number.isFinite(initial) && initial >= 0;
+  const hasRequestedPrice = Number.isFinite(negotiated) && negotiated >= 0;
+  const priceDifference =
+    hasInitialPrice && hasRequestedPrice ? negotiated - initial : null;
+  const priceDifferencePercent =
+    priceDifference !== null && initial > 0 ? (priceDifference / initial) * 100 : null;
+  const volumeTotal = (unitPrice: number) =>
+    hasVolume
+      ? `${selected.penawaran.mataUang} ${formatAmount(unitPrice * volume, selected.penawaran.mataUang)}`
+      : null;
+  const responseLabel =
+    selected.tanggapanVendor === "diterima"
+      ? "Usulan diterima"
+      : selected.tanggapanVendor === "ditolak"
+        ? "Usulan ditolak"
+        : NEGOTIATION_STATUS_LABELS[selected.status];
+  const responseContext =
+    selected.status === "disepakati"
+      ? "Putaran ini disepakati dan menjadi bagian dari riwayat negosiasi."
+      : selected.status === "ditolak"
+        ? "Putaran ini ditolak. Pantau bila tim pengadaan mengirim putaran lanjutan."
+        : selected.status === "digantikan"
+          ? "Putaran ini sudah digantikan oleh putaran negosiasi yang lebih baru."
+          : selected.status === "dibatalkan"
+            ? "Tim pengadaan mengakhiri putaran ini tanpa kesepakatan."
+            : "Keputusan Anda akan dicatat sebagai tanggapan resmi perusahaan untuk putaran ini.";
 
   return (
-    <section className="space-y-5">
+    <section className="mx-auto max-w-6xl space-y-4">
       <Button type="button" variant="outline" size="sm" onClick={onBack}>
         <ArrowLeft size={16} /> Kembali ke daftar negosiasi
       </Button>
-      <article className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
-        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border/70 bg-gradient-to-r from-primary/[0.07] via-muted/30 to-transparent px-5 py-5 sm:px-6">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-              Rincian negosiasi · Putaran {selected.putaran}
+
+      <article className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border/70 bg-muted/20 px-5 py-4 sm:px-6">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+              Negosiasi · Putaran {selected.putaran}
             </p>
-            <h3 className="mt-1 text-xl font-semibold">
+            <h2 className="mt-1 text-xl font-semibold tracking-tight">
               {selected.penawaran.pengadaan.judul}
-            </h3>
+            </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Nomor pengadaan: {selected.penawaran.pengadaan.nomorSurat}{" "}
-              <span aria-hidden="true">·</span> RFQ:{" "}
-              {selected.penawaran.nomorRfq ?? "—"}
+              Pengadaan {selected.penawaran.pengadaan.nomorSurat} · RFQ{" "}
+              {linkedRfq?.nomor ?? selected.penawaran.nomorRfq ?? "Tidak tersedia"}
             </p>
           </div>
           <span
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold ${negotiationStatusClass(selected.status)}`}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${negotiationStatusClass(selected.status)}`}
           >
             {NEGOTIATION_STATUS_LABELS[selected.status]}
           </span>
         </header>
 
-        <div className="space-y-6 p-5 sm:p-6">
-          <section className="rounded-xl border bg-muted/15 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Jejak dokumen terkait
-            </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">RFQ</p>
-                <p className="truncate text-sm font-semibold">
-                  {linkedRfq?.nomor ??
-                    selected.penawaran.nomorRfq ??
-                    "Tidak tersedia"}
-                </p>
-              </div>
-              <ChevronRight
-                className="mx-auto hidden text-muted-foreground sm:block"
-                size={16}
-              />
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">Penawaran Anda</p>
-                <p className="truncate text-sm font-semibold">
-                  {price(selected.penawaran.hargaPenawaran)}
-                </p>
-              </div>
-              <ChevronRight
-                className="mx-auto hidden text-muted-foreground sm:block"
-                size={16}
-              />
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">Negosiasi</p>
-                <p className="truncate text-sm font-semibold">
-                  Putaran {selected.putaran} ·{" "}
-                  {price(selected.hargaHasilNegosiasi)}
-                </p>
-              </div>
-            </div>
-          </section>
-          <section>
-            <div className="mb-3 flex items-center gap-2">
-              <span className="grid size-7 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
-                1
-              </span>
-              <div>
-                <h4 className="font-semibold">Detail RFQ</h4>
-                <p className="text-xs text-muted-foreground">
-                  Ketentuan permintaan penawaran untuk pengadaan ini
-                </p>
-              </div>
-            </div>
-            {linkedRfq ? (
-              <>
-                <div className="mb-3 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-lg border p-3">
-                    <p className="text-xs text-muted-foreground">Nomor RFQ</p>
-                    <p className="mt-1 font-semibold">{linkedRfq.nomor}</p>
-                  </div>
-                  <div className="rounded-lg border p-3">
-                    <p className="text-xs text-muted-foreground">
-                      Batas respons
-                    </p>
-                    <p className="mt-1 font-medium">
-                      {linkedRfq.batasRespons
-                        ? new Date(linkedRfq.batasRespons).toLocaleString(
-                            "id-ID",
-                          )
-                        : "Tidak dicantumkan"}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border p-3">
-                    <p className="text-xs text-muted-foreground">
-                      Volume kebutuhan
-                    </p>
-                    <p className="mt-1 font-medium">
-                      {linkedRfq.volume ?? "—"} {linkedRfq.satuan ?? ""}
-                    </p>
-                  </div>
+        <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-6 lg:p-6">
+          <div className="order-2 min-w-0 space-y-4 lg:order-1">
+            <section className="rounded-xl border p-4 sm:p-5" aria-labelledby="negotiation-price-title">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 id="negotiation-price-title" className="font-semibold">Perbandingan harga per satuan</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Bandingkan usulan tim pengadaan dengan harga pada penawaran Anda.
+                  </p>
                 </div>
-                <dl className="grid gap-2 rounded-xl bg-muted/30 p-4 sm:grid-cols-2">
-                  {rfqRows.map(([label, value]) => (
-                    <div
-                      key={label}
-                      className="border-b border-border/50 py-2 last:border-0"
-                    >
+                {unit ? <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Per {unit}</span> : null}
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border bg-background p-4">
+                  <p className="text-xs font-medium text-muted-foreground">Harga penawaran Anda</p>
+                  <p className="mt-2 text-lg font-semibold tabular-nums">{price(selected.penawaran.hargaPenawaran)}</p>
+                  {hasVolume && hasInitialPrice ? (
+                    <p className="mt-1 text-xs text-muted-foreground">Perkiraan untuk {formatAmount(volume, selected.penawaran.mataUang)} {unit}: {volumeTotal(initial)}</p>
+                  ) : null}
+                </div>
+                <div className="rounded-lg border border-primary/25 bg-primary/[0.035] p-4">
+                  <p className="text-xs font-medium text-muted-foreground">Harga yang diminta tim pengadaan</p>
+                  <p className="mt-2 text-lg font-semibold tabular-nums text-primary">{price(selected.hargaHasilNegosiasi)}</p>
+                  {hasVolume && hasRequestedPrice ? (
+                    <p className="mt-1 text-xs text-muted-foreground">Perkiraan untuk {formatAmount(volume, selected.penawaran.mataUang)} {unit}: {volumeTotal(negotiated)}</p>
+                  ) : null}
+                </div>
+              </div>
+              {priceDifference !== null ? (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2.5 text-sm">
+                  <span className="text-muted-foreground">Perubahan dari harga penawaran</span>
+                  <strong className="tabular-nums">
+                    {priceDifference === 0
+                      ? "Tidak berubah"
+                      : `${selected.penawaran.mataUang} ${formatAmount(Math.abs(priceDifference), selected.penawaran.mataUang)} ${priceDifference < 0 ? "lebih rendah" : "lebih tinggi"}`}
+                    {priceDifferencePercent !== null ? ` (${Math.abs(priceDifferencePercent).toFixed(1)}%)` : ""}
+                  </strong>
+                </div>
+              ) : null}
+            </section>
+
+            {selected.hasil ? (
+              <section className="rounded-xl border border-sky-200 bg-sky-50/60 p-4 dark:border-sky-900 dark:bg-sky-950/20">
+                <h3 className="text-sm font-semibold">Catatan dari tim pengadaan</h3>
+                <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{selected.hasil}</p>
+              </section>
+            ) : null}
+
+            <details className="group overflow-hidden rounded-xl border bg-card">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 [&::-webkit-details-marker]:hidden">
+                <span>
+                  <span className="block text-sm font-semibold">Ketentuan RFQ</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">{linkedRfq?.nomor ?? selected.penawaran.nomorRfq ?? "Detail RFQ"} · Volume, spesifikasi, titik serah, dan syarat transaksi</span>
+                </span>
+                <ChevronRight className="shrink-0 text-muted-foreground transition-transform group-open:rotate-90" size={17} />
+              </summary>
+              <div className="border-t px-4 py-3.5">
+                {linkedRfq ? (
+                  <dl className="grid gap-x-5 sm:grid-cols-2">
+                    {rfqRows.map(([label, value]) => (
+                      <div key={label} className="border-b border-border/50 py-2.5 last:border-0">
+                        <dt className="text-xs text-muted-foreground">{label}</dt>
+                        <dd className="mt-1 whitespace-pre-wrap break-words text-sm font-medium">{display(value)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Detail RFQ tidak tersedia. Nomor RFQ yang tercatat: {selected.penawaran.nomorRfq ?? "—"}.</p>
+                )}
+              </div>
+            </details>
+
+            <details className="group overflow-hidden rounded-xl border bg-card">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 [&::-webkit-details-marker]:hidden">
+                <span>
+                  <span className="block text-sm font-semibold">Rincian penawaran Anda</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">Harga awal, syarat penawaran, dan informasi yang dikirim</span>
+                </span>
+                <ChevronRight className="shrink-0 text-muted-foreground transition-transform group-open:rotate-90" size={17} />
+              </summary>
+              <div className="border-t px-4 py-3.5">
+                <dl className="grid gap-x-5 sm:grid-cols-2">
+                  {([
+                    ["Harga penawaran awal", price(selected.penawaran.hargaPenawaran)],
+                    ["Syarat pembayaran", selected.penawaran.syaratPembayaran ?? linkedRfq?.syaratPembayaran ?? "Tidak dicantumkan"],
+                    ["Ketentuan pengangkutan", selected.penawaran.ketentuanPengangkutan ?? "Tidak dicantumkan"],
+                    ["Masa berlaku penawaran", selected.penawaran.berlakuSampai ? new Date(selected.penawaran.berlakuSampai).toLocaleString("id-ID") : "Tidak dicantumkan"],
+                    ...offerRows.map(([key, value]) => [key.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase()), display(value)] as [string, string]),
+                  ] as Array<[string, string]>).map(([label, value]) => (
+                    <div key={label} className="border-b border-border/50 py-2.5 last:border-0">
                       <dt className="text-xs text-muted-foreground">{label}</dt>
-                      <dd className="mt-1 whitespace-pre-wrap text-sm font-medium">
-                        {display(value)}
-                      </dd>
+                      <dd className="mt-1 whitespace-pre-wrap break-words text-sm font-medium">{value}</dd>
                     </div>
                   ))}
                 </dl>
-              </>
-            ) : (
-              <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                Detail RFQ tidak tersedia pada data negosiasi ini. Nomor RFQ
-                tercatat: {selected.penawaran.nomorRfq ?? "—"}.
-              </p>
-            )}
-          </section>
+              </div>
+            </details>
+          </div>
 
-          <section>
-            <div className="mb-3 flex items-center gap-2">
-              <span className="grid size-7 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
-                2
-              </span>
-              <div>
-                <h4 className="font-semibold">Detail penawaran vendor</h4>
-                <p className="text-xs text-muted-foreground">
-                  Penawaran awal yang Anda kirim untuk RFQ tersebut
+          <aside className="order-1 self-start lg:order-2 lg:sticky lg:top-20">
+            <section className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm" aria-labelledby="negotiation-response-title">
+              <header className="border-b border-border/70 bg-muted/20 px-4 py-3.5">
+                <h3 id="negotiation-response-title" className="font-semibold">Tanggapan Anda</h3>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {selected.status === "menunggu_tanggapan"
+                    ? "Tinjau usulan harga sebelum memilih tindakan."
+                    : responseContext}
                 </p>
+              </header>
+              <div className="space-y-4 p-4">
+                {selected.status === "menunggu_tanggapan" ? (
+                  <>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                      Dengan menerima, perusahaan menyetujui harga yang diajukan untuk putaran ini.
+                    </div>
+                    <label className="block space-y-1.5 text-sm">
+                      <span className="font-medium">Catatan tanggapan <span className="font-normal text-muted-foreground">(opsional)</span></span>
+                      <textarea
+                        value={responseNote}
+                        onChange={(event) => setResponseNote(event.target.value)}
+                        maxLength={4000}
+                        rows={4}
+                        disabled={busy}
+                        className="w-full rounded-md border bg-background px-3 py-2 text-sm leading-5 outline-none transition focus-visible:ring-2 focus-visible:ring-ring/40"
+                        placeholder="Tuliskan alasan penolakan atau klarifikasi, jika ada"
+                      />
+                      <span className="block text-xs leading-5 text-muted-foreground">Catatan ini akan disampaikan kepada tim pengadaan bersama keputusan Anda.</span>
+                    </label>
+                    <div className="grid gap-2">
+                      <Button
+                        type="button"
+                        className="w-full"
+                        disabled={busy}
+                        onClick={() => void onRespond(selected, "diterima", responseNote.trim() || undefined)}
+                      >
+                        <CircleCheck size={16} /> Terima usulan
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
+                        disabled={busy}
+                        onClick={() => void onRespond(selected, "ditolak", responseNote.trim() || undefined)}
+                      >
+                        Tolak usulan
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className={`rounded-lg p-3 ${negotiationStatusClass(selected.status)}`}>
+                      <p className="text-xs font-medium opacity-80">Keputusan</p>
+                      <p className="mt-1 font-semibold">{responseLabel}</p>
+                    </div>
+                    {selected.catatanVendor ? (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">Catatan tanggapan Anda</p>
+                        <p className="mt-1 whitespace-pre-wrap text-sm leading-5">{selected.catatanVendor}</p>
+                      </div>
+                    ) : null}
+                    {selected.alasanPenutupan ? (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">Catatan penutupan</p>
+                        <p className="mt-1 whitespace-pre-wrap text-sm leading-5">{selected.alasanPenutupan}</p>
+                      </div>
+                    ) : null}
+                  </>
+                )}
               </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Harga penawaran awal
-                </p>
-                <p className="mt-2 text-lg font-semibold tabular-nums">
-                  {price(selected.penawaran.hargaPenawaran)}
-                </p>
-              </div>
-              <div className="rounded-xl border p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Syarat pembayaran
-                </p>
-                <p className="mt-2 text-sm font-medium">
-                  {selected.penawaran.syaratPembayaran ??
-                    linkedRfq?.syaratPembayaran ??
-                    "Tidak dicantumkan"}
-                </p>
-              </div>
-              <div className="rounded-xl border p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Ketentuan pengangkutan
-                </p>
-                <p className="mt-2 text-sm font-medium">
-                  {selected.penawaran.ketentuanPengangkutan ??
-                    "Tidak dicantumkan"}
-                </p>
-              </div>
-              <div className="rounded-xl border p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Masa berlaku penawaran
-                </p>
-                <p className="mt-2 text-sm font-medium">
-                  {selected.penawaran.berlakuSampai
-                    ? new Date(selected.penawaran.berlakuSampai).toLocaleString(
-                        "id-ID",
-                      )
-                    : "Tidak dicantumkan"}
-                </p>
-              </div>
-            </div>
-            {offerRows.length > 0 && (
-              <dl className="mt-3 grid gap-2 rounded-xl bg-muted/30 p-4 sm:grid-cols-2">
-                {offerRows.map(([key, value]) => (
-                  <div
-                    key={key}
-                    className="border-b border-border/50 py-2 last:border-0"
-                  >
-                    <dt className="text-xs text-muted-foreground">
-                      {key
-                        .replace(/([A-Z])/g, " $1")
-                        .replace(/^./, (char) => char.toUpperCase())}
-                    </dt>
-                    <dd className="mt-1 whitespace-pre-wrap text-sm">
-                      {display(value)}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-          </section>
-
-          <section>
-            <div className="mb-3 flex items-center gap-2">
-              <span className="grid size-7 place-items-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">
-                3
-              </span>
-              <div>
-                <h4 className="font-semibold">Permintaan negosiasi</h4>
-                <p className="text-xs text-muted-foreground">
-                  Periksa harga dan catatan sebelum memberi keputusan
-                </p>
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-border/70 bg-background p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Harga awal
-                </p>
-                <p className="mt-2 text-lg font-semibold tabular-nums">
-                  {price(selected.penawaran.hargaPenawaran)}
-                </p>
-              </div>
-              <div className="rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Harga yang diminta
-                </p>
-                <p className="mt-2 text-lg font-semibold tabular-nums text-primary">
-                  {price(selected.hargaHasilNegosiasi)}
-                </p>
-                {Number.isFinite(initial) &&
-                  initial > 0 &&
-                  Number.isFinite(negotiated) && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Perubahan{" "}
-                      {(((negotiated - initial) / initial) * 100).toFixed(1)}%
-                      dari harga awal
-                    </p>
-                  )}
-              </div>
-            </div>
-            <div className="mt-3 rounded-xl bg-muted/40 p-4">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Catatan tim pengadaan
-              </p>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                {selected.hasil || "Tidak ada catatan tambahan."}
-              </p>
-            </div>
-            <div className="mt-4 space-y-3 border-t border-border/70 pt-4">
-              {selected.status === "menunggu_tanggapan" ? (
-                <>
-                  <label className="block space-y-1.5 text-sm">
-                    <span className="font-medium">
-                      Catatan tanggapan (opsional)
-                    </span>
-                    <textarea
-                      value={responseNote}
-                      onChange={(event) => setResponseNote(event.target.value)}
-                      maxLength={4000}
-                      rows={3}
-                      disabled={busy}
-                      className="w-full rounded-md border bg-background px-3 py-2"
-                      placeholder="Tambahkan alasan, klarifikasi, atau syarat tanggapan"
-                    />
-                  </label>
-                  <div className="flex w-full gap-2 sm:justify-end">
-                    <Button
-                      type="button"
-                      className="flex-1 sm:flex-none"
-                      disabled={busy}
-                      onClick={() =>
-                        void onRespond(
-                          selected,
-                          "diterima",
-                          responseNote.trim() || undefined,
-                        )
-                      }
-                    >
-                      <CircleCheck size={16} /> Setujui harga
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="flex-1 sm:flex-none"
-                      disabled={busy}
-                      onClick={() =>
-                        void onRespond(
-                          selected,
-                          "ditolak",
-                          responseNote.trim() || undefined,
-                        )
-                      }
-                    >
-                      Tolak
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Status:{" "}
-                  <strong className="text-foreground">
-                    {NEGOTIATION_STATUS_LABELS[selected.status]}
-                  </strong>
-                  {selected.catatanVendor
-                    ? ` · Catatan Anda: ${selected.catatanVendor}`
-                    : ""}
-                  {selected.alasanPenutupan
-                    ? ` · Alasan penutupan: ${selected.alasanPenutupan}`
-                    : ""}
-                </p>
-              )}
-            </div>
-          </section>
+            </section>
+          </aside>
         </div>
       </article>
     </section>
