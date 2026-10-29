@@ -23,6 +23,11 @@ import type { PenuhiDokumenTahapDto } from "@/lib/api/generated/api-generated";
 export type LifecycleDocumentsProps = { pengadaanId: string; stage: string; active: boolean; detail: any };
 type Entity = Record<string, unknown>;
 type Requirement = Entity & { id: string; jenisDokumen: string };
+
+const documentTypeLabel = (jenisDokumen: string) => ({
+  perjanjian_atau_komitmen_penerima_pasokan: "Perjanjian / komitmen tertulis Penerima Pasokan",
+  dokumen_impor_kepabeanan: "Dokumen impor dan kepabeanan",
+}[jenisDokumen] ?? jenisDokumen.replaceAll("_", " "));
 type UploadBody = Parameters<typeof browserApi.dokumen.dokumenPostControllerUpload>[0];
 type Action = { mode: "upload" | "fulfill"; requirementId: string };
 type GeneratedDocument = { id: string; nama: string };
@@ -65,8 +70,9 @@ export function LifecycleDocuments(props: LifecycleDocumentsProps) {
 function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: LifecycleDocumentsProps) {
   const detail = object(unwrap(rawDetail));
   const detailMatches = detail.id === pengadaanId;
+  const directImport = object(detail.perencanaan).modelPelaksanaan === "pelaksanaan_impor_langsung";
   const requirements = (detailMatches ? records(detail.persyaratanDokumen) : []).filter(
-    (row): row is Requirement => row.pengadaanId === pengadaanId && row.tahap === stage && typeof row.id === "string" && typeof row.jenisDokumen === "string",
+    (row): row is Requirement => row.pengadaanId === pengadaanId && row.tahap === stage && typeof row.id === "string" && typeof row.jenisDokumen === "string" && !(stage === "settlement" && directImport && row.jenisDokumen === "invoice_penerima_pasokan"),
   );
   const user = useCurrentUser();
   const role = String(object(unwrap(user.data)).role ?? "").toLowerCase();
@@ -283,7 +289,7 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
         rowKey={(row) => row.id}
         emptyMessage="Belum ada persyaratan dokumen tahap."
         columns={[
-          { key: "jenisDokumen", header: "Jenis dokumen", render: (row) => row.jenisDokumen },
+          { key: "jenisDokumen", header: "Jenis dokumen", render: (row) => documentTypeLabel(String(row.jenisDokumen)) },
           { key: "wajib", header: "Kewajiban", render: (row) => (row.wajib === true ? "Wajib" : "Opsional") },
           { key: "terpenuhi", header: "Status", render: (row) => (row.terpenuhi === true ? "Terpenuhi" : "Belum terpenuhi") },
           { key: "dokumenId", header: "Dokumen terkait", render: (row) => (documents.isPending ? "Memuat…" : documents.isError ? "Gagal memuat dokumen" : link(linkedDocuments.find((document) => document.id === row.dokumenId))) },
@@ -355,7 +361,7 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
         }
       >
         <form id={`${id}-form`} onSubmit={submit} className="space-y-4" aria-busy={locked}>
-          <p>{requirement?.jenisDokumen ?? "Persyaratan tidak tersedia"}</p>
+          <p>{requirement ? documentTypeLabel(requirement.jenisDokumen) : "Persyaratan tidak tersedia"}</p>
           {!permitted && action ? (
             <Alert variant="destructive">
               <AlertDescription>Peran, tahap, atau persyaratan berubah. Operasi tidak tersedia.</AlertDescription>

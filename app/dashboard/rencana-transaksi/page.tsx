@@ -19,6 +19,8 @@ type Plan = {
   judul: string;
   status: string;
   modelPelaksanaan: string;
+  pihakImportir?: string | null;
+  namaImportir?: string | null;
   jenisKargo: string;
   satuan: string;
   volumeMin?: number | string | null;
@@ -98,6 +100,8 @@ const PLAN_DRAFTS_KEY = "lemigas:rencana-transaksi:drafts";
 const PLAN_DRAFT_FIELDS = [
   "judul",
   "modelPelaksanaan",
+  "pihakImportir",
+  "namaImportir",
   "jenisKargo",
   "jenisTransaksi",
   "metodeSeleksi",
@@ -137,6 +141,8 @@ export default function RencanaTransaksiPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [rejectStepId, setRejectStepId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [selectedExecutionModel, setSelectedExecutionModel] = useState("");
+  const [selectedImporterParty, setSelectedImporterParty] = useState("");
   const [methodHelpOpen, setMethodHelpOpen] = useState(false);
   const [draft, setDraft] = useState<PlanDraft>({});
   const [savedDrafts, setSavedDrafts] = useState<SavedPlanDraft[]>([]);
@@ -175,6 +181,8 @@ export default function RencanaTransaksiPage() {
         control.value = draft[key] ?? "";
       }
     }
+    setSelectedExecutionModel(createFormRef.current.elements.namedItem("modelPelaksanaan") instanceof HTMLSelectElement ? (createFormRef.current.elements.namedItem("modelPelaksanaan") as HTMLSelectElement).value : "");
+    setSelectedImporterParty(createFormRef.current.elements.namedItem("pihakImportir") instanceof HTMLSelectElement ? (createFormRef.current.elements.namedItem("pihakImportir") as HTMLSelectElement).value : "");
   }, [draftLoaded, createOpen, selectedDraftId]);
   const refresh = useCallback(async () => {
     try {
@@ -194,12 +202,16 @@ export default function RencanaTransaksiPage() {
     if (!selected) return;
     setSelectedDraftId(selected.id);
     setDraft(selected.values);
+    setSelectedExecutionModel(selected.values.modelPelaksanaan ?? "");
+    setSelectedImporterParty(selected.values.pihakImportir ?? "");
     setNotice(`Draft “${selected.judul}” dimuat ke formulir.`);
     setError("");
   }
   function startNewDraft() {
     setSelectedDraftId(null);
     setDraft({});
+    setSelectedExecutionModel("");
+    setSelectedImporterParty("");
     createFormRef.current?.reset();
     setNotice("Formulir kosong siap diisi. Draft tersimpan lainnya tetap aman.");
     setError("");
@@ -263,6 +275,8 @@ export default function RencanaTransaksiPage() {
         {
           judul: String(f.get("judul")),
           modelPelaksanaan: String(f.get("modelPelaksanaan")) as any,
+          pihakImportir: String(f.get("modelPelaksanaan")) === "pelaksanaan_impor_langsung" ? "lemigas" : String(f.get("pihakImportir") || "") || undefined,
+          namaImportir: String(f.get("namaImportir") || "") || undefined,
           jenisKargo: String(f.get("jenisKargo")),
           satuan: String(f.get("satuan")),
           titikSerah: String(f.get("titikSerah")),
@@ -287,6 +301,8 @@ export default function RencanaTransaksiPage() {
         { format: "json" },
       );
       form.reset();
+      setSelectedExecutionModel("");
+      setSelectedImporterParty("");
       if (selectedDraftId) {
         const remaining = savedDrafts.filter((item) => item.id !== selectedDraftId);
         window.localStorage.setItem(PLAN_DRAFTS_KEY, JSON.stringify(remaining));
@@ -419,14 +435,41 @@ export default function RencanaTransaksiPage() {
               </label>
               <label className={`${label} lg:col-span-2`}>
                 Model pelaksanaan
-                <select name="modelPelaksanaan" className={input} defaultValue="">
+                <select required name="modelPelaksanaan" className={input} defaultValue="" onChange={(event) => setSelectedExecutionModel(event.target.value)}>
                   <option value="" disabled>
                     Pilih model pelaksanaan
                   </option>
                   <option value="pengelolaan_manajemen_impor">Pengelolaan/manajemen impor</option>
                   <option value="pelaksanaan_impor_langsung">Pelaksanaan impor langsung</option>
                 </select>
+                <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                  Urutan metode seleksi tetap sama. Model ini menentukan importir, dokumen impor, dan jalur Settlement.
+                </span>
               </label>
+              {selectedExecutionModel === "pengelolaan_manajemen_impor" ? (
+                <label className={`${label} sm:col-span-2 lg:col-span-2`}>
+                  Pihak yang menjadi importir sesuai perjanjian
+                  <select required name="pihakImportir" className={input} defaultValue="" onChange={(event) => setSelectedImporterParty(event.target.value)}>
+                    <option value="" disabled>Pilih pihak importir</option>
+                    <option value="lemigas">Lemigas</option>
+                    <option value="penerima_pasokan">Penerima pasokan</option>
+                    <option value="pihak_lain">Pihak lain</option>
+                  </select>
+                  <span className="mt-1 block text-xs font-normal text-muted-foreground">Importir mengikuti perjanjian. Di Settlement ada tagihan Penerima Pasokan dan pembayaran Penyedia.</span>
+                </label>
+              ) : selectedExecutionModel === "pelaksanaan_impor_langsung" ? (
+                <div className={`${label} sm:col-span-2 lg:col-span-2 rounded-lg border bg-muted/20 px-3 py-2.5`}>
+                  Importir
+                  <span className="mt-1 block text-sm font-medium text-foreground">Lemigas</span>
+                  <span className="mt-1 block text-xs font-normal text-muted-foreground">Pada model ini Lemigas mengimpor langsung dari Penyedia. Settlement mencatat pembayaran kepada Penyedia.</span>
+                </div>
+              ) : null}
+              {selectedExecutionModel === "pengelolaan_manajemen_impor" ? (
+                <label className={`${label} sm:col-span-2 lg:col-span-2`}>
+                  Nama importir jika pihak lain
+                  <input required={selectedImporterParty === "pihak_lain"} name="namaImportir" maxLength={200} className={input} placeholder="Isi bila memilih Pihak lain" />
+                </label>
+              ) : null}
               <label className={`${label} lg:col-span-2`}>
                 Jenis kargo
                 <select required name="jenisKargo" className={input} defaultValue="">
@@ -506,7 +549,8 @@ export default function RencanaTransaksiPage() {
               </label>
               <label className={`${label} lg:col-span-2`}>
                 Penerima pasokan
-                <input name="penerimaPasokan" className={input} />
+                <input required={selectedImporterParty === "penerima_pasokan"} name="penerimaPasokan" className={input} />
+                {selectedImporterParty === "penerima_pasokan" ? <span className="mt-1 block text-xs font-normal text-muted-foreground">Nama ini menjadi identitas pihak importir sesuai perjanjian.</span> : null}
               </label>
               <label className={label}>
                 Estimasi mulai
@@ -736,6 +780,13 @@ export default function RencanaTransaksiPage() {
                     ],
                   ],
                   [
+                    "Peran impor",
+                    [
+                      ["Importir", detail.pihakImportir],
+                      ["Nama importir", detail.namaImportir],
+                    ],
+                  ],
+                  [
                     "Kargo dan volume",
                     [
                       ["Jenis kargo", detail.jenisKargo],
@@ -788,7 +839,7 @@ export default function RencanaTransaksiPage() {
                     {fields.map(([name, value]) => (
                       <div key={name} className="grid min-w-0 gap-1 border-b border-border/70 pb-2.5 last:border-0 last:pb-0 sm:grid-cols-[minmax(7rem,0.8fr)_minmax(0,1.2fr)] sm:items-start sm:gap-4">
                         <dt className="text-xs font-medium text-muted-foreground">{name}</dt>
-                        <dd className="break-words text-sm font-medium">{["Model pelaksanaan", "Jenis transaksi", "Metode seleksi", "Jenis kargo"].includes(name) ? entityText(String(value ?? "")) : displayValue(value)}</dd>
+                        <dd className="break-words text-sm font-medium">{["Model pelaksanaan", "Importir", "Jenis transaksi", "Metode seleksi", "Jenis kargo"].includes(name) ? entityText(String(value ?? "")) : displayValue(value)}</dd>
                       </div>
                     ))}
                   </dl>

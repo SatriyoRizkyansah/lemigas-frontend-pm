@@ -13,6 +13,8 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 
 type CargoPlan = {
   modelPelaksanaan?: string;
+  pihakImportir?: string;
+  namaImportir?: string;
   jenisKargo?: string;
   spesifikasiMutu?: unknown;
   volumeMin?: number | string;
@@ -327,6 +329,11 @@ export default function PengadaanPage() {
                     label="Model pelaksanaan"
                     value={detail.perencanaan?.modelPelaksanaan ? entityText(detail.perencanaan.modelPelaksanaan) : detail.rencanaTransaksi?.modelPelaksanaan ? entityText(detail.rencanaTransaksi.modelPelaksanaan) : undefined}
                   />
+                  <DetailField
+                    label="Pihak importir"
+                    value={detail.perencanaan?.pihakImportir ? entityText(detail.perencanaan.pihakImportir) : detail.rencanaTransaksi?.pihakImportir ? entityText(detail.rencanaTransaksi.pihakImportir) : undefined}
+                  />
+                  <DetailField label="Nama importir" value={detail.perencanaan?.namaImportir ?? detail.rencanaTransaksi?.namaImportir} />
                   <DetailField label="Volume minimum" value={detail.perencanaan?.volumeMin ?? detail.rencanaTransaksi?.volumeMin} />
                   <DetailField label="Volume maksimum" value={detail.perencanaan?.volumeMax ?? detail.rencanaTransaksi?.volumeMax} />
                   <DetailField label="Satuan" value={detail.perencanaan?.satuan ?? detail.rencanaTransaksi?.satuan} />

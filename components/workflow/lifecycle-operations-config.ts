@@ -47,7 +47,8 @@ const vendorMultiple: Field = { name: "vendorIds", label: "Vendor tujuan", relat
 const currency = text("mataUang", "Mata uang (IDR, USD, dll.)", false, 10);
 const nomor = text("nomor", "Nomor", true, 100);
 const shipmentStatuses = ["direncanakan", "dimuat", "dalam_perjalanan", "tiba", "dibongkar", "diserahkan", "bermasalah"];
-const invoiceStatuses = ["draft", "diverifikasi", "diterbitkan", "dibayar_sebagian", "lunas", "ditolak", "dibatalkan"];
+// Partial and paid states are derived from completed payments in the API.
+const invoiceStatuses = ["draft", "diverifikasi", "diterbitkan", "ditolak", "dibatalkan"];
 // New routes intentionally use public transport until generated client is refreshed.
 function operationalUpdate(key: string, title: string, stage: string, relation: string, fields: Field[], roles = AO, suffix = "/status"): Operation {
   return {
@@ -98,6 +99,8 @@ export const lifecycleOperations: Operation[] = [
     api.transaksiControllerCreatePerencanaan,
     [
       select("modelPelaksanaan", "Model pelaksanaan", ["pengelolaan_manajemen_impor", "pelaksanaan_impor_langsung"]),
+      select("pihakImportir", "Pihak importir", ["lemigas", "penerima_pasokan", "pihak_lain"]),
+      text("namaImportir", "Nama importir (jika pihak lain)", false, 200),
       text("jenisKargo", "Jenis kargo", true, 100),
       text("satuan", "Satuan", true, 30),
       text("titikSerah", "Titik serah", true, 200),
@@ -365,10 +368,11 @@ export const lifecycleOperations: Operation[] = [
   },
   create("tagihan", "Catat tagihan", "settlement", api.transaksiControllerCreateTagihan, [
     nomor,
-    text("pihak", "Pihak", true, 200),
-    select("arah", "Arah", ["masuk", "keluar"]),
-    num("nilai", "Nilai", 0, true),
+    select("arah", "Jenis tagihan", ["masuk", "keluar"]),
+    { name: "pengirimanIds", label: "Kargo yang tercakup", relation: "pengiriman", required: true, multiple: true },
+    text("pihak", "Pihak lawan transaksi", true, 200),
     rel("kontrakId", "Kontrak", "kontrak"),
+    num("nilai", "Nilai", 0, true),
     currency,
     date("jatuhTempo", "Jatuh tempo"),
   ]),
@@ -382,7 +386,7 @@ export const lifecycleOperations: Operation[] = [
       num("nilai", "Nilai pembayaran (harus > 0)", 0.0001, true),
       rel("tagihanId", "Tagihan wajib", "tagihan", true),
       text("mataUang", "Mata uang 3 huruf (harus sama dengan tagihan)", false, 3),
-      text("rekeningTujuan", "Rekening tujuan", false, 100),
+      text("rekeningTujuan", "Rekening / referensi bank", false, 100),
     ],
     [...AO, "pimpinan"],
   ),
@@ -400,12 +404,43 @@ export const lifecycleOperations: Operation[] = [
     "Simpan rekonsiliasi",
     "settlement",
     api.transaksiControllerCreateRekonsiliasi,
-    [num("selisihVolume", "Selisih volume"), num("selisihNilai", "Selisih nilai"), currency, json("klaim", "Rincian klaim"), text("beritaAcara", "Berita acara", false, 500)],
+    [textarea("catatan", "Catatan dan keputusan rekonsiliasi")],
     AOV,
     "rekonsiliasi",
   ),
-  create("klaim", "Catat klaim", "settlement", api.transaksiControllerCreateKlaim, [nomor, text("kategori", "Kategori", true, 100), text("uraian", "Uraian", true), num("nilai", "Nilai", 0), currency], AOV),
-  entityStatus("status-klaim", "Ubah status klaim", "settlement", "klaim", ["aktif", "selesai", "ditolak", "dibatalkan"], api.transaksiControllerUpdateStatusKlaim, ALL),
+  create("klaim", "Catat klaim", "settlement", api.transaksiControllerCreateKlaim, [
+    nomor,
+    text("kategori", "Jenis kejadian / klaim", true, 100),
+    textarea("uraian", "Uraian dan dasar klaim", true),
+    num("nilai", "Nilai klaim", 0),
+    currency,
+    rel("pengirimanId", "Kargo terkait (opsional)", "pengiriman"),
+    rel("tagihanId", "Tagihan terkait (opsional)", "tagihan"),
+  ], AOV),
+  {
+    key: "status-klaim",
+    title: "Tindak lanjuti klaim",
+    stages: ["settlement", "selesai"],
+    roles: ALL,
+    fields: [
+      rel("entityId", "Klaim", "klaim", true),
+      select("status", "Status klaim", ["aktif", "selesai", "ditolak", "dibatalkan"]),
+      { name: "tetapDipantau", label: "Tetap dipantau setelah transaksi", kind: "boolean" },
+      text("penanggungJawab", "Penanggung jawab", false, 200),
+      textarea("tindakLanjut", "Tindak lanjut"),
+      date("tindakLanjutPada", "Tanggal tindak lanjut"),
+    ],
+    available: (d) => Array.isArray(d.klaim) && d.klaim.length > 0,
+    run: (id, { entityId, ...body }) =>
+      browserApi.request<unknown, unknown>({
+        path: `/api/pengadaan/${encodeURIComponent(id)}/klaim/${encodeURIComponent(String(entityId))}/status`,
+        method: "PUT",
+        body,
+        type: ContentType.Json,
+        format: "json",
+        secure: true,
+      }),
+  },
   {
     key: "status-rekonsiliasi",
     title: "Ubah status rekonsiliasi",

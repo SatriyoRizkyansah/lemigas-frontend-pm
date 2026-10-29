@@ -151,6 +151,8 @@ export interface CreatePerencanaanDto {
   modelPelaksanaan:
     | "pengelolaan_manajemen_impor"
     | "pelaksanaan_impor_langsung";
+  pihakImportir?: "lemigas" | "penerima_pasokan" | "pihak_lain";
+  namaImportir?: string;
   jenisKargo: string;
   satuan: string;
   titikSerah: string;
@@ -725,6 +727,8 @@ export interface CreateRencanaTransaksiDto {
   modelPelaksanaan:
     | "pengelolaan_manajemen_impor"
     | "pelaksanaan_impor_langsung";
+  pihakImportir?: "lemigas" | "penerima_pasokan" | "pihak_lain";
+  namaImportir?: string;
   jenisKargo: "minyak_bumi" | "bbm" | "lpg" | "kondensat";
   satuan: string;
   titikSerah: string;

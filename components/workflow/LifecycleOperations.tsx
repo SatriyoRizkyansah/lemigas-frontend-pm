@@ -20,6 +20,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { readSession, SESSION_COOKIE } from "@/lib/auth";
 import { procurementMethodLabel } from "@/lib/procurement-methods";
 import { lifecycleOperations, operationPayload, type Entity, type Field, type Operation } from "./lifecycle-operations-config";
+import { getReconciliationReadiness, SettlementChecklist } from "./SettlementChecklist";
 
 export type LifecycleOperationsProps = { pengadaanId: string; stage: string; active: boolean; detail: any };
 type Choice = { value: string; label: string };
@@ -56,6 +57,47 @@ function shipmentHandoverComplete(shipment: Entity | undefined) {
   const accepted = records(shipment.serahTerima).filter((row) => row.status !== "ditolak");
   const handedOver = accepted.reduce((total, row) => total + Math.round(Number(row.kuantitasDiserahkan ?? 0) * 10_000), 0) / 10_000;
   return Math.abs(handedOver - expected) < 0.00005;
+}
+function invoiceSuggestion(shipmentIds: string[], direction: string, detail: Entity) {
+  const shipments = records(detail.pengiriman).filter((shipment) => shipmentIds.includes(String(shipment.id)));
+  const contractIds = [...new Set(shipments.map((shipment) => String(shipment.kontrakId ?? object(shipment.kontrak).id ?? "")).filter(Boolean))];
+  const mixedContracts = contractIds.length > 1;
+  const candidateContract = !mixedContracts && contractIds.length === 1
+    ? records(detail.kontrak).find((row) => String(row.id) === contractIds[0])
+    : undefined;
+  const contract = candidateContract && ["efektif", "dipenuhi"].includes(String(candidateContract.status)) && candidateContract.jenis === "penyedia" ? candidateContract : undefined;
+  const volume = shipments.reduce((total, shipment) => {
+    const accepted = object(shipment.penerimaan).kuantitasDiterima;
+    const planned = shipment.volumeRencana ?? shipment.volumeKontrak;
+    const acceptedQuantity = Number(accepted);
+    const quantity = Number.isFinite(acceptedQuantity) && acceptedQuantity > 0 ? acceptedQuantity : Number(planned ?? 0);
+    return total + (Number.isFinite(quantity) && quantity > 0 ? quantity : 0);
+  }, 0);
+  const volumeBasis = shipments.length > 0 && shipments.every((shipment) => Number(object(shipment.penerimaan).kuantitasDiterima) > 0)
+    ? "volume BAST"
+    : "volume BAST/rencana";
+  const contractVolume = contract?.volumeKontrak == null ? Number.NaN : Number(contract.volumeKontrak);
+  const contractValue = contract?.nilai == null ? Number.NaN : Number(contract.nilai);
+  const suggestedValue = contract && contractVolume > 0 && Number.isFinite(contractValue)
+    ? Number((contractValue * volume / contractVolume).toFixed(4))
+    : undefined;
+  const providerName = plainText(object(contract?.vendor).nama);
+  const planning = object(detail.perencanaan);
+  return {
+    contract,
+    contractNotEffective: Boolean(candidateContract && !["efektif", "dipenuhi"].includes(String(candidateContract.status))),
+    contractId: contract ? String(contract.id) : "",
+    mixedContracts,
+    volume,
+    volumeBasis,
+    suggestedValue,
+    currency: plainText(contract?.mataUang),
+    party: direction === "keluar" ? providerName : plainText(planning.penerimaPasokan),
+    contractNumber: plainText(contract?.nomor),
+    priceType: plainText(contract?.jenisHarga),
+    unit: plainText(contract?.satuanKontrak) || plainText(planning.satuan),
+    shipmentCount: shipments.length,
+  };
 }
 function parseParameterRows(value: string): Array<{ name: string; value: string }> {
   const rows = value
@@ -175,6 +217,8 @@ function operationFieldSections(operationKey: string | undefined, fields: Field[
       { title: "Metode transaksi", fields: ["jenisTransaksi", "metodeSeleksi"] },
       { title: "Analisis dan strategi", fields: ["analisisPasar", "dasarPemilihan", "strategiPengiriman", "strategiPembiayaan"] },
     ],
+    tagihan: [{ title: "Rincian tagihan", fields: ["nomor", "arah", "pengirimanIds", "pihak", "kontrakId", "nilai", "mataUang", "jatuhTempo"] }],
+    rekonsiliasi: [{ title: "Kesimpulan dan keputusan", fields: ["catatan"] }],
     negosiasi: [{ title: "Detail negosiasi", fields: ["penawaranId", "batasNegosiasi", "hargaHasilNegosiasi", "hasil"] }],
     pengiriman: [{ title: "Informasi pengiriman", fields: ["kontrakId", "namaKapal", "nomorBillOfLading", "pelabuhanMuat", "pelabuhanBongkar", "etd", "eta", "volumeRencana"] }],
     "update-pengiriman": [{ title: "Informasi pengiriman", fields: ["entityId", "kontrakId", "namaKapal", "nomorBillOfLading", "pelabuhanMuat", "pelabuhanBongkar", "etd", "eta", "volumeRencana"] }],
@@ -217,6 +261,15 @@ function DeliveryChecklist({ active, locked, operations, contracts, shipments, s
   const handoverDone = shipmentHandoverComplete;
   const completed = shipments.filter((shipment) => inspectionDone(shipment) && receptionDone(shipment) && handoverDone(shipment)).length;
   const effectiveContracts = contracts.filter((contract) => contract.jenis === "penyedia" && contract.status === "efektif");
+  const modelPelaksanaan = plainText(planning.modelPelaksanaan);
+  const pihakImportir = plainText(planning.pihakImportir);
+  const importerName = pihakImportir === "pihak_lain"
+    ? plainText(planning.namaImportir) || "Pihak lain belum diberi nama"
+    : pihakImportir === "penerima_pasokan"
+      ? "Penerima Pasokan"
+      : pihakImportir === "lemigas" || modelPelaksanaan === "pelaksanaan_impor_langsung"
+        ? "Lemigas"
+        : "Belum ditetapkan";
   const action = (key: string, label: string, context?: Entity, unavailable = false) => {
     const item = operation(key);
     return item ? <Button type="button" size="sm" variant="outline" disabled={!active || locked || unavailable} onClick={() => onOpen(item, context)}>{label}</Button> : null;
@@ -237,6 +290,24 @@ function DeliveryChecklist({ active, locked, operations, contracts, shipments, s
   );
   return (
     <section className="space-y-3" aria-label="Checklist pelaksanaan delivery">
+      <section className="rounded-xl border bg-muted/15 px-4 py-3" aria-label="Tanggung jawab pelaksanaan impor">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">Model pelaksanaan dan tanggung jawab dokumen</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {modelPelaksanaan === "pelaksanaan_impor_langsung"
+                ? "Lemigas bertindak sebagai importir dan menyiapkan dokumen impor/kepabeanan sesuai kewenangannya. Settlement hanya memiliki jalur pembayaran kepada Penyedia."
+                : modelPelaksanaan === "pengelolaan_manajemen_impor"
+                  ? "Pihak importir mengikuti perjanjian kerja sama. Dokumen impor/kepabeanan dilengkapi oleh importir yang ditetapkan; settlement mencatat tagihan Penerima Pasokan dan pembayaran kepada Penyedia."
+                  : "Model pelaksanaan belum tercatat. Lengkapi Perencanaan sebelum melanjutkan alokasi dan dokumen kargo."}
+            </p>
+          </div>
+          <span className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium">Importir: {importerName}</span>
+        </div>
+        <p className="mt-2 border-t pt-2 text-xs text-muted-foreground">
+          Unggah bukti di Dokumen tahap: Perjanjian/komitmen Penerima Pasokan pada Perencanaan (khusus manajemen impor), lalu dokumen impor dan kepabeanan pada Delivery.
+        </p>
+      </section>
       <section className="overflow-hidden rounded-xl border bg-background">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3">
           <div><h3 className="text-sm font-semibold">Pengapalan dan pemantauan</h3><p className="mt-1 text-xs text-muted-foreground">Alokasi seluruh kargo mengikuti volume kontrak. Setiap pengiriman punya progres sendiri.</p></div>
@@ -363,6 +434,209 @@ function DeliveryChecklist({ active, locked, operations, contracts, shipments, s
   );
 }
 
+function ReconciliationSnapshotPanel({
+  quantityRows,
+  financialRows,
+  readiness,
+  totalsLoading,
+  totalsError,
+  status,
+  shipmentCount,
+  requiredDocumentCount,
+  fulfilledDocumentCount,
+}: {
+  quantityRows: Entity[];
+  financialRows: Entity[];
+  readiness: ReturnType<typeof getReconciliationReadiness>;
+  totalsLoading: boolean;
+  totalsError?: string;
+  status: string;
+  shipmentCount: number;
+  requiredDocumentCount: number;
+  fulfilledDocumentCount: number;
+}) {
+  const quantity = (value: unknown, unit: unknown) =>
+    value == null || value === "" ? "—" : `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(Number(value))}${unit ? ` ${plainText(unit)}` : ""}`;
+  const money = (value: unknown, currency: unknown) => {
+    if (value == null || value === "") return "Belum dapat dicocokkan";
+    return `${plainText(currency) || "—"} ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(Number(value))}`;
+  };
+  const openClaimCount = readiness.openClaimCount;
+  const blockers = [
+    ...readiness.blockers,
+    ...(totalsLoading ? ["Menunggu ringkasan rekonsiliasi selesai dihitung."] : []),
+    ...(totalsError ? [`Ringkasan otomatis gagal dimuat: ${totalsError}`] : []),
+  ];
+  const canSave = readiness.ready && !totalsLoading && !totalsError;
+  const checkpoints = [
+    {
+      label: "Penerimaan kargo",
+      note: `${readiness.receivedCargoCount}/${shipmentCount} kargo memiliki kuantitas BAST`,
+      complete: readiness.deliveryReady,
+    },
+    {
+      label: "Tagihan dan pembayaran",
+      note: `${readiness.activeInvoiceCount} tagihan relevan sudah terbit dan lunas`,
+      complete: readiness.financialReady,
+    },
+    {
+      label: "Klaim",
+      note: openClaimCount ? `${openClaimCount} klaim perlu ditutup atau ditindaklanjuti` : "Tidak ada klaim terbuka",
+      complete: readiness.claimsReady,
+    },
+  ];
+
+  return (
+    <section className="space-y-4 rounded-lg border bg-muted/10 p-4" aria-label="Pratinjau rekonsiliasi">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Ringkasan yang akan disimpan</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Sistem mengambil snapshot dari BAST, tagihan, pembayaran, dan klaim saat disimpan. Ini belum menutup Settlement.</p>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${canSave ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
+          {canSave ? "Siap ditinjau" : "Pratinjau saja"}
+        </span>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        {checkpoints.map((checkpoint) => (
+          <div key={checkpoint.label} className="rounded-md border bg-background px-3 py-2.5">
+            <p className="flex items-center gap-2 text-xs font-semibold">
+              <span className={`size-2 rounded-full ${checkpoint.complete ? "bg-emerald-600" : "bg-amber-500"}`} />
+              {checkpoint.label}
+            </p>
+            <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{checkpoint.note}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-3">
+        <div className="overflow-hidden rounded-md border bg-background">
+          <div className="border-b px-3 py-2">
+            <p className="text-xs font-semibold">Volume per kargo</p>
+          </div>
+          <div className="max-h-40 overflow-auto">
+            <table className="w-full min-w-[560px] text-left text-xs">
+              <thead className="sticky top-0 bg-muted/50 text-muted-foreground">
+                <tr><th className="px-3 py-2 font-medium">Kargo</th><th className="px-3 py-2 font-medium">Rencana</th><th className="px-3 py-2 font-medium">BAST</th><th className="px-3 py-2 font-medium">Selisih</th></tr>
+              </thead>
+              <tbody className="divide-y">
+                {quantityRows.map((row) => (
+                  <tr key={String(row.shipmentId)}>
+                    <td className="px-3 py-2">{plainText(row.reference) || "Kargo"}</td>
+                    <td className="px-3 py-2">{quantity(row.planned, row.unit)}</td>
+                    <td className="px-3 py-2">{quantity(row.accepted, row.unit)}</td>
+                    <td className="px-3 py-2 font-medium">{quantity(row.acceptedMinusPlanned, row.unit)}</td>
+                  </tr>
+                ))}
+                {!quantityRows.length ? (
+                  <tr><td colSpan={4} className="px-3 py-4 text-center text-muted-foreground">{totalsLoading ? "Menghitung ringkasan…" : "Belum ada data volume."}</td></tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-md border bg-background">
+          <div className="border-b px-3 py-2">
+            <p className="text-xs font-semibold">Tagihan dan pembayaran per arah/mata uang</p>
+          </div>
+          <div className="max-h-40 overflow-auto">
+            <table className="w-full min-w-[680px] text-left text-xs">
+              <thead className="sticky top-0 bg-muted/50 text-muted-foreground">
+                <tr><th className="px-3 py-2 font-medium">Arah</th><th className="px-3 py-2 font-medium">Tagihan</th><th className="px-3 py-2 font-medium">Dibayar</th><th className="px-3 py-2 font-medium">Sisa</th></tr>
+              </thead>
+              <tbody className="divide-y">
+                {financialRows.map((row) => (
+                  <tr key={`${String(row.direction)}:${String(row.currency)}`}>
+                    <td className="px-3 py-2">{row.direction === "masuk" ? "Penerima Pasokan" : row.direction === "keluar" ? "Penyedia" : "Belum dipetakan"}</td>
+                    <td className="px-3 py-2">{money(row.invoice, row.currency)}</td>
+                    <td className="px-3 py-2">{money(row.payment, row.currency)}</td>
+                    <td className="px-3 py-2">{row.outstandingComparable === true ? money(row.outstanding, row.currency) : "Belum dapat dicocokkan"}</td>
+                  </tr>
+                ))}
+                {!financialRows.length ? (
+                  <tr><td colSpan={4} className="px-3 py-4 text-center text-muted-foreground">{totalsLoading ? "Menghitung ringkasan…" : "Belum ada tagihan terbit untuk dicocokkan."}</td></tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-md border bg-background px-3 py-2.5 text-xs">
+        <p className="font-semibold">Dokumen sebelum finalisasi</p>
+        <p className="mt-1 text-muted-foreground">{fulfilledDocumentCount}/{requiredDocumentCount} dokumen wajib tercatat. Berita acara/dokumen rekonsiliasi dilengkapi sebelum finalisasi; menyimpan snapshot belum menutup Settlement.</p>
+      </div>
+
+      {!canSave ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-xs text-amber-950">
+          <p className="font-semibold">Snapshot belum bisa disimpan</p>
+          <ul className="mt-1 list-disc space-y-1 pl-4">{blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
+        </div>
+      ) : null}
+      {status === "aktif" ? (
+        <p className="rounded-md border bg-background px-3 py-2.5 text-xs text-muted-foreground">Memperbarui snapshot akan mengembalikan status peninjauan ke draft. Setelah menyimpan, mulai tinjau kembali sebelum finalisasi.</p>
+      ) : null}
+    </section>
+  );
+}
+
+function ReconciliationStatusPanel({
+  targetStatus,
+  quantityCount,
+  financialCount,
+  requiredDocumentCount,
+  fulfilledDocumentCount,
+}: {
+  targetStatus: string;
+  quantityCount: number;
+  financialCount: number;
+  requiredDocumentCount: number;
+  fulfilledDocumentCount: number;
+}) {
+  const finalizing = targetStatus === "selesai";
+  const steps = [
+    { title: "Snapshot disimpan", description: `${quantityCount} kargo · ${financialCount} ringkasan tagihan/mata uang`, state: "done" },
+    { title: "Tinjau rekonsiliasi", description: "Periksa kecocokan volume, pembayaran, dan catatan keputusan.", state: finalizing ? "done" : "current" },
+    { title: "Finalisasi", description: `${fulfilledDocumentCount}/${requiredDocumentCount} dokumen wajib tercatat`, state: finalizing ? "current" : "next" },
+  ];
+
+  return (
+    <section className="space-y-4 rounded-lg border bg-card p-4" aria-label="Konfirmasi alur rekonsiliasi">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Alur rekonsiliasi</p>
+        <h3 className="mt-1 text-sm font-semibold">{finalizing ? "Finalisasi hasil peninjauan" : "Mulai peninjauan resmi"}</h3>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          {finalizing
+            ? "Aksi ini menandai rekonsiliasi sebagai final setelah hasil ditinjau dan dokumen wajib tersedia."
+            : "Aksi ini mengubah status snapshot menjadi Sedang ditinjau. Angka BAST, tagihan, dan pembayaran tetap mengikuti snapshot yang sudah disimpan; aksi ini tidak mengubah transaksi."}
+        </p>
+      </div>
+
+      <ol className="grid gap-2 sm:grid-cols-3">
+        {steps.map((step, index) => (
+          <li key={step.title} className={`min-w-0 rounded-md border px-3 py-3 ${step.state === "current" ? "border-primary/40 bg-primary/[0.04]" : "bg-muted/20"}`}>
+            <p className="flex items-center gap-2 text-xs font-semibold">
+              <span className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] ${step.state === "done" ? "bg-emerald-100 text-emerald-800" : step.state === "current" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                {step.state === "done" ? <Check size={12} /> : index + 1}
+              </span>
+              {step.title}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{step.description}</p>
+          </li>
+        ))}
+      </ol>
+
+      <div className={`rounded-md border px-3 py-2.5 text-xs leading-5 ${finalizing ? "border-amber-200 bg-amber-50/70 text-amber-950" : "bg-muted/20 text-muted-foreground"}`}>
+        {finalizing
+          ? "Setelah rekonsiliasi final, tandai tahap Settlement selesai secara terpisah jika seluruh prasyarat tahap sudah terpenuhi."
+          : "Jika data sumber berubah selama peninjauan, snapshot akan kembali menjadi draft. Perbarui snapshot lalu mulai peninjauan kembali."}
+      </div>
+    </section>
+  );
+}
+
 /** Standalone: parent supplies unwrapped GET siklus detail; mutations invalidate lifecycle and related lists. */
 export function LifecycleOperations(props: LifecycleOperationsProps) {
   // Changing procurement/stage clears form state, without leaking previous IDs or success messages.
@@ -426,12 +700,29 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const available = lifecycleOperations.filter(
     (op) => op.stages.includes(stage) && op.roles.includes(role) && (op.key !== "verifikasi" || role !== "member" || isAssignedMember) && (!uninitialized || op.key === "perencanaan") && (!op.available || op.available(detail)),
   );
+  const settlementHistory = use_query<Entity, Error, string>({
+    tag: "lifecycleHistory",
+    method: "transaksiControllerLifecycleHistory",
+    params: pengadaanId,
+    enabled: stage === "settlement",
+    queryFn: async (procurementId) => {
+      setBrowserToken();
+      return object(unwrap(await apiData(browserApi.siklusTransaksiKomoditas.transaksiControllerLifecycleHistory(procurementId, { format: "json" }) as unknown as Promise<{ data: unknown }>)));
+    },
+  });
   const canManageRecommendation = active && stage === "rekomendasi_pemenang" && ["admin", "operator", "verifikator", "member"].includes(role) && (role !== "member" || isAssignedMember);
   const fields =
     selected?.fields
       .filter((field) => {
         if (role === "vendor" && field.name === "vendorId") return false;
         if (selected.key === "tutupRfq" || selected.key === "bukaKembaliRfq") return false;
+        if (["status-tagihan", "status-pembayaran", "status-klaim"].includes(selected.key) && field.name === "entityId" && values.entityId) return false;
+        if (["status-tagihan", "status-pembayaran", "status-rekonsiliasi"].includes(selected.key) && field.name === "status" && values.status) return false;
+        if (selected.key === "pembayaran" && field.name === "tagihanId" && values.tagihanId) return false;
+        if (selected.key === "pembayaran" && field.name === "mataUang" && values.tagihanId) return false;
+        if (selected.key === "tagihan" && field.name === "arah" && values.arah) return false;
+        if (selected.key === "tagihan" && field.name === "kontrakId" && values.__autoTagihanContractId) return false;
+        if (selected.key === "tagihan" && values.arah === "keluar" && values.__autoTagihanContractId && ["pihak", "mataUang"].includes(field.name)) return false;
         if (selected.key === "rfq" && isPublicDirectPurchase) return !["mode", "vendorIds", "rfqId", "rfqIds", "alasanPerubahan"].includes(field.name);
         if (selected.key !== "rfq") return true;
         const mode = values.mode || "baru";
@@ -446,6 +737,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const riskShipmentForModal = selected?.key === "risiko"
     ? records(detail.pengiriman).find((row) => String(row.id) === String(values.pengirimanId ?? ""))
     : undefined;
+  const paymentInvoiceForModal = selected?.key === "pembayaran"
+    ? records(detail.tagihan).find((row) => String(row.id) === String(values.tagihanId ?? ""))
+    : undefined;
+  const paidOnPaymentInvoice = records(paymentInvoiceForModal?.pembayaran).filter((row) => row.status === "selesai").reduce((sum, row) => sum + Number(row.nilai ?? 0), 0);
+  const paymentInvoiceOutstanding = paymentInvoiceForModal ? Math.max(Number(paymentInvoiceForModal.nilai ?? 0) - paidOnPaymentInvoice, 0) : 0;
   const needsVendors = !!selected && fields.some((field) => field.relation === "vendor");
   const vendors = use_query<Entity[], Error, string>({
     tag: "vendor",
@@ -526,6 +822,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         selected?.key === "update-pengiriman" ? String(values.entityId ?? "") : undefined,
       );
     if (field.relation === "pengiriman") return shipmentChoices(records(detail.pengiriman));
+    if (field.relation === "tagihan")
+      return records(detail.tagihan).map((invoice) => ({
+        value: String(invoice.id ?? ""),
+        label: [plainText(invoice.nomor) || "Tagihan", plainText(invoice.pihak), plainText(invoice.arah).replaceAll("_", " "), invoice.mataUang ? `${plainText(invoice.mataUang)} ${plainText(invoice.nilai)}` : ""].filter(Boolean).join(" · "),
+      })).filter((choice) => choice.value);
     if (field.relation === "penerimaan") {
       return records(detail.penerimaan).flatMap((receipt) => {
         if (typeof receipt.id !== "string") return [];
@@ -541,11 +842,70 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         { value: "true", label: "Ya" },
         { value: "false", label: "Tidak" },
       ];
-    return (field.options ?? []).map((value) => ({
+    const activeModel = values.modelPelaksanaan || plainText(object(detail.perencanaan).modelPelaksanaan);
+    const directImport = activeModel === "pelaksanaan_impor_langsung";
+    const optionValues = field.name === "arah" && selected?.key === "tagihan" && directImport
+      ? (field.options ?? []).filter((value) => value === "keluar")
+      : field.name === "pihakImportir" && directImport
+        ? ["lemigas"]
+        : field.options ?? [];
+    return optionValues.map((value) => ({
       value,
       label: selected?.key === "verifikasi" && ["selesai", "ditolak", "revisi"].includes(value) ? ({ selesai: "Sesuai", ditolak: "Tidak sesuai", revisi: "Perlu perbaikan" } as Record<string, string>)[value] : value.replaceAll("_", " "),
     }));
   };
+  function updateTagihanCargoSelection(shipmentIds: string[], direction?: string) {
+    setValues((old) => {
+      const activeDirection = direction ?? old.arah ?? "";
+      const source = invoiceSuggestion(shipmentIds, activeDirection, detail);
+      const next: Record<string, string> = { ...old, arah: activeDirection, pengirimanIds: shipmentIds.join(",") };
+      const wasManuallyChanged = (field: string, marker: string) =>
+        Boolean(old[field]) && (!old[marker] || old[field] !== old[marker]);
+      const manualAmount = wasManuallyChanged("nilai", "__autoTagihanAmount");
+      const manualCurrency = wasManuallyChanged("mataUang", "__autoTagihanCurrency");
+      const manualParty = wasManuallyChanged("pihak", "__autoTagihanParty");
+
+      if (!shipmentIds.length || !source.contract || source.mixedContracts) {
+        if (old.nilai === old.__autoTagihanAmount) next.nilai = "";
+        if (old.mataUang === old.__autoTagihanCurrency) next.mataUang = "";
+        if (old.pihak === old.__autoTagihanParty) next.pihak = "";
+        if (old.kontrakId === old.__autoTagihanContractId) next.kontrakId = "";
+        next.__autoTagihanAmount = "";
+        next.__autoTagihanCurrency = "";
+        next.__autoTagihanParty = "";
+        next.__autoTagihanContractId = "";
+        next.__autoTagihanInfo = source.mixedContracts
+          ? "Satu tagihan hanya dapat mengacu pada kargo dari kontrak yang sama. Pisahkan tagihan untuk kontrak lain."
+          : source.contractNotEffective
+            ? "Tagihan hanya dapat dibuat dari kargo dengan kontrak Penyedia yang sudah efektif atau dipenuhi."
+            : "";
+        return next;
+      }
+
+      const amount = source.suggestedValue == null ? "" : String(source.suggestedValue);
+      const currency = source.currency;
+      const party = source.party;
+      next.kontrakId = source.contractId;
+      next.__autoTagihanContractId = source.contractId;
+      if (source.suggestedValue != null && !manualAmount) next.nilai = amount;
+      next.__autoTagihanAmount = source.suggestedValue == null ? "" : amount;
+      if (currency && (activeDirection === "keluar" || !manualCurrency)) next.mataUang = currency;
+      next.__autoTagihanCurrency = currency;
+      if (party && (activeDirection === "keluar" || !manualParty)) next.pihak = party;
+      next.__autoTagihanParty = party;
+      const formattedAmount = source.suggestedValue == null
+        ? "nilai perlu diisi dari invoice"
+        : `${currency} ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(source.suggestedValue)}`;
+      const priceType = source.priceType === "formula_harga" ? "formula harga" : source.priceType === "harga_tetap" ? "harga tetap" : source.priceType.replaceAll("_", " ");
+      const base = `Sumber: kontrak ${source.contractNumber || "aktif"}${priceType ? ` (${priceType})` : ""}; ${source.volume.toLocaleString("id-ID", { maximumFractionDigits: 4 })} ${source.unit} dari ${source.shipmentCount} kargo (${source.volumeBasis}) · nilai awal ${formattedAmount}.`;
+      next.__autoTagihanInfo = activeDirection === "masuk"
+        ? `${base} Ini hanya dasar nilai kargo dari kontrak Penyedia. Cocokkan dengan komitmen Penerima Pasokan; masukkan biaya atau tarif hanya jika memang disepakati.`
+        : `${base} Cocokkan dengan invoice Penyedia; nilai dapat disesuaikan jika invoice berbeda.`;
+      if (source.priceType === "formula_harga") next.__autoTagihanInfo += " Harga kontrak memakai formula, jadi nilai ini hanya estimasi awal dan harus dicocokkan dengan perhitungan invoice.";
+      if (manualAmount) next.__autoTagihanInfo += " Nilai telah disesuaikan manual; periksa kembali setelah mengubah kargo.";
+      return next;
+    });
+  }
   const mutation = use_mutation<unknown, Error, { operation: Operation; body: Entity; file?: File }>({
     tag: "siklusTransaksiKomoditas",
     method: "lifecycleBusinessOperation",
@@ -603,6 +963,22 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const permitted = !!selected && active && available.some((op) => op.key === selected.key);
   const vendorBlocked = needsVendors && (vendors.isPending || vendors.isError);
   const missingRelation = fields.some((field) => field.required && field.relation && !options(field).length);
+  const settlementTotals = object(settlementHistory.data?.totals ?? detail.totals);
+  const reconciliationReadiness = getReconciliationReadiness(
+    object(detail.perencanaan),
+    records(detail.tagihan),
+    records(detail.pengiriman),
+    records(detail.klaim),
+  );
+  const reconciliationQuantityRows = records(settlementTotals.quantityDeltas);
+  const reconciliationFinancialRows = records(settlementTotals.financial);
+  const reconciliationStatus = plainText(object(detail.rekonsiliasi).status);
+  const reconciliationSnapshotReady = reconciliationReadiness.ready && !settlementHistory.isPending && !settlementHistory.isError;
+  const relevantSettlementDocuments = records(detail.persyaratanDokumen).filter(
+    (row) => row.tahap === "settlement" &&
+      !(object(detail.perencanaan).modelPelaksanaan !== "pengelolaan_manajemen_impor" && row.jenisDokumen === "invoice_penerima_pasokan") &&
+      row.wajib === true,
+  );
   useEffect(() => {
     if (selected?.key !== "rfq" || values.mode !== "revisi") {
       revisionSeedKey.current = "";
@@ -656,11 +1032,28 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     }
     if (context?.id && operation.fields.some((field) => field.name === "entityId")) initial.entityId = String(context.id);
     if (context?.id && operation.fields.some((field) => field.name === "pengirimanId")) initial.pengirimanId = String(context.id);
+    if (context?.id && operation.key === "pembayaran") initial.tagihanId = String(context.id);
+    if (context?._targetStatus && operation.fields.some((field) => field.name === "status")) initial.status = String(context._targetStatus);
+    if (context?.arah && operation.fields.some((field) => field.name === "arah")) initial.arah = String(context.arah);
+    if (context && operation.key === "pembayaran" && context.mataUang) initial.mataUang = String(context.mataUang);
+    if (context && operation.key === "pembayaran") {
+      const paid = records(context.pembayaran).filter((row) => row.status === "selesai").reduce((sum, row) => sum + Number(row.nilai ?? 0), 0);
+      const outstanding = Math.max(Number(context.nilai ?? 0) - paid, 0);
+      if (outstanding > 0) initial.nilai = String(outstanding);
+    }
+    if (context?.arah && operation.key === "tagihan") {
+      const party = String(object(detail.perencanaan).penerimaPasokan ?? "");
+      if (context.arah === "masuk" && party) {
+        initial.pihak = party;
+        initial.__autoTagihanParty = party;
+      }
+    }
     if (operation.key === "status-pengiriman" && context) {
       const currentStatus = plainText(context.status) || "direncanakan";
       const needsStatusCorrection = currentStatus === "bermasalah" || (currentStatus === "diserahkan" && !shipmentHandoverComplete(context));
       initial.status = needsStatusCorrection ? "" : nextShipmentStatus(currentStatus) ?? currentStatus;
     }
+    if (operation.key === "perencanaan" && (initial.modelPelaksanaan || object(detail.perencanaan).modelPelaksanaan) === "pelaksanaan_impor_langsung") initial.pihakImportir = "lemigas";
     if (context && operation.key === "penyimpanan") {
       const receipt = object(context.penerimaan);
       if (receipt.id) initial.penerimaanId = String(receipt.id);
@@ -718,6 +1111,17 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         if (values.mode === "revisi" && !(values.rfqIds ?? "").split(",").filter(Boolean).length) throw new Error("Pilih minimal satu RFQ acuan untuk direvisi.");
         if (values.mode === "revisi" && !values.alasanPerubahan?.trim()) throw new Error("Alasan revisi wajib diisi.");
       }
+      if (selected.key === "tagihan") {
+        const selectedIds = (values.pengirimanIds ?? "").split(",").filter(Boolean);
+        const source = invoiceSuggestion(selectedIds, values.arah ?? "", detail);
+        if (!selectedIds.length) throw new Error("Pilih minimal satu kargo untuk mengaitkan dasar tagihan.");
+        if (!source.contract || source.mixedContracts) throw new Error("Pilih kargo dari satu kontrak Penyedia yang sudah efektif.");
+        if (String(values.kontrakId ?? "") !== source.contractId) throw new Error("Kontrak tagihan harus mengikuti kontrak pada kargo yang dipilih.");
+      }
+      if (selected.key === "perencanaan" && values.modelPelaksanaan === "pengelolaan_manajemen_impor" && values.pihakImportir === "pihak_lain" && !values.namaImportir?.trim())
+        throw new Error("Nama importir wajib diisi jika pihak lain dipilih.");
+      if (selected.key === "perencanaan" && values.pihakImportir === "penerima_pasokan" && !values.penerimaPasokan?.trim())
+        throw new Error("Nama Penerima Pasokan wajib diisi jika menjadi importir.");
       if (selected.key === "penerimaan") {
         const shipment = records(detail.pengiriman).find((row) => String(row.id) === String(values.pengirimanId ?? ""));
         if (shipment && Number(values.kuantitasDiterima) !== Number(shipment.volumeRencana) && (values.denganCatatan !== "true" || !values.catatan?.trim()))
@@ -750,8 +1154,21 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
             throw new Error(`Alokasi melebihi sisa volume kontrak sebesar ${formatQuantity(proposed - remaining, contract.satuanKontrak)}.`);
         }
       }
-      const payloadValues = Object.fromEntries(Object.entries(values).map(([name, value]) => [name, fields.find((field) => field.name === name)?.kind === "json" ? cleanParameterRows(value) : value]));
-      const body = operationPayload(fields, payloadValues, options);
+      const statusOperation = ["status-tagihan", "status-pembayaran", "status-klaim", "status-rekonsiliasi"].includes(selected.key);
+      const issuedInvoiceStatuses = ["diterbitkan", "dibayar_sebagian", "lunas"];
+      const payloadFields = statusOperation
+        ? selected.fields.filter((field) =>
+            !(selected.key === "status-tagihan" && field.name === "diterbitkanPada" && !issuedInvoiceStatuses.includes(values.status ?? "")) &&
+            !(selected.key === "status-pembayaran" && field.name === "dibayarPada" && values.status !== "selesai"),
+          )
+        : fields;
+      const payloadValues = Object.fromEntries(Object.entries(values).map(([name, value]) => [name, payloadFields.find((field) => field.name === name)?.kind === "json" ? cleanParameterRows(value) : value]));
+      const body = operationPayload(payloadFields, payloadValues, options);
+      // Contextual fields stay out of the form when the checklist already identifies the record.
+      // Keep them in the API payload so updates still target the right record and direction.
+      for (const name of ["entityId", "tagihanId", "arah", "mataUang", "status", "kontrakId", "pihak"]) {
+        if (values[name] && body[name] == null) body[name] = values[name];
+      }
       submitting.current = true;
       await mutation.mutateAsync({ operation: selected, body, file: selected.key === "serah-terima" ? handoverEvidence ?? undefined : undefined });
       setSuccess(
@@ -811,6 +1228,24 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           storage={records(detail.penyimpanan)}
           risks={records(detail.risiko)}
           planning={object(detail.perencanaan)}
+          onOpen={(operation, context) => open(operation, undefined, context)}
+        />
+      ) : stage === "settlement" ? (
+        <SettlementChecklist
+          active={active}
+          locked={locked}
+          operations={available.filter((operation) => ["tagihan", "pembayaran", "status-tagihan", "status-pembayaran", "rekonsiliasi", "status-rekonsiliasi", "klaim", "status-klaim"].includes(operation.key))}
+          planning={object(detail.perencanaan)}
+          invoices={records(detail.tagihan)}
+          shipments={records(detail.pengiriman)}
+          payments={records(detail.pembayaran)}
+          claims={records(detail.klaim)}
+          reconciliation={detail.rekonsiliasi ? object(detail.rekonsiliasi) : undefined}
+          totals={object(settlementHistory.data?.totals ?? detail.totals)}
+          totalsLoading={settlementHistory.isPending}
+          totalsError={settlementHistory.isError ? getApiErrorMessage(settlementHistory.error) : undefined}
+          documentRequirements={records(detail.persyaratanDokumen).filter((row) => row.tahap === "settlement" && !(object(detail.perencanaan).modelPelaksanaan !== "pengelolaan_manajemen_impor" && row.jenisDokumen === "invoice_penerima_pasokan"))}
+          readiness={active && detail.readiness ? object(detail.readiness) : undefined}
           onOpen={(operation, context) => open(operation, undefined, context)}
         />
       ) : (
@@ -970,11 +1405,6 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
           })}
       </div>
       )}
-      {error ? (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
       {success ? (
         <Alert role="status">
           <AlertDescription>{success}</AlertDescription>
@@ -1008,13 +1438,13 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         open={!!selected}
         onClose={close}
         title={selected?.title ?? "Operasi transaksi"}
-        size="md"
+        size={selected?.key === "rekonsiliasi" ? "xl" : selected?.key === "status-rekonsiliasi" ? "lg" : "md"}
         footer={
           <>
             <Button type="button" variant="outline" disabled={locked} onClick={close}>
               Batal
             </Button>
-            <Button type="submit" form={`${id}-form`} disabled={locked || !permitted || vendorBlocked || missingRelation || (selected?.key === "serah-terima" && !handoverEvidence) || (selected?.key === "status-pengiriman" && (statusShipmentForModal?.status === "diserahkan" && shipmentHandoverComplete(statusShipmentForModal) || !values.status || (values.status === "diserahkan" && !shipmentHandoverComplete(statusShipmentForModal))))}>
+            <Button type="submit" form={`${id}-form`} disabled={locked || !permitted || vendorBlocked || missingRelation || (selected?.key === "rekonsiliasi" && (!reconciliationSnapshotReady || reconciliationStatus === "selesai")) || (selected?.key === "serah-terima" && !handoverEvidence) || (selected?.key === "status-pengiriman" && (statusShipmentForModal?.status === "diserahkan" && shipmentHandoverComplete(statusShipmentForModal) || !values.status || (values.status === "diserahkan" && !shipmentHandoverComplete(statusShipmentForModal))))}>
               {locked
                 ? "Menyimpan…"
                 : selected?.key === "status-pengiriman"
@@ -1025,12 +1455,21 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                     : statusShipmentForModal?.status === "bermasalah" || (statusShipmentForModal?.status === "diserahkan" && !shipmentHandoverComplete(statusShipmentForModal))
                       ? `Pulihkan ke ${shipmentStatusLabel(values.status ?? "")}`
                       : `Lanjut ke ${shipmentStatusLabel(values.status ?? "")}`
-                  : "Simpan"}
+                  : selected?.key === "rekonsiliasi"
+                    ? "Simpan snapshot"
+                    : selected?.key === "status-rekonsiliasi"
+                      ? values.status === "selesai" ? "Finalisasi rekonsiliasi" : "Mulai peninjauan"
+                    : "Simpan"}
             </Button>
           </>
         }
       >
         <form id={`${id}-form`} onSubmit={submit} className="space-y-4 px-1" aria-busy={locked}>
+          {error ? (
+            <Alert variant="destructive" role="alert">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
           {!permitted && selected ? (
             <Alert variant="destructive">
               <AlertDescription>Peran, status, atau tahap berubah. Operasi tidak tersedia.</AlertDescription>
@@ -1052,6 +1491,19 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
             <Alert>
               <AlertDescription>Relasi wajib belum tersedia. Buat catatan terkait terlebih dahulu.</AlertDescription>
             </Alert>
+          ) : null}
+          {selected?.key === "rekonsiliasi" ? (
+            <ReconciliationSnapshotPanel
+              quantityRows={reconciliationQuantityRows}
+              financialRows={reconciliationFinancialRows}
+              readiness={reconciliationReadiness}
+              totalsLoading={settlementHistory.isPending}
+              totalsError={settlementHistory.isError ? getApiErrorMessage(settlementHistory.error) : undefined}
+              status={reconciliationStatus}
+              shipmentCount={records(detail.pengiriman).length}
+              requiredDocumentCount={relevantSettlementDocuments.length}
+              fulfilledDocumentCount={relevantSettlementDocuments.filter((row) => row.terpenuhi === true).length}
+            />
           ) : null}
           {!fields.length && selected?.key === "submit-memorandum" ? (
             <section className="space-y-4 rounded-xl border border-primary/20 bg-primary/[0.03] p-4" aria-label="Ringkasan pengajuan memorandum">
@@ -1081,7 +1533,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
               <p className="text-xs leading-5 text-muted-foreground">Pengajuan membuat tiga tahap approval: Review Memorandum, Verifikasi Memorandum, lalu Persetujuan Pimpinan.</p>
             </section>
           ) : null}
-          {!fields.length && selected?.key !== "submit-memorandum" ? <p>Konfirmasi {selected?.title.toLowerCase()} untuk pengadaan ini.</p> : null}
+          {!fields.length && !["submit-memorandum", "status-rekonsiliasi"].includes(selected?.key ?? "") ? <p>Konfirmasi {selected?.title.toLowerCase()} untuk pengadaan ini.</p> : null}
           {selected?.key === "memorandum"
             ? (() => {
                 const strategy = object(detail.strategi);
@@ -1277,7 +1729,42 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
               })()
             : null}
           <fieldset disabled={locked || !permitted} className="space-y-4">
-            {selected?.key === "risiko" ? (
+          {selected?.key === "perencanaan" ? (
+            <Alert>
+              <AlertDescription>
+                {values.modelPelaksanaan === "pelaksanaan_impor_langsung"
+                  ? "Lemigas menjadi importir. Tahap Settlement hanya mencatat pembayaran kepada Penyedia."
+                  : values.modelPelaksanaan === "pengelolaan_manajemen_impor"
+                    ? "Tentukan importir sesuai perjanjian. Dasar kerja sama dengan Penerima Pasokan wajib diunggah pada tahap Perencanaan. Settlement mencatat tagihan penerima dan pembayaran Penyedia."
+                    : "Pilih model pelaksanaan untuk melihat peran importir dan tanggung jawab settlement."}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {selected?.key === "tagihan" ? (
+            <div className={`space-y-1 px-1 text-xs leading-5 ${values.__autoTagihanInfo && !invoiceSuggestion((values.pengirimanIds ?? "").split(",").filter(Boolean), values.arah ?? "", detail).contract ? "text-destructive" : "text-muted-foreground"}`}>
+                {(() => {
+                  const shipmentIds = (values.pengirimanIds ?? "").split(",").filter(Boolean);
+                  const source = invoiceSuggestion(shipmentIds, values.arah ?? "", detail);
+                  if (values.__autoTagihanInfo && !source.contract) return values.__autoTagihanInfo;
+                  return (
+                    <>
+                      <p>{values.arah === "masuk"
+                        ? `Tagihan untuk ${source.party || values.pihak || "Penerima Pasokan"}; nilai akhir mengikuti perjanjian.`
+                        : `Tagihan dari ${source.party || values.pihak || "Penyedia"} kepada Lemigas. Cocokkan dengan invoice.`}</p>
+                      {source.contract ? (
+                        <p className="text-muted-foreground">
+                          Kontrak {source.contractNumber || "aktif"} · {source.volume.toLocaleString("id-ID", { maximumFractionDigits: 4 })} {source.unit} · Nilai awal {source.suggestedValue == null ? "isi dari invoice" : `${source.currency} ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(source.suggestedValue)}`}
+                          {source.priceType === "formula_harga" ? " · Harga formula, cocokkan hasil hitung invoice." : ""}
+                        </p>
+                      ) : (
+                        <p className="text-muted-foreground">Pilih kargo dari satu kontrak Penyedia yang efektif untuk mengisi dasar tagihan.</p>
+                      )}
+                    </>
+                  );
+                })()}
+            </div>
+          ) : null}
+          {selected?.key === "risiko" ? (
               riskShipmentForModal ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-sm dark:border-amber-900 dark:bg-amber-950/20">
                   <p className="font-medium">{plainText(riskShipmentForModal.namaKapal) || "Kargo"} · Kontrak {plainText(object(riskShipmentForModal.kontrak).nomor) || "—"}</p>
@@ -1400,6 +1887,25 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                   );
                 })()
               : null}
+          {selected?.key === "pembayaran" && paymentInvoiceForModal ? (
+            <section className="rounded-lg border bg-muted/20 px-3 py-3 text-sm">
+              <p className="font-semibold">Pembayaran untuk tagihan {plainText(paymentInvoiceForModal.nomor) || "tanpa nomor"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{plainText(paymentInvoiceForModal.pihak)} · Total {plainText(paymentInvoiceForModal.mataUang)} {plainText(paymentInvoiceForModal.nilai)} · Sisa {plainText(paymentInvoiceForModal.mataUang)} {new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(paymentInvoiceOutstanding)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Nilai pembayaran diisi sebesar sisa tagihan. Ubah nilainya bila pembayaran dilakukan bertahap; sistem menolak jumlah yang melebihi sisa.</p>
+            </section>
+          ) : null}
+          {selected?.key === "status-rekonsiliasi" ? (
+            <ReconciliationStatusPanel
+              targetStatus={values.status ?? ""}
+              quantityCount={reconciliationQuantityRows.length}
+              financialCount={reconciliationFinancialRows.length}
+              requiredDocumentCount={relevantSettlementDocuments.length}
+              fulfilledDocumentCount={relevantSettlementDocuments.filter((row) => row.terpenuhi === true).length}
+            />
+          ) : null}
+          {selected && ["status-tagihan", "status-pembayaran"].includes(selected.key) ? (
+            <p className="rounded-lg border bg-muted/20 px-3 py-2.5 text-sm">Langkah yang dipilih: <strong>{selected.title}</strong>. Record terkait sudah dipilih dari checklist.</p>
+          ) : null}
           {operationFieldSections(selected?.key, fields)
               .filter((section) => section.fields.length > 0)
               .map((section) => (
@@ -1412,6 +1918,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                   </div>
                   <div className="grid items-start gap-x-5 gap-y-3 sm:grid-cols-2">
                     {section.fields.map((field) => {
+                      if (selected?.key === "perencanaan" && field.name === "namaImportir" && values.pihakImportir !== "pihak_lain") return null;
+                      const importerNameRequired = selected?.key === "perencanaan" && field.name === "namaImportir" && values.pihakImportir === "pihak_lain";
+                      const recipientImporterRequired = selected?.key === "perencanaan" && field.name === "penerimaPasokan" && values.pihakImportir === "penerima_pasokan";
                       const fieldId = `${id}-${field.name}`;
                       const isSelect = !!field.relation || !!field.options || field.kind === "boolean";
                       const isLongText = field.payloadPath !== undefined;
@@ -1428,6 +1937,20 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                       const currentShipmentStatusIndex = shipmentStatusSteps.findIndex((step) => step.value === currentShipmentStatus);
                       const proposedShipmentStatus = values.status ?? nextShipmentStatus(currentShipmentStatus) ?? currentShipmentStatus;
                       const statusNeedsCorrection = currentShipmentStatus === "bermasalah" || (currentShipmentStatus === "diserahkan" && !shipmentHandoverComplete(statusShipment));
+                      const selectedInvoiceCargoIds = selected?.key === "tagihan" && field.name === "pengirimanIds" ? (values.pengirimanIds ?? "").split(",").filter(Boolean) : [];
+                      const selectedInvoiceContractId = selectedInvoiceCargoIds.length
+                        ? String(records(detail.pengiriman).find((row) => String(row.id) === selectedInvoiceCargoIds[0])?.kontrakId ?? object(records(detail.pengiriman).find((row) => String(row.id) === selectedInvoiceCargoIds[0])?.kontrak).id ?? "")
+                        : "";
+                      const effectiveProviderContractIds = new Set(records(detail.kontrak)
+                        .filter((contract) => ["efektif", "dipenuhi"].includes(String(contract.status)) && contract.jenis === "penyedia")
+                        .map((contract) => String(contract.id)));
+                      const invoiceShipmentChoices = options(field).filter((choice) => {
+                        const shipment = records(detail.pengiriman).find((row) => String(row.id) === choice.value);
+                        const contractId = String(shipment?.kontrakId ?? object(shipment?.kontrak).id ?? "");
+                        if (!effectiveProviderContractIds.has(contractId)) return false;
+                        if (!selectedInvoiceContractId || selectedInvoiceCargoIds.includes(choice.value)) return true;
+                        return contractId === selectedInvoiceContractId;
+                      });
                       const optionLabel = (value: string) => {
                         if (selected?.key === "status-pengiriman" && field.name === "status") {
                           return shipmentStatusLabel(value);
@@ -1443,7 +1966,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                           : value.replaceAll("_", " ");
                       };
                       const fieldLabel =
-                        selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi"
+                        selected?.key === "tagihan" && field.name === "nilai"
+                          ? "Nilai tagihan"
+                          : selected?.key === "tagihan" && field.name === "pengirimanIds"
+                            ? "Kargo yang tercakup"
+                          : selected?.key === "negosiasi" && field.name === "hargaHasilNegosiasi"
                           ? "Harga negosiasi per satuan"
                           : field.name === "entityId" && field.relation === "pengiriman"
                             ? "Pilih pengiriman"
@@ -1459,10 +1986,12 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                                 ? `Realisasi volume pengapalan${plainText(object(statusShipment?.kontrak).satuanKontrak) ? ` (${plainText(object(statusShipment?.kontrak).satuanKontrak)})` : ""}`
                                 : field.label;
                       const fullWidth =
+                        (selected?.key === "tagihan" && field.name === "nomor") ||
                         (deliveryField && ["entityId", "kontrakId", "volumeRencana"].includes(field.name)) ||
                         (selected?.key === "status-pengiriman" && ["entityId", "status"].includes(field.name)) ||
                         (selected?.key === "penyimpanan" && field.name === "penerimaanId") ||
                         (selected?.key === "serah-terima" && field.name === "pengirimanId") ||
+                        (selected?.key === "tagihan" && field.name === "pengirimanIds") ||
                         (field.kind === "json" || field.kind === "textarea") ||
                         (selected?.key === "pemeriksaan" && ["pengirimanId", "hasilMutu", "catatan"].includes(field.name)) ||
                         (selected?.key === "penerimaan" && ["pengirimanId", "mutuDiterima", "catatan"].includes(field.name)) ||
@@ -1478,6 +2007,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                             {fieldLabel}
                             {field.required ? " *" : ""}
                           </Label>
+                          {selected?.key === "rekonsiliasi" && field.name === "catatan" ? (
+                            <p className="text-xs leading-5 text-muted-foreground">Tuliskan keputusan atas selisih yang ditemukan, alasan saldo yang belum dapat dicocokkan, atau tindak lanjut yang disepakati. Angka ringkasan di atas dihitung otomatis.</p>
+                          ) : null}
                           {selected?.key === "negosiasi" && field.name === "batasNegosiasi" ? (
                             <p className="min-h-8 text-xs leading-4 text-muted-foreground">Opsional. Harga per satuan untuk acuan internal; tidak dikirim kepada vendor.</p>
                           ) : null}
@@ -1759,6 +2291,40 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               emptyLabel="Pilih nomor kontrak"
                               disabled={locked || !permitted || (deliveryField && allocationLocked)}
                             />
+                          ) : field.multiple && field.relation === "pengiriman" ? (
+                            <div className="space-y-2">
+                              <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border bg-background p-2">
+                                {(values[field.name] ?? "")
+                                  .split(",")
+                                  .filter(Boolean)
+                                  .map((shipmentId) => {
+                                    const choice = invoiceShipmentChoices.find((item) => item.value === shipmentId);
+                                    return (
+                                      <span key={shipmentId} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
+                                        {choice?.label ?? shipmentId}
+                                        <button
+                                          type="button"
+                                          aria-label={`Hapus ${choice?.label ?? "kargo"}`}
+                                          disabled={locked}
+                                          onClick={() => updateTagihanCargoSelection((values[field.name] ?? "").split(",").filter((id) => id && id !== shipmentId))}
+                                        >
+                                          <X size={13} />
+                                        </button>
+                                      </span>
+                                    );
+                                  })}
+                                {!values[field.name] ? <span className="px-1 text-xs text-muted-foreground">Pilih satu atau beberapa kargo</span> : null}
+                              </div>
+                              <FilterCombobox
+                                options={invoiceShipmentChoices.filter((choice) => !(values[field.name] ?? "").split(",").includes(choice.value))}
+                                value=""
+                                onValueChange={(value) => updateTagihanCargoSelection([...(values[field.name] ?? "").split(",").filter(Boolean), value])}
+                                label={field.label}
+                                searchPlaceholder="Cari kapal, bill of lading, atau kontrak…"
+                                emptyLabel={selectedInvoiceContractId ? "Semua kargo dari kontrak ini sudah dipilih" : "Tidak ada kargo dari kontrak Penyedia efektif atau dipenuhi"}
+                                disabled={locked || !permitted || !invoiceShipmentChoices.some((choice) => !(values[field.name] ?? "").split(",").includes(choice.value))}
+                              />
+                            </div>
                           ) : isSelect && field.relation === "pengiriman" ? (
                             <FilterCombobox
                               options={options(field)}
@@ -1780,7 +2346,19 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               disabled={locked || !permitted}
                             />
                           ) : isSelect ? (
-                            <Select value={values[field.name] || ""} onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: String(value ?? "") }))} disabled={locked || !permitted}>
+                            <Select
+                              value={values[field.name] || ""}
+                              onValueChange={(value) => {
+                                if (selected?.key === "tagihan" && field.name === "arah") {
+                                  updateTagihanCargoSelection((values.pengirimanIds ?? "").split(",").filter(Boolean), String(value ?? ""));
+                                } else if (selected?.key === "perencanaan" && field.name === "modelPelaksanaan") {
+                                  setValues((old) => ({ ...old, modelPelaksanaan: String(value ?? ""), pihakImportir: value === "pelaksanaan_impor_langsung" ? "lemigas" : old.pihakImportir ?? "" }));
+                                } else {
+                                  setValues((old) => ({ ...old, [field.name]: String(value ?? "") }));
+                                }
+                              }}
+                              disabled={locked || !permitted}
+                            >
                               <SelectTrigger id={fieldId} aria-required={field.required} className={selected?.key === "negosiasi" && field.name === "penawaranId" ? "min-w-0" : undefined}>
                                 {selected?.key === "negosiasi" && field.name === "penawaranId" ? (
                                   <>
@@ -1936,7 +2514,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               id={fieldId}
                               value={values[field.name] ?? ""}
                               onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
-                              required={field.required}
+                              required={field.required || importerNameRequired || recipientImporterRequired}
                               rows={3}
                               placeholder={`${field.label}…`}
                               className="w-full rounded-md border border-input bg-background p-3 text-sm leading-6"
@@ -1948,7 +2526,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               step={field.kind === "number" ? (field.integer ? "1" : ["volumeRencana", "volumeAktual", "hasilKuantitas", "kuantitasDiterima", "kuantitasDiserahkan"].includes(field.name) ? "0.0001" : "any") : undefined}
                               min={field.min}
                               maxLength={field.maxLength}
-                              required={field.required}
+                              required={field.required || importerNameRequired || recipientImporterRequired}
                               disabled={locked || !permitted || (deliveryField && field.name === "volumeRencana" && allocationLocked)}
                               value={values[field.name] ?? ""}
                               onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
