@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FilterCombobox } from "@/components/ui/filter-combobox";
 import { useUserRoles, useUserWrite, userError, type UserRecord, type UserCommand } from "./user-api";
 
 export default function UserForm({ user, canManage, onClose, onSaved }: { user?: UserRecord; canManage: boolean; onClose: () => void; onSaved: () => void }) {
@@ -105,21 +106,17 @@ export default function UserForm({ user, canManage, onClose, onSaved }: { user?:
             </div>
             <div className="grid gap-2">
               <Label htmlFor="user-role">Peran</Label>
-              <select
+              <FilterCombobox
                 id="user-role"
                 required
                 disabled={!roles.isSuccess}
-                className="h-9 w-full rounded-md border bg-background px-3 text-foreground"
+                label="peran"
+                searchPlaceholder="Cari nama atau kode role..."
+                emptyLabel={roles.isPending ? "Memuat role..." : "Pilih role"}
+                options={(roles.data?.data ?? []).map((role) => ({ value: role.id, label: role.nama + " (" + role.kode + ")" }))}
                 value={form.roleId}
-                onChange={(e) => setForm({ ...form, roleId: e.target.value, vendorId: "" })}
-              >
-                <option value="">{roles.isPending ? "Memuat role…" : "Pilih role"}</option>
-                {roles.data?.data.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.nama} ({role.kode})
-                  </option>
-                ))}
-              </select>
+                onValueChange={(value) => setForm({ ...form, roleId: value, vendorId: "" })}
+              />
               {roles.isError ? (
                 <div role="alert">
                   {userError(roles.error)}{" "}
@@ -133,21 +130,17 @@ export default function UserForm({ user, canManage, onClose, onSaved }: { user?:
             {isVendorRole ? (
               <div className="grid gap-2">
                 <Label htmlFor="user-vendor">Vendor</Label>
-                <select
+                <FilterCombobox
                   id="user-vendor"
                   required
                   disabled={!vendors.isSuccess}
-                  className="h-9 w-full rounded-md border bg-background px-3 text-foreground"
+                  label="vendor"
+                  searchPlaceholder="Cari nama vendor..."
+                  emptyLabel={vendors.isPending ? "Memuat vendor..." : "Pilih vendor"}
+                  options={(vendors.data?.data ?? []).map((vendor) => ({ value: vendor.id, label: vendor.nama }))}
                   value={form.vendorId}
-                  onChange={(e) => setForm({ ...form, vendorId: e.target.value })}
-                >
-                  <option value="">{vendors.isPending ? "Memuat vendor…" : "Pilih vendor"}</option>
-                  {vendors.data?.data.map((vendor) => (
-                    <option key={vendor.id} value={vendor.id}>
-                      {vendor.nama}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(value) => setForm({ ...form, vendorId: value })}
+                />
                 {vendors.isError ? (
                   <p role="alert">
                     {userError(vendors.error)}{" "}
@@ -167,10 +160,14 @@ export default function UserForm({ user, canManage, onClose, onSaved }: { user?:
             ) : null}
             <div className="grid gap-2">
               <Label htmlFor="user-status">Status</Label>
-              <select id="user-status" className="h-9 w-full rounded-md border bg-background px-3 text-foreground" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as "aktif" | "nonaktif" })}>
-                <option value="aktif">Aktif</option>
-                <option value="nonaktif">Nonaktif</option>
-              </select>
+              <FilterCombobox
+                id="user-status"
+                options={[{ value: "aktif", label: "Aktif" }, { value: "nonaktif", label: "Nonaktif" }]}
+                value={form.status}
+                onValueChange={(value) => setForm({ ...form, status: value as "aktif" | "nonaktif" })}
+                label="status"
+                searchPlaceholder="Cari status..."
+              />
             </div>
           </fieldset>
           {error ? (

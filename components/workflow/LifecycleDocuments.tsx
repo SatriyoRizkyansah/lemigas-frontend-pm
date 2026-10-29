@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { DocumentActionButton } from "@/components/documents/DocumentActionButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FilterCombobox } from "@/components/ui/filter-combobox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Modal } from "@/components/modal/Modal";
 import { DataTable } from "@/components/table/DataTable";
@@ -232,7 +233,6 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
     const name = String(document.nama ?? "dokumen");
     return <ReadDocumentButton documentId={id} name={name} disabled={Boolean(downloadId)} />;
   }
-  const selectClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
   return (
     <section className="space-y-4" aria-label="Dokumen tahap" aria-busy={locked}>
       {user.isPending ? <p role="status">Memuat peran…</p> : null}
@@ -387,14 +387,21 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
                   <>
                     <div className="space-y-1.5">
                       <Label htmlFor={`${id}-shipment`}>Pengiriman (opsional)</Label>
-                      <select id={`${id}-shipment`} className={selectClass} value={shipmentId} onChange={(event) => setShipmentId(event.target.value)}>
-                        <option value="">Tanpa pengiriman</option>
-                        {shipments.map((row) => (
-                          <option key={String(row.id)} value={String(row.id)}>
-                            {String(row.nomorBillOfLading ?? row.namaKapal ?? row.id)}
-                          </option>
-                        ))}
-                      </select>
+                      <FilterCombobox
+                        id={`${id}-shipment`}
+                        options={[
+                          { value: "", label: "Tanpa pengiriman" },
+                          ...shipments.map((row, index) => ({
+                            value: String(row.id),
+                            label: [row.nomorBillOfLading, row.namaKapal].map((value) => String(value ?? "").trim()).filter(Boolean).join(" · ") || `Pengiriman ${index + 1}`,
+                          })),
+                        ]}
+                        value={shipmentId}
+                        onValueChange={setShipmentId}
+                        label="pengiriman"
+                        searchPlaceholder="Cari kapal atau bill of lading..."
+                        emptyLabel="Tanpa pengiriman"
+                      />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor={`${id}-number`}>Nomor dokumen (opsional)</Label>
@@ -407,14 +414,20 @@ function DocumentsPanel({ pengadaanId, stage, active, detail: rawDetail }: Lifec
               <>
                 <div className="space-y-1.5">
                   <Label htmlFor={`${id}-document`}>Dokumen pengadaan *</Label>
-                  <select id={`${id}-document`} className={selectClass} required value={documentId} disabled={locked || !permitted || documents.isPending || documents.isError} onChange={(event) => setDocumentId(event.target.value)}>
-                    <option value="">Pilih dokumen…</option>
-                    {linkedDocuments.map((row) => (
-                      <option key={String(row.id)} value={String(row.id)}>
-                        {String(row.nama ?? row.id)}
-                      </option>
-                    ))}
-                  </select>
+                  <FilterCombobox
+                    id={`${id}-document`}
+                    options={linkedDocuments.map((row, index) => ({
+                      value: String(row.id),
+                      label: String(row.nama ?? row.namaAsli ?? row.fileName ?? row.jenisDokumen ?? `Dokumen ${index + 1}`),
+                    }))}
+                    value={documentId}
+                    onValueChange={setDocumentId}
+                    label="dokumen pengadaan"
+                    searchPlaceholder="Cari nama dokumen..."
+                    emptyLabel="Pilih dokumen"
+                    required
+                    disabled={locked || !permitted || documents.isPending || documents.isError}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor={`${id}-notes`}>Catatan (opsional)</Label>

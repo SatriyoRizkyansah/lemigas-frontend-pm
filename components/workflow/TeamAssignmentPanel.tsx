@@ -7,7 +7,6 @@ import { ContentType } from "@/lib/api/generated/api-generated";
 import { setBrowserToken } from "@/lib/api/hooks";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { Button } from "@/components/ui/Button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterCombobox } from "@/components/ui/filter-combobox";
 import { Modal } from "@/components/modal/Modal";
 import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
@@ -257,23 +256,22 @@ export function TeamAssignmentPanel({ pengadaanId, stages, canManage }: { pengad
           ) : null}
           <label className="block space-y-2 text-sm">
             <span>Peran di workflow ini</span>
-            <Select
+            <FilterCombobox
+              options={[
+                { value: "pic", label: "PIC" },
+                { value: "viewer", label: "Viewer" },
+                { value: "pic_utama", label: "PIC UTAMA" },
+              ]}
               value={memberRole}
               onValueChange={(value) => {
                 const role = value as "pic_utama" | "pic" | "viewer";
                 setMemberRole(role);
                 if (role === "viewer") setNewMemberStage("");
               }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="pic">PIC</SelectItem>
-                <SelectItem value="viewer">Viewer</SelectItem>
-                <SelectItem value="pic_utama">PIC UTAMA</SelectItem>
-              </SelectContent>
-            </Select>
+              label="peran di workflow"
+              searchPlaceholder="Cari peran..."
+              emptyLabel="Pilih peran"
+            />
             <span className="block text-xs text-muted-foreground">Peran ini hanya berlaku untuk pengadaan ini.</span>
           </label>
           {memberRole !== "viewer" ? (
@@ -281,18 +279,15 @@ export function TeamAssignmentPanel({ pengadaanId, stages, canManage }: { pengad
               <span>
                 {memberRole === "pic_utama" ? "Tahap tanggung jawab PIC UTAMA" : "Tahap penugasan PIC"} <span className="text-destructive">*</span>
               </span>
-              <Select value={newMemberStage} onValueChange={(value) => setNewMemberStage(value ?? "")}>
-                <SelectTrigger aria-required="true">
-                  <SelectValue placeholder="Pilih tahap" />
-                </SelectTrigger>
-                <SelectContent>
-                  {teamStages.map((stage) => (
-                    <SelectItem key={stage.key} value={stage.key}>
-                      {stage.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <FilterCombobox
+                options={teamStages.map((stage) => ({ value: stage.key, label: stage.label }))}
+                value={newMemberStage}
+                onValueChange={setNewMemberStage}
+                label="tahap penugasan"
+                searchPlaceholder="Cari tahap..."
+                emptyLabel="Pilih tahap"
+                required
+              />
             </label>
           ) : null}
         </div>

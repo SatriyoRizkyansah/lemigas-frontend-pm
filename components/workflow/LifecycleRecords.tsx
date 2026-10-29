@@ -9,6 +9,7 @@ import { Modal } from "@/components/modal/Modal";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FilterCombobox } from "@/components/ui/filter-combobox";
 import { EmptyState } from "@/components/loading/EmptyState";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken } from "@/lib/api/hooks";
@@ -886,14 +887,17 @@ export function LifecycleRecords({ stage, active, pengadaanId, detail }: { stage
                           placeholder={Number(component.nilai) > 0 ? "Sumber / dasar nilai *" : "Sumber / dasar nilai"}
                           aria-invalid={Number(component.nilai) > 0 && !component.sumber.trim()}
                         />
-                        <select
+                        <FilterCombobox
+                          options={[
+                            { value: "estimasi", label: "Estimasi" },
+                            { value: "final", label: "Final" },
+                          ]}
                           value={component.statusNilai}
-                          onChange={(event) => setEvaluation((current) => ({ ...current, komponenBiayaPerolehan: { ...current.komponenBiayaPerolehan, [key]: { ...component, statusNilai: event.target.value as "estimasi" | "final" } } }))}
-                          className="h-9 rounded-md border bg-background px-2 text-sm"
-                        >
-                          <option value="estimasi">Estimasi</option>
-                          <option value="final">Final</option>
-                        </select>
+                          onValueChange={(value) => setEvaluation((current) => ({ ...current, komponenBiayaPerolehan: { ...current.komponenBiayaPerolehan, [key]: { ...component, statusNilai: value as "estimasi" | "final" } } }))}
+                          label="status nilai"
+                          searchPlaceholder="Cari status nilai..."
+                          emptyLabel="Pilih status nilai"
+                        />
                       </div>
                     </div>
                   );

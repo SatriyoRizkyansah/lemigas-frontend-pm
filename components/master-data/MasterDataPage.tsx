@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterCombobox } from "@/components/ui/filter-combobox";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -442,18 +442,16 @@ export default function MasterDataPage({ formColumns = 1, modalSize = "md" }: { 
             <div className={`grid gap-2 ${formColumns === 2 && cfg.fields.length % 2 === 1 && index === cfg.fields.length - 1 ? "sm:col-span-2" : ""}`} key={field.name}>
               <Label htmlFor={`master-${field.name}`}>{field.label}</Label>
               {field.options ? (
-                <Select value={form[field.name] ?? field.options[0]?.value ?? ""} onValueChange={(value) => value && setForm((current) => ({ ...current, [field.name]: value }))}>
-                  <SelectTrigger id={`master-${field.name}`} aria-label={field.label}>
-                    <SelectValue placeholder={`Pilih ${field.label.toLowerCase()}`} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {field.options.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <FilterCombobox
+                  id={`master-${field.name}`}
+                  options={field.options}
+                  value={form[field.name] ?? field.options[0]?.value ?? ""}
+                  onValueChange={(value) => setForm((current) => ({ ...current, [field.name]: value }))}
+                  label={field.label}
+                  required={field.required}
+                  searchPlaceholder={`Cari ${field.label.toLocaleLowerCase("id-ID")}...`}
+                  emptyLabel={`Pilih ${field.label.toLocaleLowerCase("id-ID")}`}
+                />
               ) : (
                 <Input
                   id={`master-${field.name}`}

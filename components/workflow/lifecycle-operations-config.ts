@@ -170,7 +170,9 @@ export const lifecycleOperations: Operation[] = [
   ...(["tutup", "buka-kembali"] as const).map((action) => ({
     key: action === "tutup" ? "tutupRfq" : "bukaKembaliRfq",
     title: action === "tutup" ? "Tutup RFQ" : "Buka kembali RFQ",
-    stages: ["pemilihan_penyedia", "permintaan_penawaran", "sourcing"],
+    stages: action === "tutup"
+      ? ["pemilihan_penyedia", "verifikasi_evaluasi", "permintaan_penawaran", "sourcing"]
+      : ["pemilihan_penyedia", "permintaan_penawaran", "sourcing"],
     roles: AO,
     fields: [rel("rfqId", "RFQ", action === "tutup" ? "rfqAktif" : "rfqTertutup", true), textarea("alasan", "Alasan perubahan", true)],
     run: (id: string, body: Entity) =>
@@ -399,15 +401,18 @@ export const lifecycleOperations: Operation[] = [
     [select("status", "Status", ["draft", "aktif", "selesai", "dibatalkan"]), date("dibayarPada", "Dibayar pada (status selesai)")],
     [...AO, "pimpinan"],
   ),
-  create(
-    "rekonsiliasi",
-    "Simpan rekonsiliasi",
-    "settlement",
-    api.transaksiControllerCreateRekonsiliasi,
-    [textarea("catatan", "Catatan dan keputusan rekonsiliasi")],
-    AOV,
-    "rekonsiliasi",
-  ),
+  {
+    ...create(
+      "rekonsiliasi",
+      "Simpan rekonsiliasi",
+      "settlement",
+      api.transaksiControllerCreateRekonsiliasi,
+      [textarea("catatan", "Catatan dan keputusan rekonsiliasi")],
+      AOV,
+      "rekonsiliasi",
+    ),
+    stages: ["settlement", "selesai"],
+  },
   create("klaim", "Catat klaim", "settlement", api.transaksiControllerCreateKlaim, [
     nomor,
     text("kategori", "Jenis kejadian / klaim", true, 100),
@@ -456,12 +461,12 @@ export const lifecycleOperations: Operation[] = [
     "selesai",
     api.transaksiControllerCreateLaporan,
     [
-      text("jenis", "Jenis (periodik, akhir, evaluasi)", true, 50),
-      text("ringkasan", "Ringkasan", true),
+      select("jenis", "Jenis laporan", ["periodik", "akhir", "evaluasi"]),
+      textarea("ringkasan", "Ringkasan laporan", true),
       date("periodeMulai", "Periode mulai"),
       date("periodeSelesai", "Periode selesai"),
       json("evaluasi", "Evaluasi"),
-      text("rekomendasi", "Rekomendasi"),
+      textarea("rekomendasi", "Rekomendasi"),
     ],
     ALL,
   ),

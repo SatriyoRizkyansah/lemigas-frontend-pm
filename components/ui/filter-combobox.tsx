@@ -12,66 +12,76 @@ type FilterComboboxProps = {
   value: string;
   onValueChange: (value: string) => void;
   label: string;
+  id?: string;
+  name?: string;
+  required?: boolean;
   disabled?: boolean;
   searchPlaceholder?: string;
   emptyLabel?: string;
 };
 
-export function FilterCombobox({ options, value, onValueChange, label, disabled = false, searchPlaceholder = "Cari opsi…", emptyLabel }: FilterComboboxProps) {
+export function FilterCombobox({ options, value, onValueChange, label, id, name, required = false, disabled = false, searchPlaceholder = "Cari opsi…", emptyLabel }: FilterComboboxProps) {
   const selectedOption = options.find((option) => option.value === value) ?? null;
 
   return (
-    <Combobox.Root
-      items={options}
-      value={selectedOption}
-      onValueChange={(option) => {
-        if (option) onValueChange(option.value);
-      }}
-      itemToStringLabel={(option) => option.label}
-      itemToStringValue={(option) => option.value}
-      autoHighlight
-      disabled={disabled}
-    >
-      <Combobox.Trigger
-        aria-label={`Pilih ${label.toLocaleLowerCase("id-ID")}`}
-        className={`flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 ${selectedOption ? "text-foreground" : "text-muted-foreground"}`}
+    <>
+      {name ? <input type="hidden" name={name} value={value} readOnly /> : null}
+      <Combobox.Root
+        items={options}
+        value={selectedOption}
+        onValueChange={(option) => {
+          if (option) onValueChange(option.value);
+        }}
+        itemToStringLabel={(option) => option.label}
+        itemToStringValue={(option) => option.value}
+        autoHighlight
+        disabled={disabled}
       >
-        <Combobox.Value>{(selected) => <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? emptyLabel ?? label}</span>}</Combobox.Value>
-        <Combobox.Icon>
-          <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
-        </Combobox.Icon>
-      </Combobox.Trigger>
-      <Combobox.Portal>
-        <Combobox.Positioner side="bottom" sideOffset={4} align="start" className="z-50 w-[var(--anchor-width)] min-w-0">
-          <Combobox.Popup className="max-h-80 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-md">
-            <div className="border-b border-border p-1.5">
-              <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-2.5 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/30">
-                <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <Combobox.Input
-                  aria-label={`Cari opsi ${label.toLocaleLowerCase("id-ID")}`}
-                  placeholder={searchPlaceholder}
-                  className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-foreground outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
-                />
+        <Combobox.Trigger
+          id={id}
+          aria-label={`Pilih ${label.toLocaleLowerCase("id-ID")}`}
+          aria-required={required}
+          className={`flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 ${selectedOption ? "text-foreground" : "text-muted-foreground"}`}
+        >
+          <Combobox.Value>{(selected) => <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? emptyLabel ?? label}</span>}</Combobox.Value>
+          <Combobox.Icon>
+            <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+          </Combobox.Icon>
+        </Combobox.Trigger>
+        <Combobox.Portal>
+          <Combobox.Positioner side="bottom" sideOffset={4} align="start" className="z-50 w-[var(--anchor-width)] min-w-0">
+            <Combobox.Popup className="min-h-0 max-h-[min(20rem,var(--available-height))] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-md">
+              <div className="border-b border-border p-1.5">
+                <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-2.5 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/30">
+                  <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <Combobox.Input
+                    aria-label={`Cari opsi ${label.toLocaleLowerCase("id-ID")}`}
+                    placeholder={searchPlaceholder}
+                    className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-foreground outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
+                  />
+                </div>
               </div>
-            </div>
-            <Combobox.List className="max-h-64 overflow-y-auto p-1">
-              {(option: FilterOption) => (
-                <Combobox.Item
-                  key={option.value}
-                  value={option}
-                  className="flex min-h-10 w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
-                >
-                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  <Combobox.ItemIndicator>
-                    <Check className={cn("h-4 w-4", option.value === value ? "opacity-100" : "opacity-0")} aria-hidden="true" />
-                  </Combobox.ItemIndicator>
-                </Combobox.Item>
-              )}
-            </Combobox.List>
-            <Combobox.Empty className="px-3 py-6 text-center text-sm text-muted-foreground">Tidak ada opsi ditemukan.</Combobox.Empty>
-          </Combobox.Popup>
-        </Combobox.Positioner>
-      </Combobox.Portal>
-    </Combobox.Root>
+              <Combobox.List className="max-h-[min(16rem,var(--available-height))] overflow-y-auto overscroll-contain py-1 scroll-py-1 outline-none data-empty:p-0">
+                {(option: FilterOption) => (
+                  <Combobox.Item
+                    key={option.value}
+                    value={option}
+                    className="flex min-h-10 w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                    <Combobox.ItemIndicator>
+                      <Check className={cn("h-4 w-4", option.value === value ? "opacity-100" : "opacity-0")} aria-hidden="true" />
+                    </Combobox.ItemIndicator>
+                  </Combobox.Item>
+                )}
+              </Combobox.List>
+              <Combobox.Empty>
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">Tidak ada opsi ditemukan.</div>
+              </Combobox.Empty>
+            </Combobox.Popup>
+          </Combobox.Positioner>
+        </Combobox.Portal>
+      </Combobox.Root>
+    </>
   );
 }

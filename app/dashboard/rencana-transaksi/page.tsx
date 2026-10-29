@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Modal, ModalSection } from "@/components/modal/Modal";
 import { EmptyData } from "@/components/loading/EmptyData";
+import { FilterCombobox } from "@/components/ui/filter-combobox";
 import { ACTIVE_PROCUREMENT_METHODS } from "@/lib/procurement-methods";
 
 type Plan = {
@@ -143,6 +144,10 @@ export default function RencanaTransaksiPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedExecutionModel, setSelectedExecutionModel] = useState("");
   const [selectedImporterParty, setSelectedImporterParty] = useState("");
+  const [selectedCargoType, setSelectedCargoType] = useState("");
+  const [selectedTransactionType, setSelectedTransactionType] = useState("");
+  const [selectedProcurementMethod, setSelectedProcurementMethod] = useState("");
+  const [selectedPriority, setSelectedPriority] = useState("");
   const [methodHelpOpen, setMethodHelpOpen] = useState(false);
   const [draft, setDraft] = useState<PlanDraft>({});
   const [savedDrafts, setSavedDrafts] = useState<SavedPlanDraft[]>([]);
@@ -181,9 +186,13 @@ export default function RencanaTransaksiPage() {
         control.value = draft[key] ?? "";
       }
     }
-    setSelectedExecutionModel(createFormRef.current.elements.namedItem("modelPelaksanaan") instanceof HTMLSelectElement ? (createFormRef.current.elements.namedItem("modelPelaksanaan") as HTMLSelectElement).value : "");
-    setSelectedImporterParty(createFormRef.current.elements.namedItem("pihakImportir") instanceof HTMLSelectElement ? (createFormRef.current.elements.namedItem("pihakImportir") as HTMLSelectElement).value : "");
-  }, [draftLoaded, createOpen, selectedDraftId]);
+    setSelectedExecutionModel(draft.modelPelaksanaan ?? "");
+    setSelectedImporterParty(draft.pihakImportir ?? "");
+    setSelectedCargoType(draft.jenisKargo ?? "");
+    setSelectedTransactionType(draft.jenisTransaksi ?? "");
+    setSelectedProcurementMethod(draft.metodeSeleksi ?? "");
+    setSelectedPriority(draft.prioritas ?? "");
+  }, [draftLoaded, createOpen, selectedDraftId, draft]);
   const refresh = useCallback(async () => {
     try {
       setBrowserToken();
@@ -204,6 +213,10 @@ export default function RencanaTransaksiPage() {
     setDraft(selected.values);
     setSelectedExecutionModel(selected.values.modelPelaksanaan ?? "");
     setSelectedImporterParty(selected.values.pihakImportir ?? "");
+    setSelectedCargoType(selected.values.jenisKargo ?? "");
+    setSelectedTransactionType(selected.values.jenisTransaksi ?? "");
+    setSelectedProcurementMethod(selected.values.metodeSeleksi ?? "");
+    setSelectedPriority(selected.values.prioritas ?? "");
     setNotice(`Draft “${selected.judul}” dimuat ke formulir.`);
     setError("");
   }
@@ -212,6 +225,10 @@ export default function RencanaTransaksiPage() {
     setDraft({});
     setSelectedExecutionModel("");
     setSelectedImporterParty("");
+    setSelectedCargoType("");
+    setSelectedTransactionType("");
+    setSelectedProcurementMethod("");
+    setSelectedPriority("");
     createFormRef.current?.reset();
     setNotice("Formulir kosong siap diisi. Draft tersimpan lainnya tetap aman.");
     setError("");
@@ -262,6 +279,14 @@ export default function RencanaTransaksiPage() {
     setNotice("");
     try {
       const f = new FormData(form);
+      const modelPelaksanaan = String(f.get("modelPelaksanaan") ?? "");
+      const pihakImportir = String(f.get("pihakImportir") ?? "");
+      if (!modelPelaksanaan || !String(f.get("jenisKargo") ?? "") || !String(f.get("jenisTransaksi") ?? "")) {
+        throw new Error("Pilih model pelaksanaan, jenis kargo, dan jenis transaksi.");
+      }
+      if (modelPelaksanaan === "pengelolaan_manajemen_impor" && !pihakImportir) {
+        throw new Error("Pilih pihak importir sesuai perjanjian.");
+      }
       const noteObject = (key: string) => {
         const rows = parseParameterRows(String(f.get(key) ?? "")).filter((row) => row.name.trim() && row.value.trim());
         if (new Set(rows.map((row) => row.name.trim().toLocaleLowerCase("id-ID"))).size !== rows.length) {
@@ -303,6 +328,10 @@ export default function RencanaTransaksiPage() {
       form.reset();
       setSelectedExecutionModel("");
       setSelectedImporterParty("");
+      setSelectedCargoType("");
+      setSelectedTransactionType("");
+      setSelectedProcurementMethod("");
+      setSelectedPriority("");
       if (selectedDraftId) {
         const remaining = savedDrafts.filter((item) => item.id !== selectedDraftId);
         window.localStorage.setItem(PLAN_DRAFTS_KEY, JSON.stringify(remaining));
@@ -433,30 +462,49 @@ export default function RencanaTransaksiPage() {
                 Judul
                 <input required name="judul" maxLength={300} className={input} />
               </label>
-              <label className={`${label} lg:col-span-2`}>
-                Model pelaksanaan
-                <select required name="modelPelaksanaan" className={input} defaultValue="" onChange={(event) => setSelectedExecutionModel(event.target.value)}>
-                  <option value="" disabled>
-                    Pilih model pelaksanaan
-                  </option>
-                  <option value="pengelolaan_manajemen_impor">Pengelolaan/manajemen impor</option>
-                  <option value="pelaksanaan_impor_langsung">Pelaksanaan impor langsung</option>
-                </select>
+              <div className={`${label} lg:col-span-2`}>
+                <label className="block" htmlFor="plan-model">Model pelaksanaan</label>
+                <FilterCombobox
+                  id="plan-model"
+                  name="modelPelaksanaan"
+                  required
+                  label="model pelaksanaan"
+                  searchPlaceholder="Cari model pelaksanaan..."
+                  emptyLabel="Pilih model pelaksanaan"
+                  options={[
+                    { value: "pengelolaan_manajemen_impor", label: "Pengelolaan/manajemen impor" },
+                    { value: "pelaksanaan_impor_langsung", label: "Pelaksanaan impor langsung" },
+                  ]}
+                  value={selectedExecutionModel}
+                  onValueChange={(value) => {
+                    setSelectedExecutionModel(value);
+                    if (value !== "pengelolaan_manajemen_impor") setSelectedImporterParty("");
+                  }}
+                />
                 <span className="mt-1 block text-xs font-normal text-muted-foreground">
                   Urutan metode seleksi tetap sama. Model ini menentukan importir, dokumen impor, dan jalur Settlement.
                 </span>
-              </label>
+              </div>
               {selectedExecutionModel === "pengelolaan_manajemen_impor" ? (
-                <label className={`${label} sm:col-span-2 lg:col-span-2`}>
-                  Pihak yang menjadi importir sesuai perjanjian
-                  <select required name="pihakImportir" className={input} defaultValue="" onChange={(event) => setSelectedImporterParty(event.target.value)}>
-                    <option value="" disabled>Pilih pihak importir</option>
-                    <option value="lemigas">Lemigas</option>
-                    <option value="penerima_pasokan">Penerima pasokan</option>
-                    <option value="pihak_lain">Pihak lain</option>
-                  </select>
+                <div className={`${label} sm:col-span-2 lg:col-span-2`}>
+                  <label className="block" htmlFor="plan-importer">Pihak yang menjadi importir sesuai perjanjian</label>
+                  <FilterCombobox
+                    id="plan-importer"
+                    name="pihakImportir"
+                    required
+                    label="pihak importir"
+                    searchPlaceholder="Cari pihak importir..."
+                    emptyLabel="Pilih pihak importir"
+                    options={[
+                      { value: "lemigas", label: "Lemigas" },
+                      { value: "penerima_pasokan", label: "Penerima pasokan" },
+                      { value: "pihak_lain", label: "Pihak lain" },
+                    ]}
+                    value={selectedImporterParty}
+                    onValueChange={setSelectedImporterParty}
+                  />
                   <span className="mt-1 block text-xs font-normal text-muted-foreground">Importir mengikuti perjanjian. Di Settlement ada tagihan Penerima Pasokan dan pembayaran Penyedia.</span>
-                </label>
+                </div>
               ) : selectedExecutionModel === "pelaksanaan_impor_langsung" ? (
                 <div className={`${label} sm:col-span-2 lg:col-span-2 rounded-lg border bg-muted/20 px-3 py-2.5`}>
                   Importir
@@ -470,59 +518,83 @@ export default function RencanaTransaksiPage() {
                   <input required={selectedImporterParty === "pihak_lain"} name="namaImportir" maxLength={200} className={input} placeholder="Isi bila memilih Pihak lain" />
                 </label>
               ) : null}
-              <label className={`${label} lg:col-span-2`}>
-                Jenis kargo
-                <select required name="jenisKargo" className={input} defaultValue="">
-                  <option value="" disabled>
-                    Pilih jenis kargo
-                  </option>
-                  <option value="minyak_bumi">Minyak bumi</option>
-                  <option value="bbm">BBM</option>
-                  <option value="lpg">LPG</option>
-                  <option value="kondensat">Kondensat</option>
-                </select>
-              </label>
-              <label className={`${label} lg:col-span-2`}>
-                Jenis transaksi
-                <select required name="jenisTransaksi" className={input} defaultValue="">
-                  <option value="" disabled>
-                    Pilih jenis transaksi
-                  </option>
-                  <option value="spot">Spot</option>
-                  <option value="berjangka">Berjangka</option>
-                </select>
-              </label>
-              <label className={`${label} lg:col-span-2`}>
-                Metode seleksi
-                <select name="metodeSeleksi" className={input} defaultValue="">
-                  <option value="" disabled>
-                    Pilih metode seleksi
-                  </option>
-                  {ACTIVE_PROCUREMENT_METHODS.map(([value, method]) => (
-                    <option key={value} value={value}>
-                      {method.label}
-                    </option>
-                  ))}
-                </select>
+              <div className={`${label} lg:col-span-2`}>
+                <label className="block" htmlFor="plan-cargo-type">Jenis kargo</label>
+                <FilterCombobox
+                  id="plan-cargo-type"
+                  name="jenisKargo"
+                  required
+                  label="jenis kargo"
+                  searchPlaceholder="Cari jenis kargo..."
+                  emptyLabel="Pilih jenis kargo"
+                  options={[
+                    { value: "minyak_bumi", label: "Minyak bumi" },
+                    { value: "bbm", label: "BBM" },
+                    { value: "lpg", label: "LPG" },
+                    { value: "kondensat", label: "Kondensat" },
+                  ]}
+                  value={selectedCargoType}
+                  onValueChange={setSelectedCargoType}
+                />
+              </div>
+              <div className={`${label} lg:col-span-2`}>
+                <label className="block" htmlFor="plan-transaction-type">Jenis transaksi</label>
+                <FilterCombobox
+                  id="plan-transaction-type"
+                  name="jenisTransaksi"
+                  required
+                  label="jenis transaksi"
+                  searchPlaceholder="Cari jenis transaksi..."
+                  emptyLabel="Pilih jenis transaksi"
+                  options={[
+                    { value: "spot", label: "Spot" },
+                    { value: "berjangka", label: "Berjangka" },
+                  ]}
+                  value={selectedTransactionType}
+                  onValueChange={setSelectedTransactionType}
+                />
+              </div>
+              <div className={`${label} lg:col-span-2`}>
+                <label className="block" htmlFor="plan-method">Metode seleksi</label>
+                <FilterCombobox
+                  id="plan-method"
+                  name="metodeSeleksi"
+                  label="metode seleksi"
+                  searchPlaceholder="Cari metode seleksi..."
+                  emptyLabel="Pilih metode seleksi"
+                  options={[
+                    { value: "", label: "Tidak diisi" },
+                    ...ACTIVE_PROCUREMENT_METHODS.map(([value, method]) => ({ value, label: method.label })),
+                  ]}
+                  value={selectedProcurementMethod}
+                  onValueChange={setSelectedProcurementMethod}
+                />
                 <span className="mt-2 flex items-center justify-between gap-2 text-xs font-normal normal-case tracking-normal text-muted-foreground">
                   Alur tahapan pengadaan mengikuti metode yang dipilih.
                   <button type="button" className="shrink-0 font-semibold text-primary underline underline-offset-4" onClick={() => setMethodHelpOpen(true)}>
                     Lihat alur metode
                   </button>
                 </span>
-              </label>
-              <label className={`${label} xl:col-span-2`}>
-                Prioritas
-                <select name="prioritas" className={input} defaultValue="">
-                  <option value="" disabled>
-                    Pilih prioritas
-                  </option>
-                  <option value="sedang">Sedang</option>
-                  <option value="rendah">Rendah</option>
-                  <option value="tinggi">Tinggi</option>
-                  <option value="darurat">Darurat</option>
-                </select>
-              </label>
+              </div>
+              <div className={`${label} xl:col-span-2`}>
+                <label className="block" htmlFor="plan-priority">Prioritas</label>
+                <FilterCombobox
+                  id="plan-priority"
+                  name="prioritas"
+                  label="prioritas"
+                  searchPlaceholder="Cari prioritas..."
+                  emptyLabel="Pilih prioritas"
+                  options={[
+                    { value: "", label: "Tidak diisi" },
+                    { value: "sedang", label: "Sedang" },
+                    { value: "rendah", label: "Rendah" },
+                    { value: "tinggi", label: "Tinggi" },
+                    { value: "darurat", label: "Darurat" },
+                  ]}
+                  value={selectedPriority}
+                  onValueChange={setSelectedPriority}
+                />
+              </div>
               <label className={`${label} xl:col-span-2`}>
                 Tanggal pengajuan
                 <input name="tanggalPengajuan" type="date" className={input} />

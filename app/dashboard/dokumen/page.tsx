@@ -14,6 +14,7 @@ import { LoadingState } from "@/components/loading/LoadingState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { DataTable } from "@/components/table/DataTable";
 import { Modal } from "@/components/modal/Modal";
+import { FilterCombobox } from "@/components/ui/filter-combobox";
 import { ConfirmDialog } from "@/components/modal/ConfirmDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/Button";
@@ -386,15 +387,19 @@ export default function DokumenPage() {
         <form id="document-upload-form" onSubmit={submit} className="space-y-4" aria-busy={uploading}>
           <fieldset disabled={uploading || !canUpload} className="space-y-3">
             <Label htmlFor="upload-procurement">Pengadaan *</Label>
-            <select id="upload-procurement" className={selectClass} required value={uploadProcurementId} onChange={(event) => setUploadProcurementId(event.target.value)}>
-              <option value="">Pilih pengadaan…</option>
-              {uploadProcurementId && !procurements.data?.rows.some((row) => row.id === uploadProcurementId) ? <option value={uploadProcurementId}>{uploadProcurementId}</option> : null}
-              {procurements.data?.rows.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {entityText(row.judul)}
-                </option>
-              ))}
-            </select>
+            <FilterCombobox
+              id="upload-procurement"
+              required
+              label="pengadaan"
+              searchPlaceholder="Cari nomor atau judul pengadaan..."
+              emptyLabel="Pilih pengadaan"
+              options={[
+                ...(uploadProcurementId && !procurements.data?.rows.some((row) => row.id === uploadProcurementId) ? [{ value: uploadProcurementId, label: "Pengadaan terpilih" }] : []),
+                ...(procurements.data?.rows ?? []).map((row, index) => ({ value: String(row.id), label: [row.nomorSurat, entityText(row.judul)].map((value) => String(value ?? "").trim()).filter(Boolean).join(" ? ") || "Pengadaan " + (index + 1) })),
+              ]}
+              value={uploadProcurementId}
+              onValueChange={setUploadProcurementId}
+            />
             <p className="text-sm text-muted-foreground">Pilihan mengikuti pencarian dan halaman pengadaan di luar dialog.</p>
             <Label htmlFor="document-name">Nama dokumen *</Label>
             <Input id="document-name" required maxLength={200} value={name} onChange={(event) => setName(event.target.value)} />

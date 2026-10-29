@@ -19,6 +19,7 @@ import { LoadingState } from "@/components/loading/LoadingState";
 import { EmptyData } from "@/components/loading/EmptyData";
 import { Button } from "@/components/ui/Button";
 import { UploadDocumentField } from "@/components/documents/DocumentControls";
+import { FilterCombobox } from "@/components/ui/filter-combobox";
 import {
   Table,
   TableBody,
@@ -2263,27 +2264,22 @@ function VendorPortalView() {
                                 </div>
                               ) : null}
                               <div className="grid gap-3 sm:grid-cols-2">
-                                <label className="space-y-1 text-sm">
-                                  Mata uang
-                                  <select
+                                <div className="space-y-1 text-sm">
+                                  <span className="block">Mata uang</span>
+                                  <FilterCombobox
+                                    id={`quote-currency-${rfq.id}`}
                                     name="mataUang"
+                                    label="mata uang"
+                                    searchPlaceholder="Cari kode atau nama mata uang..."
+                                    options={[
+                                      { value: "IDR", label: "IDR - Rupiah (Rp)" },
+                                      { value: "USD", label: "USD - Dolar AS ($)" },
+                                      { value: "RUB", label: "RUB - Rubel Rusia (RUB)" },
+                                    ]}
                                     value={quoteCurrency}
-                                    onChange={(event) =>
-                                      setQuoteCurrency(event.target.value)
-                                    }
-                                    className="w-full rounded-md border bg-background p-2"
-                                  >
-                                    <option value="IDR">
-                                      IDR — Rupiah (Rp)
-                                    </option>
-                                    <option value="USD">
-                                      USD — Dolar AS ($)
-                                    </option>
-                                    <option value="RUB">
-                                      RUB — Rubel Rusia (₽)
-                                    </option>
-                                  </select>
-                                </label>
+                                    onValueChange={setQuoteCurrency}
+                                  />
+                                </div>
                                 <label className="space-y-1 text-sm">
                                   Berlaku sampai
                                   <input

@@ -8,7 +8,6 @@ import { ReadDocumentButton, UploadDocumentField } from "@/components/documents/
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FilterCombobox } from "@/components/ui/filter-combobox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { browserApi } from "@/lib/api/browser-client";
 import { ContentType } from "@/lib/api/generated/api-generated";
@@ -22,8 +21,84 @@ import { procurementMethodLabel } from "@/lib/procurement-methods";
 import { lifecycleOperations, operationPayload, type Entity, type Field, type Operation } from "./lifecycle-operations-config";
 import { getReconciliationReadiness, SettlementChecklist } from "./SettlementChecklist";
 
-export type LifecycleOperationsProps = { pengadaanId: string; stage: string; active: boolean; detail: any };
+export type LifecycleOperationsProps = { pengadaanId: string; stage: string; active: boolean; detail: any; onOpenRecords?: () => void; onOpenDocuments?: () => void };
 type Choice = { value: string; label: string };
+type GuidedTaskState = "done" | "in_progress" | "next" | "waiting" | "optional";
+type GuidedTask = {
+  title: string;
+  description: string;
+  state: GuidedTaskState;
+  actionLabel?: string;
+  onAction?: () => void;
+  disabled?: boolean;
+};
+type GuidedTaskGroup = {
+  title: string;
+  description: string;
+  parallel?: boolean;
+  tasks: GuidedTask[];
+};
+
+function LifecycleStageGuide({ groups, active, completed = false }: { groups: GuidedTaskGroup[]; active: boolean; completed?: boolean }) {
+  const tasks = groups.flatMap((group) => group.tasks);
+  const completeCount = tasks.filter((task) => task.state === "done").length;
+  const requiredCount = tasks.filter((task) => task.state !== "optional").length;
+  return (
+    <section className="space-y-4 rounded-xl border border-primary/20 bg-primary/[0.02] p-4" aria-label="Checklist alur tahap">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><ClipboardList size={17} /></span>
+          <div>
+            <h3 className="text-sm font-semibold">Checklist tahap</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Ikuti urutan dan prasyarat di bawah. Langkah yang bisa berjalan bersamaan ditandai terpisah.</p>
+          </div>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${completed ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground"}`}>
+          {completed ? "Tahap selesai" : `${completeCount}/${requiredCount} langkah selesai`}
+        </span>
+      </header>
+      <div className="space-y-3">
+        {groups.map((group, groupIndex) => (
+          <section key={`${group.title}-${groupIndex}`} className="overflow-hidden rounded-lg border bg-background">
+            <header className="flex flex-wrap items-start justify-between gap-2 border-b bg-muted/20 px-3 py-2.5">
+              <div>
+                <h4 className="text-xs font-semibold">{group.title}</h4>
+                <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{group.description}</p>
+              </div>
+              <span className="rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">{group.parallel ? "Bisa paralel" : "Berurutan"}</span>
+            </header>
+            <ol className={group.parallel ? "grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0" : "divide-y"}>
+              {group.tasks.map((task, taskIndex) => {
+                const statusLabel = task.state === "done" ? "Selesai" : task.state === "in_progress" ? "Sedang berjalan" : task.state === "waiting" ? "Menunggu" : task.state === "optional" ? "Opsional" : "Berikutnya";
+                const statusClass = task.state === "done" ? "bg-emerald-100 text-emerald-800" : task.state === "in_progress" ? "bg-blue-100 text-blue-800" : task.state === "waiting" || task.state === "optional" ? "bg-muted text-muted-foreground" : "bg-amber-100 text-amber-900";
+                return (
+                  <li key={`${task.title}-${taskIndex}`} className="flex min-w-0 items-start gap-3 px-3 py-3">
+                    <span className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold ${task.state === "done" ? "bg-emerald-600 text-white" : task.state === "in_progress" ? "bg-blue-100 text-blue-800" : "bg-muted text-muted-foreground"}`}>
+                      {task.state === "done" ? <Check size={14} /> : task.state === "optional" ? "–" : group.parallel ? taskIndex + 1 : groupIndex + taskIndex + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h5 className="text-sm font-medium">{task.title}</h5>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass}`}>{statusLabel}</span>
+                      </div>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{task.description}</p>
+                    </div>
+                    {task.onAction ? (
+                      <Button type="button" size="sm" variant="outline" className="shrink-0" disabled={!active || task.disabled} onClick={task.onAction}>
+                        {task.actionLabel ?? "Buka"}<ArrowRight size={14} />
+                      </Button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 const shipmentStatusSteps = [
   { value: "direncanakan", label: "Direncanakan" },
   { value: "dimuat", label: "Dimuat" },
@@ -149,6 +224,20 @@ function cleanParameterRows(value: string): string {
 function choices(rows: Entity[]): Choice[] {
   return rows.filter((row) => typeof row.id === "string").map((row) => ({ value: String(row.id), label: [row.nomor ?? row.nama ?? row.namaKapal ?? row.nomorBillOfLading ?? row.jenis ?? row.id].filter(Boolean).join(" · ") }));
 }
+function formatReportDate(value: unknown): string {
+  const raw = plainText(value);
+  if (!raw) return "";
+  const date = new Date(`${raw.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(date);
+}
+function reportDraftLabel(report: Entity): string {
+  const start = formatReportDate(report.periodeMulai);
+  const end = formatReportDate(report.periodeSelesai);
+  const period = start && end ? `Periode ${start}–${end}` : start ? `Mulai ${start}` : end ? `Selesai ${end}` : formatReportDate(report.createdAt) ? `Dibuat ${formatReportDate(report.createdAt)}` : "Tanpa periode";
+  const summary = plainText(report.ringkasan).replace(/\s+/g, " ").trim();
+  const shortSummary = summary.length > 48 ? `${summary.slice(0, 45)}…` : summary;
+  return [`Laporan akhir · ${period}`, shortSummary].filter(Boolean).join(" · ");
+}
 function quantityUnits(value: unknown): number {
   const quantity = Number(value);
   return Number.isFinite(quantity) ? Math.round(quantity * 10_000) : 0;
@@ -228,6 +317,7 @@ function operationFieldSections(operationKey: string | undefined, fields: Field[
     penerimaan: [{ title: "Detail penerimaan / BAST", fields: ["pengirimanId", "tanggalTerima", "titikSerah", "nomorBast", "kuantitasDiterima", "mutuDiterima", "denganCatatan", "catatan"] }],
     penyimpanan: [{ title: "Catatan persediaan", fields: ["fasilitas", "penerimaanId", "satuan", "lokasi", "kuantitasMasuk", "kuantitasKeluar", "catatan"] }],
     "serah-terima": [{ title: "Detail penyerahan kepada Penerima Pasokan", fields: ["pengirimanId", "nomorDokumen", "tanggalSerah", "penerimaPasokan", "titikSerah", "kuantitasDiserahkan", "satuan", "status", "catatan"] }],
+    "terbitkan-laporan": [{ title: "Pilih laporan akhir", fields: ["laporanId"] }],
   };
   const configured = sections[operationKey ?? ""];
   if (!configured) return [{ title: "Informasi", fields }];
@@ -643,7 +733,7 @@ export function LifecycleOperations(props: LifecycleOperationsProps) {
   return <OperationsPanel key={`${props.pengadaanId}:${props.stage}`} {...props} />;
 }
 
-function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: LifecycleOperationsProps) {
+function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpenRecords, onOpenDocuments }: LifecycleOperationsProps) {
   const detail = object(unwrap(rawDetail));
   const user = useCurrentUser();
   const currentUser = object(unwrap(user.data));
@@ -657,6 +747,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [documentError, setDocumentError] = useState("");
+  const [snapshotRefreshedInSession, setSnapshotRefreshedInSession] = useState(false);
   const [closingNegotiation, setClosingNegotiation] = useState<Entity | null>(null);
   const [closingReason, setClosingReason] = useState("");
   const [selectedNegotiationId, setSelectedNegotiationId] = useState("");
@@ -836,7 +927,12 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         return [{ value: String(receipt.id), label: [bast ? `BAST ${bast}` : "Penerimaan", identity].join(" · ") }];
       });
     }
-    if (field.relation) return choices(field.relation === "laporanDraft" ? records(detail.laporan).filter((row) => row.status === "draft") : records(detail[field.relation]));
+    if (field.relation === "laporanDraft") {
+      return records(detail.laporan)
+        .filter((row) => row.status === "draft" && row.jenis === "akhir" && typeof row.id === "string")
+        .map((row) => ({ value: String(row.id), label: reportDraftLabel(row) }));
+    }
+    if (field.relation) return choices(records(detail[field.relation]));
     if (field.kind === "boolean")
       return [
         { value: "true", label: "Ya" },
@@ -1010,6 +1106,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     setHandoverEvidence(null);
     const continuation = negotiation ?? (operation.key === "negosiasi" ? chosenContinuation : undefined);
     const initial: Record<string, string> = operation.key === "rfq" ? { mode: "baru" } : {};
+    if (operation.key === "laporan" && stage === "selesai") initial.jenis = "akhir";
     if (operation.key === "negosiasi" && continuation) {
       initial.penawaranId = String(continuation.penawaranId ?? "");
       initial.batasNegosiasi = continuation.batasNegosiasi == null ? "" : String(continuation.batasNegosiasi);
@@ -1171,6 +1268,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       }
       submitting.current = true;
       await mutation.mutateAsync({ operation: selected, body, file: selected.key === "serah-terima" ? handoverEvidence ?? undefined : undefined });
+      if (selected.key === "rekonsiliasi") setSnapshotRefreshedInSession(true);
+      else if (["tagihan", "pembayaran", "status-tagihan", "status-pembayaran", "klaim", "status-klaim"].includes(selected.key)) setSnapshotRefreshedInSession(false);
       setSuccess(
         selected.key === "rfq"
           ? isPublicDirectPurchase
@@ -1199,9 +1298,189 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
     pengiriman: { description: "Pantau pengapalan dan status pengiriman kargo.", icon: Ship },
     tagihan: { description: "Kelola tagihan, pembayaran, dan rekonsiliasi.", icon: Wallet },
   };
+  const guidedPurchaseStages = new Set(["perencanaan", "pemilihan_penyedia", "verifikasi_evaluasi", "klarifikasi_negosiasi", "rekomendasi_pemenang", "approval", "selesai"]);
+  const guidedPurchase = isPublicDirectPurchase && guidedPurchaseStages.has(stage);
+  const findOperation = (key: string) => available.find((item) => item.key === key);
+  const actionFor = (key: string, label: string, context?: Entity) => {
+    const item = findOperation(key);
+    return item ? { actionLabel: label, onAction: () => open(item, undefined, context) } : {};
+  };
+  const selection = object(detail.pemilihanPenyedia);
+  const participants = records(selection.peserta);
+  const activeOffers = records(detail.penawaran).filter((offer) => offer.isCurrent !== false && !!offer.submittedAt);
+  const evaluatedParticipants = participants.filter((participant) => ["lulus", "tidak_lulus"].includes(String(participant.status)));
+  const verifiedVendorCount = verificationVendors.filter((vendor) => {
+    const verification = object(vendor.verifikasi);
+    return verification.hasil === "selesai" && verification.kepatuhan === "selesai" && verification.kewenangan === "selesai";
+  }).length;
+  const stageAssignment = records(detail.tahapan).find((item) => String(item.tahap) === stage);
+  const recommendationAssignments = records(stageAssignment?.assignments);
+  const recommendationVotes = records(selection.votes);
+  const submittedVoteCount = new Set(recommendationVotes.map((vote) => String(object(vote.assignment).id ?? vote.assignmentId ?? ""))).size;
+  const hasRecommendation = selection.status === "direkomendasikan" && Boolean(selection.vendorTerpilihId);
+  const memorandumStatus = String(object(detail.memorandum).status ?? "");
+  const memorandumSubmitted = Boolean(detail.memorandum) && !["draft", "revisi", ""].includes(memorandumStatus);
+  const memorandumApproved = ["selesai", "disetujui"].includes(memorandumStatus);
+  const finalReport = records(detail.laporan).find((report) => report.jenis === "akhir");
+  const finalReportPublished = Boolean(finalReport && ["diterbitkan", "disetujui"].includes(String(finalReport.status)));
+  const guideGroups: GuidedTaskGroup[] = [];
+
+  if (guidedPurchase) {
+    if (stage === "perencanaan") {
+      const hasPlanning = Boolean(detail.perencanaan);
+      const hasStrategy = Boolean(detail.strategi);
+      guideGroups.push({
+        title: "Susun dasar transaksi",
+        description: "Kebutuhan menjadi dasar untuk menetapkan strategi dan metode seleksi.",
+        tasks: [
+          { title: "Catat kebutuhan pengadaan", description: hasPlanning ? "Kebutuhan dan parameter transaksi sudah tersimpan." : "Isi komoditas, volume, titik serah, model pelaksanaan, serta jadwal kebutuhan.", state: hasPlanning ? "done" : "next", ...actionFor("perencanaan", hasPlanning ? "Perbarui" : "Isi kebutuhan") },
+          { title: "Tetapkan strategi transaksi", description: hasStrategy ? "Metode seleksi dan strategi transaksi sudah tersimpan." : hasPlanning ? "Pilih metode seleksi dan catat pendekatan pasar, pengiriman, serta pembiayaan." : "Selesaikan data kebutuhan terlebih dahulu agar strategi mengacu pada kebutuhan yang benar.", state: hasStrategy ? "done" : hasPlanning ? "next" : "waiting", ...actionFor("strategi", hasStrategy ? "Perbarui" : "Isi strategi"), disabled: !hasPlanning },
+        ],
+      });
+    }
+
+    if (stage === "pemilihan_penyedia") {
+      const rfqs = records(detail.rfq);
+      const publishedRfqs = rfqs.filter((rfq) => ["aktif", "selesai"].includes(String(rfq.status)));
+      const openRfqs = rfqs.filter((rfq) => rfq.status === "aktif");
+      const offerCount = activeOffers.length;
+      const closeOperation = findOperation("tutupRfq");
+      const reopenOperation = findOperation("bukaKembaliRfq");
+      guideGroups.push({
+        title: "Permintaan dan penerimaan penawaran",
+        description: "Terbitkan permintaan, pantau masa respons, lalu tutup sebelum evaluasi dimulai.",
+        tasks: [
+          { title: "Terbitkan RFQ", description: publishedRfqs.length ? `${publishedRfqs.length} RFQ sudah diterbitkan.` : "Tetapkan syarat dan batas waktu penawaran untuk vendor.", state: publishedRfqs.length ? "done" : "next", ...actionFor("rfq", publishedRfqs.length ? "Kelola RFQ" : "Buat RFQ") },
+          { title: "Pantau penawaran vendor", description: offerCount ? `${offerCount} penawaran sudah masuk dari Portal Vendor.` : "Vendor mengirim penawaran melalui Portal Vendor selama RFQ masih terbuka.", state: offerCount ? openRfqs.length ? "in_progress" : "done" : publishedRfqs.length ? "in_progress" : "waiting" },
+          { title: "Tutup RFQ setelah batas respons", description: "Setelah tenggat berakhir, tutup RFQ agar penawaran dapat dievaluasi.", state: openRfqs.length ? offerCount ? "next" : "in_progress" : publishedRfqs.length ? "done" : "waiting", ...(openRfqs.length && closeOperation ? { actionLabel: "Tutup RFQ", onAction: () => open(closeOperation) } : {}) },
+          ...(!openRfqs.length && publishedRfqs.length && reopenOperation ? [{ title: "Buka kembali RFQ bila tenggat perlu diperpanjang", description: "Pilihan khusus jika proses penerimaan penawaran perlu dibuka kembali.", state: "optional" as const, actionLabel: "Buka kembali RFQ", onAction: () => open(reopenOperation) }] : []),
+        ],
+      });
+    }
+
+    if (stage === "verifikasi_evaluasi") {
+      const openPublicRfqs = records(detail.rfq).filter((rfq) => rfq.isPublic && rfq.status === "aktif");
+      if (openPublicRfqs.length) {
+        const closeOperation = findOperation("tutupRfq");
+        guideGroups.push({
+          title: "Prasyarat evaluasi",
+          description: "RFQ publik yang masih terbuka perlu ditutup sebelum hasil evaluasi diselesaikan.",
+          tasks: [{ title: "Tutup RFQ publik", description: `${openPublicRfqs.length} RFQ masih menerima penawaran.`, state: "next", ...(closeOperation ? { actionLabel: "Tutup RFQ", onAction: () => open(closeOperation) } : {}) }],
+        });
+      }
+      const evaluationComplete = activeOffers.length > 0 && evaluatedParticipants.length >= activeOffers.length;
+      const evaluationStarted = evaluatedParticipants.length > 0;
+      const verifyOperation = findOperation("verifikasi");
+      guideGroups.push({
+        title: "Evaluasi dan verifikasi vendor",
+        description: "Kedua pemeriksaan ini dapat berjalan bersamaan. Nilai penawaran di daftar record; verifikasi memeriksa dokumen dan kepatuhan vendor.",
+        parallel: true,
+        tasks: [
+          { title: "Nilai penawaran", description: activeOffers.length ? `${Math.min(evaluatedParticipants.length, activeOffers.length)}/${activeOffers.length} penawaran sudah dinilai; setidaknya satu peserta harus lulus.` : "Menunggu penawaran vendor.", state: evaluationComplete ? "done" : evaluationStarted ? "in_progress" : activeOffers.length ? "next" : "waiting", actionLabel: "Buka penilaian", onAction: onOpenRecords },
+          { title: "Verifikasi vendor", description: verificationVendors.length ? `${verifiedVendorCount}/${verificationVendors.length} vendor memiliki hasil verifikasi lengkap.` : "Daftar vendor muncul setelah penawaran diterima.", state: verificationVendors.length > 0 && verifiedVendorCount >= verificationVendors.length ? "done" : verifiedVendorCount > 0 ? "in_progress" : verificationVendors.length ? "next" : "waiting", ...(verifyOperation && verifiedVendorCount < verificationVendors.length ? { actionLabel: verifiedVendorCount ? "Periksa verifikasi" : "Verifikasi vendor", onAction: () => open(verifyOperation) } : {}) },
+        ],
+      });
+    }
+
+    if (stage === "klarifikasi_negosiasi") {
+      const agreedNegotiations = latestNegotiations.filter((item) => item.status === "disepakati").length;
+      const waitingNegotiations = latestNegotiations.filter((item) => item.status === "menunggu_tanggapan").length;
+      guideGroups.push({
+        title: "Klarifikasi dan negosiasi",
+        description: "Pilih penawaran yang lulus, ajukan perubahan harga atau syarat, lalu catat tanggapan vendor.",
+        tasks: [
+          { title: "Pastikan penawaran yang dinegosiasikan lulus evaluasi", description: `${passedVendorIds.size} vendor saat ini berstatus lulus evaluasi.`, state: passedVendorIds.size ? "done" : "waiting", actionLabel: "Lihat evaluasi", onAction: onOpenRecords },
+          { title: "Catat putaran dan tanggapan negosiasi", description: latestNegotiations.length ? `${agreedNegotiations} disepakati · ${waitingNegotiations} menunggu tanggapan · ${latestNegotiations.length} negosiasi tercatat.` : "Gunakan daftar negosiasi di bawah untuk memilih vendor dan mencatat putaran pertama.", state: agreedNegotiations ? "done" : latestNegotiations.length ? "in_progress" : passedVendorIds.size ? "next" : "waiting", ...(findOperation("negosiasi") ? { actionLabel: "Buka negosiasi", onAction: () => document.getElementById(`${id}-negotiation-workspace`)?.scrollIntoView({ behavior: "smooth", block: "center" }) } : {}) },
+        ],
+      });
+    }
+
+    if (stage === "rekomendasi_pemenang") {
+      const allVotesSubmitted = recommendationAssignments.length > 0 && submittedVoteCount >= recommendationAssignments.length;
+      guideGroups.push({
+        title: "Rekomendasi kolektif",
+        description: "Setiap petugas aktif memberikan satu suara beserta alasan. Rekomendasi bukan penetapan pemenang.",
+        tasks: [
+          { title: "Kumpulkan suara petugas", description: `${Math.min(submittedVoteCount, recommendationAssignments.length)}/${recommendationAssignments.length} suara sudah diberikan.`, state: allVotesSubmitted ? "done" : submittedVoteCount ? "in_progress" : "next", ...(canManageRecommendation ? { actionLabel: "Buka rekomendasi", onAction: () => window.dispatchEvent(new Event("lifecycle:open-recommendation")) } : {}) },
+          { title: "Finalisasi rekomendasi", description: hasRecommendation ? `Rekomendasi untuk ${plainText(object(selection.vendorTerpilih).nama) || "vendor terpilih"} sudah difinalisasi; keputusan persetujuan tetap dilakukan pada tahap berikutnya.` : allVotesSubmitted ? "Tinjau hasil pemungutan suara lalu finalisasi rekomendasi kolektif." : "Langkah ini tersedia setelah seluruh petugas aktif memberikan suara.", state: hasRecommendation ? "done" : allVotesSubmitted ? "next" : "waiting", ...(canManageRecommendation && allVotesSubmitted && !hasRecommendation ? { actionLabel: "Tinjau hasil suara", onAction: () => window.dispatchEvent(new Event("lifecycle:open-recommendation")) } : {}) },
+        ],
+      });
+    }
+
+    if (stage === "approval") {
+      const memorandumOperation = findOperation("memorandum");
+      const submitOperation = findOperation("submit-memorandum");
+      const approvals = records(detail.approvalSteps);
+      const approvalComplete = memorandumApproved;
+      guideGroups.push({
+        title: "Memorandum dan persetujuan",
+        description: "Ajukan memorandum setelah rekomendasi siap. Persetujuan berjenjang diproses melalui Pusat Persetujuan.",
+        tasks: [
+          { title: "Susun memorandum keputusan", description: detail.memorandum ? `Memorandum tersimpan dengan status ${memorandumStatus.replaceAll("_", " ") || "draft"}.` : "Rangkum rekomendasi, risiko utama, dan kesiapan pembiayaan.", state: detail.memorandum ? "done" : "next", ...(memorandumOperation ? { actionLabel: detail.memorandum ? "Perbarui draft" : "Buat memorandum", onAction: () => open(memorandumOperation) } : {}) },
+          { title: "Ajukan memorandum", description: memorandumSubmitted ? "Memorandum sudah masuk ke alur persetujuan." : "Pengajuan mengirim memorandum untuk diperiksa sesuai kewenangan.", state: memorandumSubmitted ? "done" : detail.memorandum ? "next" : "waiting", ...(submitOperation ? { actionLabel: "Ajukan", onAction: () => open(submitOperation) } : {}) },
+          { title: "Tunggu keputusan persetujuan", description: approvalComplete ? "Persetujuan selesai; transaksi siap diterjemahkan ke kontrak." : memorandumSubmitted ? `${approvals.length} tahapan/record persetujuan tercatat di Pusat Persetujuan.` : "Langkah ini dimulai setelah memorandum diajukan.", state: approvalComplete ? "done" : memorandumSubmitted ? "in_progress" : "waiting", ...(memorandumSubmitted && !approvalComplete ? { actionLabel: "Buka Pusat Persetujuan", onAction: () => window.location.assign("/dashboard/approval") } : {}) },
+        ],
+      });
+    }
+
+    if (stage === "selesai") {
+      const reportOperation = findOperation("laporan");
+      const publishOperation = findOperation("terbitkan-laporan");
+      const claimOperation = findOperation("status-klaim");
+      const reconciliation = object(detail.rekonsiliasi);
+      const reconciliationStatus = String(reconciliation.status ?? "");
+      const reconciliationFinal = reconciliationStatus === "selesai";
+      const reconciliationInReview = reconciliationStatus === "aktif";
+      const reconciliationOperation = findOperation("rekonsiliasi");
+      const reconciliationStatusOperation = findOperation("status-rekonsiliasi");
+      const reconciliationDocuments = records(detail.persyaratanDokumen).filter((document) => document.tahap === "settlement" && document.jenisDokumen === "rekonsiliasi" && document.wajib === true);
+      const reconciliationDocumentsReady = reconciliationDocuments.every((document) => document.terpenuhi === true);
+      const snapshotStepComplete = reconciliationInReview || reconciliationFinal || (Boolean(reconciliation.id) && snapshotRefreshedInSession);
+      const canStartReview = Boolean(reconciliation.id) && reconciliationStatus === "draft" && snapshotRefreshedInSession;
+      const reviewAction = reconciliationInReview
+        ? reconciliationDocumentsReady
+          ? reconciliationStatusOperation ? () => open(reconciliationStatusOperation, undefined, { status: "selesai" }) : undefined
+          : onOpenDocuments
+        : canStartReview && reconciliationStatusOperation
+          ? () => open(reconciliationStatusOperation, undefined, { status: "aktif" })
+          : undefined;
+      const reviewActionLabel = reconciliationInReview
+        ? reconciliationDocumentsReady ? "Finalisasi" : "Lengkapi dokumen"
+        : "Mulai tinjau";
+      const resolvedClaimCount = records(detail.klaim).filter((claim) =>
+        ["selesai", "ditolak", "dibatalkan"].includes(String(claim.status)) ||
+        (claim.status === "aktif" && claim.tetapDipantau === true && Boolean(String(claim.penanggungJawab ?? "").trim()) && Boolean(String(claim.tindakLanjut ?? "").trim()) && Boolean(claim.tindakLanjutPada)),
+      ).length;
+      const claimsResolved = resolvedClaimCount === records(detail.klaim).length;
+      guideGroups.push({
+        title: "Pastikan penyelesaian Settlement",
+        description: "Selesaikan rekonsiliasi dan tindak lanjut klaim sebelum menyusun penutupan transaksi.",
+        tasks: [
+          { title: "Perbarui snapshot rekonsiliasi", description: reconciliationFinal || reconciliationInReview ? `Snapshot rekonsiliasi berstatus ${reconciliationStatus === "aktif" ? "sedang ditinjau" : "final"}.` : reconciliation.id ? snapshotRefreshedInSession ? "Snapshot sudah diperbarui. Lanjutkan ke peninjauan." : "Periksa kembali BAST, tagihan, pembayaran, dan klaim; perbarui snapshot bila datanya berubah." : "Snapshot rekonsiliasi belum tersedia.", state: snapshotStepComplete ? "done" : "next", ...(!snapshotStepComplete && reconciliationOperation ? { actionLabel: reconciliation.id ? "Perbarui snapshot" : "Buat snapshot", onAction: () => open(reconciliationOperation) } : {}) },
+          { title: "Tinjau dan finalisasi rekonsiliasi", description: reconciliationFinal ? "Rekonsiliasi sudah final." : reconciliationInReview ? `Sedang ditinjau · dokumen rekonsiliasi ${reconciliationDocuments.filter((document) => document.terpenuhi === true).length}/${reconciliationDocuments.length} terpenuhi.` : snapshotRefreshedInSession ? "Snapshot terbaru siap ditinjau." : "Selesaikan atau perbarui snapshot dahulu sebelum memulai peninjauan.", state: reconciliationFinal ? "done" : reconciliationInReview ? "in_progress" : canStartReview ? "next" : "waiting", ...(reviewAction ? { actionLabel: reviewActionLabel, onAction: reviewAction } : {}) },
+          { title: "Tindak lanjuti klaim", description: claimsResolved ? records(detail.klaim).length ? "Semua klaim ditutup atau memiliki penanggung jawab dan tindak lanjut." : "Tidak ada klaim terbuka." : `${records(detail.klaim).length - resolvedClaimCount} klaim masih perlu ditutup atau diberi tindak lanjut.`, state: claimsResolved ? "done" : "waiting", ...(!claimsResolved && claimOperation ? { actionLabel: "Kelola klaim", onAction: () => open(claimOperation) } : {}) },
+        ],
+      });
+      guideGroups.push({
+        title: "Pelaporan dan penutupan transaksi",
+        description: "Buat laporan akhir, terbitkan setelah diperiksa, lalu gunakan tombol penutupan di bagian atas tahap.",
+        tasks: [
+          { title: "Buat laporan akhir", description: finalReport ? `Laporan akhir sudah tercatat dengan status ${String(finalReport.status ?? "draft").replaceAll("_", " ")}.` : "Ringkas pelaksanaan, hasil, kendala, klaim, dan rekomendasi tindak lanjut.", state: finalReport ? "done" : "next", ...(!finalReport && reportOperation ? { actionLabel: "Buat laporan akhir", onAction: () => open(reportOperation) } : {}) },
+          { title: "Terbitkan laporan akhir", description: finalReportPublished ? "Laporan akhir sudah diterbitkan." : finalReport ? "Pilih draft laporan akhir untuk diterbitkan." : "Tersedia setelah draft laporan akhir dibuat.", state: finalReportPublished ? "done" : finalReport ? "next" : "waiting", ...(finalReport && !finalReportPublished && publishOperation ? { actionLabel: "Terbitkan laporan", onAction: () => open(publishOperation) } : {}) },
+        ],
+      });
+    }
+  }
   return (
     <section className="space-y-4" aria-label="Operasi bisnis tahap">
-      {canManageRecommendation ? (
+      {guidedPurchase && guideGroups.length ? (
+        <LifecycleStageGuide
+          groups={guideGroups}
+          active={active}
+          completed={records(detail.tahapan).find((item) => String(item.tahap) === stage)?.status === "selesai"}
+        />
+      ) : null}
+      {canManageRecommendation && !guidedPurchase ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
           <p className="text-sm text-muted-foreground">Pilih peserta lulus sebagai pemenang rekomendasi sebelum memorandum.</p>
           <Button size="sm" onClick={() => window.dispatchEvent(new Event("lifecycle:open-recommendation"))}>
@@ -1215,7 +1494,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
         </Alert>
       ) : null}
       {!active ? <p className="text-sm text-muted-foreground">Operasi dinonaktifkan: tahap ini tidak aktif.</p> : null}
-      {active && !user.isPending && !user.isError && !available.length && !canManageRecommendation ? (
+      {active && !user.isPending && !user.isError && !available.length && !canManageRecommendation && !guidedPurchase ? (
         <p className="rounded-lg border border-dashed bg-background px-4 py-5 text-center text-sm text-muted-foreground">Belum ada operasi yang tersedia untuk peran atau status saat ini.</p>
       ) : null}
       {stage === "delivery" ? (
@@ -1252,7 +1531,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
       <div className="space-y-4">
         {available
           // Keep manual offer-entry operation configured for future use, but hide it from current workflow.
-          .filter((operation) => !["tutupRfq", "bukaKembaliRfq", "penawaran"].includes(operation.key))
+          .filter((operation) => guidedPurchase
+            ? stage === "klarifikasi_negosiasi" && operation.key === "negosiasi"
+            : !["tutupRfq", "bukaKembaliRfq", "penawaran"].includes(operation.key))
           .map((operation) => {
             if (operation.key === "negosiasi") {
               const activeNegotiations = latestNegotiations;
@@ -1263,7 +1544,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
               const presentation = operationPresentation.negosiasi;
               const Icon = presentation.icon;
               return (
-                <div key={operation.key} className="space-y-3">
+                  <div key={operation.key} id={`${id}-negotiation-workspace`} className="space-y-3 scroll-mt-6">
                   {startableOffers.length ? (
                     <div className="flex justify-end">
                       <Button type="button" disabled={!active || locked} onClick={() => open(operation)}>
@@ -1912,6 +2193,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                 <section key={section.title} className={`space-y-3 rounded-lg border bg-card p-4 ${selected && ["pengiriman", "update-pengiriman"].includes(selected.key) ? "" : "shadow-sm"}`}>
                   <div>
                     <h3 className="text-sm font-semibold">{section.title}</h3>
+                    {selected?.key === "terbitkan-laporan" ? <p className="mt-1 text-xs leading-5 text-muted-foreground">Pilih draft laporan akhir yang sudah diperiksa. Periode dan ringkasan laporan akan ditampilkan sebelum diterbitkan.</p> : null}
                     {selected?.key === "pengiriman" ? <p className="mt-1 text-xs text-muted-foreground">Alokasikan volume kargo ini. Kapal dan jadwal boleh dilengkapi belakangan jika belum diketahui.</p> : null}
                     {selected?.key === "update-pengiriman" ? <p className="mt-1 text-xs text-muted-foreground">Edit detail bukan tahap wajib. Gunakan hanya untuk melengkapi informasi yang belum tersedia atau mencatat perubahan kapal dan jadwal.</p> : null}
                     {selected?.key === "update-pengiriman" ? <p className="mt-1 text-xs text-muted-foreground">Sisa volume kontrak tetap menjadi batas total alokasi seluruh kargo.</p> : null}
@@ -1951,7 +2233,20 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                         if (!selectedInvoiceContractId || selectedInvoiceCargoIds.includes(choice.value)) return true;
                         return contractId === selectedInvoiceContractId;
                       });
+                      const publishingFinalReport = selected?.key === "terbitkan-laporan" && field.name === "laporanId";
+                      const finalReportDrafts = publishingFinalReport
+                        ? records(detail.laporan).filter((row) => row.status === "draft" && row.jenis === "akhir")
+                        : [];
+                      const selectedFinalReport = finalReportDrafts.find((row) => String(row.id) === String(values[field.name] ?? ""));
+                      const selectedFinalReportSummary = plainText(selectedFinalReport?.ringkasan).replace(/\s+/g, " ").trim();
+                      const selectedFinalReportPeriod = [formatReportDate(selectedFinalReport?.periodeMulai), formatReportDate(selectedFinalReport?.periodeSelesai)].filter(Boolean).join(" – ");
                       const optionLabel = (value: string) => {
+                        if (selected?.key === "rfq" && field.name === "mode") {
+                          return ({ baru: "RFQ baru", tambah_vendor: "Tambah vendor", revisi: "Ubah RFQ" } as Record<string, string>)[value] ?? value;
+                        }
+                        if (selected?.key === "laporan" && field.name === "jenis") {
+                          return ({ periodik: "Laporan periodik", akhir: "Laporan akhir", evaluasi: "Laporan evaluasi" } as Record<string, string>)[value] ?? value;
+                        }
                         if (selected?.key === "status-pengiriman" && field.name === "status") {
                           return shipmentStatusLabel(value);
                         }
@@ -1965,8 +2260,14 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                           ? ({ selesai: "Sesuai", ditolak: "Tidak sesuai", revisi: "Perlu perbaikan" } as Record<string, string>)[value]
                           : value.replaceAll("_", " ");
                       };
+                      const filterOptions = [
+                        ...(!field.required ? [{ value: "", label: "Tidak diisi" }] : []),
+                        ...options(field).map((option) => ({ ...option, label: field.relation ? option.label : optionLabel(option.value) })),
+                      ];
                       const fieldLabel =
-                        selected?.key === "tagihan" && field.name === "nilai"
+                        publishingFinalReport
+                          ? "Draft laporan akhir"
+                          : selected?.key === "tagihan" && field.name === "nilai"
                           ? "Nilai tagihan"
                           : selected?.key === "tagihan" && field.name === "pengirimanIds"
                             ? "Kargo yang tercakup"
@@ -1986,6 +2287,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                                 ? `Realisasi volume pengapalan${plainText(object(statusShipment?.kontrak).satuanKontrak) ? ` (${plainText(object(statusShipment?.kontrak).satuanKontrak)})` : ""}`
                                 : field.label;
                       const fullWidth =
+                        (selected?.key === "terbitkan-laporan" && field.name === "laporanId") ||
                         (selected?.key === "tagihan" && field.name === "nomor") ||
                         (deliveryField && ["entityId", "kontrakId", "volumeRencana"].includes(field.name)) ||
                         (selected?.key === "status-pengiriman" && ["entityId", "status"].includes(field.name)) ||
@@ -2049,14 +2351,17 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                                     <p className="text-sm font-medium">{currentShipmentStatus === "bermasalah" ? "Pengiriman ditandai bermasalah" : "Status Diserahkan belum didukung checklist lengkap"}</p>
                                     <p className="mt-1 text-xs text-muted-foreground">Pilih tahap terakhir yang benar-benar tercapai. Status Diserahkan hanya boleh dipakai setelah jumlah serah-terima sama dengan BAST.</p>
                                   </div>
-                                  <Select value={values.status ?? ""} onValueChange={(value) => setValues((old) => ({ ...old, status: String(value ?? "") }))} disabled={locked || !permitted}>
-                                    <SelectTrigger id={fieldId} aria-required={field.required}>
-                                      <SelectValue placeholder="Pilih tahap untuk melanjutkan" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {shipmentStatusSteps.filter((step) => step.value !== "diserahkan" || shipmentHandoverComplete(statusShipment)).map((step) => <SelectItem key={step.value} value={step.value}>{step.label}</SelectItem>)}
-                                    </SelectContent>
-                                  </Select>
+                                  <FilterCombobox
+                                    id={fieldId}
+                                    required={field.required}
+                                    options={shipmentStatusSteps.filter((step) => step.value !== "diserahkan" || shipmentHandoverComplete(statusShipment)).map((step) => ({ value: step.value, label: step.label }))}
+                                    value={values.status ?? ""}
+                                    onValueChange={(value) => setValues((old) => ({ ...old, status: value }))}
+                                    label="tahap pengiriman"
+                                    searchPlaceholder="Cari tahap pengiriman..."
+                                    emptyLabel="Pilih tahap untuk melanjutkan"
+                                    disabled={locked || !permitted}
+                                  />
                                   <Button
                                     type="button"
                                     size="sm"
@@ -2264,6 +2569,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                             </div>
                           ) : isSelect && field.relation === "vendor" ? (
                             <FilterCombobox
+                              id={fieldId}
+                              required={field.required}
                               options={options(field)}
                               value={values[field.name] || ""}
                               onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: value }))}
@@ -2272,6 +2579,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                             />
                           ) : isSelect && field.relation === "kontrak" ? (
                             <FilterCombobox
+                              id={fieldId}
+                              required={field.required}
                               options={options(field)}
                               value={values[field.name] || ""}
                               onValueChange={(value) => {
@@ -2327,6 +2636,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                             </div>
                           ) : isSelect && field.relation === "pengiriman" ? (
                             <FilterCombobox
+                              id={fieldId}
+                              required={field.required}
                               options={options(field)}
                               value={values[field.name] || ""}
                               onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: value }))}
@@ -2337,6 +2648,8 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                             />
                           ) : isSelect && field.relation === "penerimaan" ? (
                             <FilterCombobox
+                              id={fieldId}
+                              required={field.required}
                               options={options(field)}
                               value={values[field.name] || ""}
                               onValueChange={(value) => setValues((old) => ({ ...old, [field.name]: value }))}
@@ -2346,38 +2659,52 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               disabled={locked || !permitted}
                             />
                           ) : isSelect ? (
-                            <Select
-                              value={values[field.name] || ""}
-                              onValueChange={(value) => {
-                                if (selected?.key === "tagihan" && field.name === "arah") {
-                                  updateTagihanCargoSelection((values.pengirimanIds ?? "").split(",").filter(Boolean), String(value ?? ""));
-                                } else if (selected?.key === "perencanaan" && field.name === "modelPelaksanaan") {
-                                  setValues((old) => ({ ...old, modelPelaksanaan: String(value ?? ""), pihakImportir: value === "pelaksanaan_impor_langsung" ? "lemigas" : old.pihakImportir ?? "" }));
-                                } else {
-                                  setValues((old) => ({ ...old, [field.name]: String(value ?? "") }));
-                                }
-                              }}
-                              disabled={locked || !permitted}
-                            >
-                              <SelectTrigger id={fieldId} aria-required={field.required} className={selected?.key === "negosiasi" && field.name === "penawaranId" ? "min-w-0" : undefined}>
-                                {selected?.key === "negosiasi" && field.name === "penawaranId" ? (
-                                  <>
-                                    <span className="min-w-0 flex-1 truncate text-left">{options(field).find((option) => option.value === values[field.name])?.label ?? "Pilih penawaran vendor…"}</span>
-                                    <SelectValue className="sr-only" />
-                                  </>
-                                ) : (
-                                  <SelectValue placeholder={field.kind === "boolean" ? "Pilih ya atau tidak" : `Pilih ${field.label.toLocaleLowerCase("id-ID")}…`} />
-                                )}
-                              </SelectTrigger>
-                              <SelectContent>
-                                {!field.required ? <SelectItem value="">Tidak diisi</SelectItem> : null}
-                                {options(field).map((option) => (
-                                  <SelectItem key={option.value} value={option.value}>
-                                    {selected?.key === "rfq" && field.name === "mode" ? (({ baru: "RFQ baru", tambah_vendor: "Tambah vendor", revisi: "Ubah RFQ" } as Record<string, string>)[option.value] ?? option.label) : optionLabel(option.value)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <div className="space-y-2">
+                              <FilterCombobox
+                                options={filterOptions}
+                                value={values[field.name] ?? ""}
+                                onValueChange={(value) => {
+                                  if (selected?.key === "tagihan" && field.name === "arah") {
+                                    updateTagihanCargoSelection((values.pengirimanIds ?? "").split(",").filter(Boolean), value);
+                                  } else if (selected?.key === "perencanaan" && field.name === "modelPelaksanaan") {
+                                    setValues((old) => ({ ...old, modelPelaksanaan: value, pihakImportir: value === "pelaksanaan_impor_langsung" ? "lemigas" : old.pihakImportir ?? "" }));
+                                  } else {
+                                    setValues((old) => ({ ...old, [field.name]: value }));
+                                  }
+                                }}
+                                label={fieldLabel}
+                                searchPlaceholder={publishingFinalReport ? "Cari periode atau ringkasan laporan..." : "Cari " + field.label.toLocaleLowerCase("id-ID") + "..."}
+                                emptyLabel={publishingFinalReport ? "Pilih draft laporan akhir" : "Pilih " + field.label.toLocaleLowerCase("id-ID")}
+                                id={fieldId}
+                                required={field.required}
+                                disabled={locked || !permitted}
+                              />
+                              {publishingFinalReport ? selectedFinalReport ? (
+                                <div className="rounded-md border bg-muted/20 px-3 py-2.5" aria-live="polite">
+                                  <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div>
+                                      <p className="text-xs font-semibold">Pratinjau laporan akhir</p>
+                                      <p className="mt-0.5 text-xs text-muted-foreground">
+                                        {selectedFinalReportPeriod ? "Periode " + selectedFinalReportPeriod : formatReportDate(selectedFinalReport.createdAt) ? "Dibuat " + formatReportDate(selectedFinalReport.createdAt) : "Periode tidak dicantumkan"}
+                                      </p>
+                                    </div>
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">Draft</span>
+                                  </div>
+                                  <p className="mt-2 whitespace-normal break-words text-xs leading-5 text-foreground">
+                                    {selectedFinalReportSummary || "Ringkasan laporan belum diisi."}
+                                  </p>
+                                  <p className="mt-2 text-[11px] leading-4 text-muted-foreground">Periksa ringkasan ini sebelum diterbitkan. Laporan akhir yang diterbitkan menjadi prasyarat penutupan tahap.</p>
+                                </div>
+                              ) : finalReportDrafts.length === 0 ? (
+                                <p className="rounded-md border border-dashed px-3 py-2.5 text-xs leading-5 text-muted-foreground" aria-live="polite">
+                                  Belum ada draft laporan akhir yang siap diterbitkan. Buat laporan akhir terlebih dahulu pada langkah sebelumnya.
+                                </p>
+                              ) : (
+                                <p className="text-xs leading-5 text-muted-foreground" aria-live="polite">
+                                  Pilih draft laporan akhir untuk melihat periode dan ringkasannya sebelum diterbitkan.
+                                </p>
+                              ) : null}
+                            </div>
                           ) : field.kind === "document-list" ? (
                             <div className="space-y-3" aria-describedby={`${fieldId}-hint`}>
                               <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
@@ -2515,7 +2842,7 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail }: Life
                               value={values[field.name] ?? ""}
                               onChange={(event) => setValues((old) => ({ ...old, [field.name]: event.target.value }))}
                               required={field.required || importerNameRequired || recipientImporterRequired}
-                              rows={3}
+                              rows={selected?.key === "laporan" && ["ringkasan", "rekomendasi"].includes(field.name) ? 5 : 3}
                               placeholder={`${field.label}…`}
                               className="w-full rounded-md border border-input bg-background p-3 text-sm leading-6"
                             />

@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { UploadDocumentField } from "@/components/documents/DocumentControls";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FilterCombobox } from "@/components/ui/filter-combobox";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
 import { apiQueryKeys } from "@/lib/api/query-keys";
@@ -526,19 +527,17 @@ export function ContractWorkspace({ pengadaanId, active, procurement }: { pengad
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Mata uang">
-                  <select
-                    aria-label="Mata uang"
-                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  <FilterCombobox
+                    label="mata uang"
+                    searchPlaceholder="Cari kode atau nama mata uang..."
+                    emptyLabel="Pilih mata uang"
                     value={draft.mataUang}
-                    onChange={(event) => updateDraftField("mataUang", event.target.value)}
-                  >
-                    {!currencyOptions.some(({ code }) => code === draft.mataUang) ? (
-                      <option value={draft.mataUang}>{draft.mataUang} — mengikuti penawaran vendor</option>
-                    ) : null}
-                    {currencyOptions.map(({ code, label, symbol }) => (
-                      <option key={code} value={code}>{code} — {label} ({symbol})</option>
-                    ))}
-                  </select>
+                    onValueChange={(value) => updateDraftField("mataUang", value)}
+                    options={[
+                      ...(!currencyOptions.some(({ code }) => code === draft.mataUang) ? [{ value: draft.mataUang, label: draft.mataUang + " - mengikuti penawaran vendor" }] : []),
+                      ...currencyOptions.map(({ code, label, symbol }) => ({ value: code, label: code + " - " + label + " (" + symbol + ")" })),
+                    ]}
+                  />
                 </Field>
                 {draft.jenisHarga === "formula_harga" ? (
                   <Field label="Formula harga dari RFQ/negosiasi">

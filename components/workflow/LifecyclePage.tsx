@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, LockKeyhole, RefreshCw, ClipboardList, FileText, Settings2 } from "lucide-react";
 import { browserApi } from "@/lib/api/browser-client";
 import { apiData, setBrowserToken, useCurrentUser } from "@/lib/api/hooks";
@@ -77,11 +77,14 @@ function unwrap(value: unknown): any {
 }
 
 export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) {
-  const [stageKey, setStageKey] = useState("perencanaan");
+  const [stageKey, setStageKey] = useState("");
   const [confirmComplete, setConfirmComplete] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const recordsPanelRef = useRef<HTMLDetailsElement>(null);
+  const documentsPanelRef = useRef<HTMLDetailsElement>(null);
   const currentUser = useCurrentUser();
   useEffect(() => setHydrated(true), []);
+  useEffect(() => setStageKey(""), [pengadaanId]);
   const query = use_query<any, Error, string>({
     tag: "siklusTransaksiKomoditas",
     method: "transaksiControllerDetail",
@@ -96,18 +99,27 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
   const currentMember = (detail?.anggota ?? []).find((member: any) => member.userId === currentUser.data?.id && member.aktif);
   const canManageTeam = hydrated && (currentUser.data?.role.toLowerCase() === "admin" || currentMember?.peran === "pic_utama" || currentMember?.peran === "owner");
   const stages: WorkflowStage[] = stageStatus.length
-    ? stageStatus.map((stage: any) => ({ key: stage.tahap, label: stage.label ?? stage.tahap.replaceAll("_", " "), urutan: stage.urutan, assignments: stage.assignments }))
+    ? stageStatus.map((stage: any) => ({
+        key: stage.tahap,
+        label: stage.tahap === "selesai" && stage.status !== "selesai" ? "Pelaporan & Penutupan" : stage.label ?? stage.tahap.replaceAll("_", " "),
+        urutan: stage.urutan,
+        assignments: stage.assignments,
+      }))
     : [{ key: "perencanaan", label: "Perencanaan" }];
   const assignedStageKeys = new Set(stages.filter((stage) => stage.assignments?.some((assignment) => (assignment.userId ?? assignment.user?.id) === currentUser.data?.id)).map((stage) => stage.key));
+  const activeStage = stageStatus.find((item: any) => item.status === "aktif");
+  const currentStage = activeStage?.tahap;
   const systemRole = currentUser.data?.role.toLowerCase() ?? "";
   const privilegedStageViewer = ["admin", "pimpinan"].includes(systemRole);
   const stageRestricted = !privilegedStageViewer && Boolean(currentMember && ["pic", "pic_utama", "viewer"].includes(currentMember.peran));
   const accessibleStages = stageRestricted ? stages.filter((stage) => assignedStageKeys.has(stage.key)) : stages;
   const fallbackStage = accessibleStages[0]?.key ?? stages[0].key;
-  const selectedStage = accessibleStages.some((stage) => stage.key === stageKey) ? stageKey : fallbackStage;
+  const finalStageComplete = stageStatus.some((item: any) => item.tahap === "selesai" && item.status === "selesai");
+  const preferredStage = currentStage ?? (finalStageComplete ? "selesai" : fallbackStage);
+  const selectedStage = stageKey && accessibleStages.some((stage) => stage.key === stageKey)
+    ? stageKey
+    : accessibleStages.some((stage) => stage.key === preferredStage) ? preferredStage : fallbackStage;
   const stageLocked = (key: string) => stageRestricted && !assignedStageKeys.has(key);
-  const activeStage = stageStatus.find((item: any) => item.status === "aktif");
-  const currentStage = activeStage?.tahap;
   const assignedToCurrentStage = Boolean(activeStage?.assignments?.some((assignment: any) => (assignment.userId ?? assignment.user?.id) === currentUser.data?.id));
   const canComplete = systemRole === "admin" || (currentMember?.peran === "pic_utama" && assignedToCurrentStage);
   const uninitialized = Boolean(detail && stageStatus.length === 0);
@@ -129,6 +141,18 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
   });
   const stagesStatusMap = useMemo(() => new Map(stageStatus.map((item: any) => [item.tahap, item.status])), [stageStatus]);
   const selectedStageComplete = stagesStatusMap.get(selectedStage) === "selesai";
+  const openRecordsPanel = () => {
+    const panel = recordsPanelRef.current;
+    if (!panel) return;
+    panel.open = true;
+    window.requestAnimationFrame(() => panel.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const openDocumentsPanel = () => {
+    const panel = documentsPanelRef.current;
+    if (!panel) return;
+    panel.open = true;
+    window.requestAnimationFrame(() => panel.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   return (
     <section className="space-y-5 py-1">
       <PageHeader
@@ -223,12 +247,16 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
             <CardHeader className="flex-row items-center justify-between gap-4 border-b bg-muted/30 px-4 py-4 sm:px-5">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="grid size-11 shrink-0 place-items-center rounded-xl border bg-background text-primary">
-                  <span className="text-sm font-bold">{stages.findIndex((stage) => stage.key === stageKey) + 1}</span>
+                  <span className="text-sm font-bold">{stages.findIndex((stage) => stage.key === selectedStage) + 1}</span>
                 </span>
                 <div className="min-w-0">
                   <CardDescription className="text-xs font-semibold uppercase tracking-wider">Detail tahap</CardDescription>
                   <CardTitle className="mt-1 truncate text-lg">{stages.find((stage) => stage.key === selectedStage)?.label}</CardTitle>
-                  <p className="mt-1 text-xs text-muted-foreground">{currentStage === selectedStage ? "Tahap ini sedang berjalan" : "Tahap dipilih untuk ditinjau"}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {currentStage === selectedStage
+                      ? selectedStage === "selesai" ? "Laporan akhir dan penutupan transaksi" : "Tahap ini sedang berjalan"
+                      : "Tahap dipilih untuk ditinjau"}
+                  </p>
                 </div>
               </div>
               {canComplete && currentStage === selectedStage ? (
@@ -244,7 +272,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                     setConfirmComplete(true);
                   }}
                 >
-                  Tandai tahap selesai
+                  {selectedStage === "selesai" ? "Selesaikan transaksi" : "Tandai tahap selesai"}
                 </Button>
               ) : null}
             </CardHeader>
@@ -264,27 +292,25 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                         <AlertDescription>Semua prasyarat tahap terpenuhi. Tahap siap diselesaikan.</AlertDescription>
                       </Alert>
                     ) : (
-                      <Alert variant="destructive">
-                        <AlertDescription>
-                          <strong>Prasyarat tahap belum lengkap:</strong>
-                          <ul className="mt-2 list-disc space-y-1 pl-5">
-                            {readinessBlockers.map((blocker, index) => (
-                              <li key={`${blocker.code ?? "blocker"}-${index}`}>{blocker.message ?? "Prasyarat belum lengkap"}</li>
-                            ))}
-                          </ul>
-                        </AlertDescription>
-                      </Alert>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-950">
+                        <strong>Masih ada prasyarat sebelum tahap dapat diselesaikan:</strong>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                          {readinessBlockers.map((blocker, index) => (
+                            <li key={`${blocker.code ?? "blocker"}-${index}`}>{blocker.message ?? "Prasyarat belum lengkap"}</li>
+                          ))}
+                        </ul>
+                      </div>
                     )
                   ) : null}
                   <div className="flex flex-col gap-3">
-                    <details className="group overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
+                    <details open={selectedStage === currentStage || (uninitialized && selectedStage === "perencanaan")} className="group overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
                       <summary className="flex min-h-[4.5rem] cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
                         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
                           <Settings2 size={17} />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <strong className="block text-sm font-semibold">Operasi tahap</strong>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">Perbarui data transaksi</span>
+                          <strong className="block text-sm font-semibold">Panduan & operasi tahap</strong>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">Checklist langkah berikutnya dan pengelolaan data transaksi</span>
                         </span>
                         {selectedStageComplete ? <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">Tahap selesai</span> : null}
                         <ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
@@ -293,11 +319,11 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                         {selectedStage === "kontrak" ? (
                           <ContractWorkspace pengadaanId={pengadaanId} active={currentStage === selectedStage} procurement={detail} />
                         ) : (
-                          <LifecycleOperations key={selectedStage} pengadaanId={pengadaanId} stage={selectedStage} active={currentStage === selectedStage || (uninitialized && selectedStage === "perencanaan")} detail={detail} />
+                          <LifecycleOperations key={selectedStage} pengadaanId={pengadaanId} stage={selectedStage} active={currentStage === selectedStage || (uninitialized && selectedStage === "perencanaan")} detail={detail} onOpenRecords={openRecordsPanel} onOpenDocuments={openDocumentsPanel} />
                         )}
                       </div>
                     </details>
-                    <details className="group overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
+                    <details ref={recordsPanelRef} className="group scroll-mt-4 overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
                       <summary className="flex min-h-[4.5rem] cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
                         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300">
                           <ClipboardList size={17} />
@@ -313,7 +339,7 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
                         <LifecycleRecords stage={selectedStage} active={currentStage === selectedStage} pengadaanId={pengadaanId} detail={detail ?? {}} />
                       </div>
                     </details>
-                    <details className="group overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
+                    <details ref={documentsPanelRef} className="group scroll-mt-4 overflow-hidden rounded-xl border bg-background open:border-primary/30 open:shadow-sm">
                       <summary className="flex min-h-[4.5rem] cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
                         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
                           <FileText size={17} />
@@ -347,7 +373,10 @@ export default function LifecyclePage({ pengadaanId }: { pengadaanId: string }) 
               updateStage.mutate(
                 { tahap: selectedStage, status: "selesai" },
                 {
-                  onSuccess: () => setConfirmComplete(false),
+                  onSuccess: () => {
+                    setConfirmComplete(false);
+                    setStageKey("");
+                  },
                 },
               )
             }
