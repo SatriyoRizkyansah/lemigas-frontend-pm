@@ -33,7 +33,7 @@ const ALL = [...AOV, "pimpinan"];
 const methods = ACTIVE_PROCUREMENT_METHODS.map(([method]) => method);
 const statuses: UpdateStatusTahapDto["status"][] = ["draft", "menunggu_persetujuan", "aktif", "selesai", "revisi", "ditolak", "gagal", "dibatalkan"];
 const text = (name: string, label: string, required = false, maxLength?: number): Field => ({ name, label, required, maxLength });
-const textarea = (name: string, label: string, required = false): Field => ({ name, label, kind: "textarea", required });
+const textarea = (name: string, label: string, required = false, maxLength?: number): Field => ({ name, label, kind: "textarea", required, maxLength });
 const num = (name: string, label: string, min?: number, required = false, integer = false): Field => ({ name, label, kind: "number", min, required, integer });
 const json = (name: string, label: string, required = false): Field => ({ name, label, kind: "json", required });
 const detailText = (name: string, label: string, payloadPath: string, required = false): Field => ({ name, label, payloadPath, required });
@@ -174,7 +174,7 @@ export const lifecycleOperations: Operation[] = [
       ? ["pemilihan_penyedia", "verifikasi_evaluasi", "permintaan_penawaran", "sourcing"]
       : ["pemilihan_penyedia", "permintaan_penawaran", "sourcing"],
     roles: AO,
-    fields: [rel("rfqId", "RFQ", action === "tutup" ? "rfqAktif" : "rfqTertutup", true), textarea("alasan", "Alasan perubahan", true)],
+    fields: [rel("rfqId", "RFQ", action === "tutup" ? "rfqAktif" : "rfqTertutup", true), textarea("alasan", action === "tutup" ? "Alasan penutupan" : "Alasan membuka kembali", true, 1000)],
     run: (id: string, body: Entity) =>
       browserApi.request<unknown, unknown>({
         path: `/api/pengadaan/${encodeURIComponent(id)}/rfq/${encodeURIComponent(String(body.rfqId))}/${action}`,
@@ -299,9 +299,9 @@ export const lifecycleOperations: Operation[] = [
       rel("pengirimanId", "Pengiriman", "pengiriman", true),
       select("tipe", "Jenis pemeriksaan", ["quantity", "quality", "gabungan"]),
       date("tanggalPeriksa", "Tanggal periksa", true),
-      text("surveyor", "Surveyor"),
       num("hasilKuantitas", "Hasil kuantitas"),
       json("hasilMutu", "Hasil mutu"),
+      text("surveyor", "Surveyor"),
       text("nomorSertifikat", "Nomor sertifikat"),
       { name: "diterimaDenganCatatan", label: "Ada catatan pada pemeriksaan?", kind: "boolean" },
       text("catatan", "Catatan"),
@@ -317,9 +317,9 @@ export const lifecycleOperations: Operation[] = [
       rel("pengirimanId", "Pengiriman", "pengiriman", true),
       date("tanggalTerima", "Tanggal terima", true),
       text("titikSerah", "Titik serah", true, 200),
-      text("nomorBast", "Nomor BAST", false, 100),
       num("kuantitasDiterima", "Kuantitas diterima", 0.0001, true),
       json("mutuDiterima", "Mutu diterima"),
+      text("nomorBast", "Nomor BAST", false, 100),
       { name: "denganCatatan", label: "Ada catatan pada penerimaan?", kind: "boolean" },
       text("catatan", "Catatan"),
     ],

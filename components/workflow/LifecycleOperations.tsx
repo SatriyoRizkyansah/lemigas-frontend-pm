@@ -297,6 +297,8 @@ function operationFieldSections(operationKey: string | undefined, fields: Field[
       { title: "Informasi RFQ", fields: ["mode", "vendorIds", "rfqId", "rfqIds", "nomor", "alasanPerubahan", "batasRespons"] },
       { title: "Kebutuhan dan ketentuan", fields: ["spesifikasi", "volume", "satuan", "titikSerah", "syaratPenyerahan", "syaratPembayaran", "dokumenDiminta"] },
     ],
+    tutupRfq: [{ title: "Rincian penutupan RFQ", fields: ["rfqId", "alasan"] }],
+    bukaKembaliRfq: [{ title: "Rincian pembukaan kembali RFQ", fields: ["rfqId", "alasan"] }],
     perencanaan: [
       { title: "Informasi kebutuhan", fields: ["modelPelaksanaan", "jenisKargo", "satuan", "titikSerah", "nomorPenugasan", "penerimaPasokan"] },
       { title: "Spesifikasi dan kesiapan penerima", fields: ["spesifikasiMutu", "kesiapanPenerima"] },
@@ -361,6 +363,7 @@ function DeliveryChecklist({ active, locked, operations, contracts, shipments, s
       : pihakImportir === "lemigas" || modelPelaksanaan === "pelaksanaan_impor_langsung"
         ? "Lemigas"
         : "Belum ditetapkan";
+  const firstShipmentOperation = operation("pengiriman");
   const action = (key: string, label: string, context?: Entity, unavailable = false) => {
     const item = operation(key);
     return item ? <Button type="button" size="sm" variant="outline" disabled={!active || locked || unavailable} onClick={() => onOpen(item, context)}>{label}</Button> : null;
@@ -381,6 +384,31 @@ function DeliveryChecklist({ active, locked, operations, contracts, shipments, s
   );
   return (
     <section className="space-y-3" aria-label="Checklist pelaksanaan delivery">
+      {!shipments.length ? (
+        <section className="rounded-xl border border-primary/25 bg-primary/[0.035] p-4 sm:p-5" aria-label="Langkah pertama delivery">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Ship size={19} /></span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">Mulai di sini · Langkah pertama</p>
+                <h3 className="mt-1 text-base font-semibold">Catat pengiriman pertama</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
+                  {effectiveContracts.length
+                    ? "Pilih kontrak Penyedia yang efektif, lalu alokasikan volume untuk kargo ini. Satu kontrak boleh dibagi ke beberapa pengiriman selama total alokasinya tidak melebihi volume kontrak."
+                    : "Pengiriman baru bisa dicatat setelah tersedia kontrak Penyedia yang efektif."}
+                </p>
+                {effectiveContracts.length ? <p className="mt-1 text-xs text-muted-foreground">Setelah disimpan, checklist pemeriksaan, BAST, penyimpanan, dan serah-terima akan muncul untuk setiap pengiriman.</p> : null}
+              </div>
+            </div>
+            {firstShipmentOperation ? (
+              <Button type="button" size="default" className="shrink-0" disabled={!active || locked || !effectiveContracts.length} onClick={() => onOpen(firstShipmentOperation)}>
+                <Ship size={16} />
+                Catat pengiriman pertama
+              </Button>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
       <section className="rounded-xl border bg-muted/15 px-4 py-3" aria-label="Tanggung jawab pelaksanaan impor">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -402,7 +430,7 @@ function DeliveryChecklist({ active, locked, operations, contracts, shipments, s
       <section className="overflow-hidden rounded-xl border bg-background">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3">
           <div><h3 className="text-sm font-semibold">Pengapalan dan pemantauan</h3><p className="mt-1 text-xs text-muted-foreground">Alokasi seluruh kargo mengikuti volume kontrak. Setiap pengiriman punya progres sendiri.</p></div>
-          {action("pengiriman", "Catat pengiriman")}
+          {shipments.length ? action("pengiriman", "Tambah pengiriman") : null}
         </header>
         {effectiveContracts.length ? (
           <div className="overflow-x-auto border-b">
@@ -841,7 +869,6 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
       })
       .filter((field) => {
         if (role === "vendor" && field.name === "vendorId") return false;
-        if (selected.key === "tutupRfq" || selected.key === "bukaKembaliRfq") return false;
         if (["status-tagihan", "status-pembayaran", "status-klaim"].includes(selected.key) && field.name === "entityId" && values.entityId) return false;
         if (["status-tagihan", "status-pembayaran", "status-rekonsiliasi"].includes(selected.key) && field.name === "status" && values.status) return false;
         if (selected.key === "pembayaran" && field.name === "tagihanId" && values.tagihanId) return false;
@@ -1037,6 +1064,10 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
       label: selected?.key === "verifikasi" && ["selesai", "ditolak", "revisi"].includes(value) ? ({ selesai: "Sesuai", ditolak: "Tidak sesuai", revisi: "Perlu perbaikan" } as Record<string, string>)[value] : value.replaceAll("_", " "),
     }));
   };
+  const selectedLifecycleRfq =
+    selected?.key === "tutupRfq" || selected?.key === "bukaKembaliRfq"
+      ? records(detail.rfq).find((row) => String(row.id ?? "") === String(values.rfqId ?? ""))
+      : undefined;
   function updateTagihanCargoSelection(shipmentIds: string[], direction?: string) {
     setValues((old) => {
       const activeDirection = direction ?? old.arah ?? "";
@@ -2126,9 +2157,13 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
               ? "Periksa calon tunggal dari tahap justifikasi sebelum permintaan penawaran dikirim."
               : selected?.key === "rfq" && isDirectAppointment
                 ? "Kirim permintaan hanya kepada calon yang sudah dijustifikasi dan diverifikasi."
+            : selected?.key === "tutupRfq"
+              ? "Akhiri penerimaan penawaran pada RFQ ini. Penawaran yang sudah masuk tetap tersimpan untuk evaluasi."
+              : selected?.key === "bukaKembaliRfq"
+                ? "Aktifkan kembali penerimaan penawaran pada RFQ yang sebelumnya ditutup."
               : undefined
         }
-        size={selected?.key === "rekonsiliasi" ? "xl" : selected?.key === "status-rekonsiliasi" || (isDirectAppointment && ["verifikasi", "rfq"].includes(selected?.key ?? "")) ? "lg" : "md"}
+        size={selected?.key === "rekonsiliasi" ? "xl" : selected?.key === "status-rekonsiliasi" || (isDirectAppointment && ["verifikasi", "rfq"].includes(selected?.key ?? "")) || ["tutupRfq", "bukaKembaliRfq"].includes(selected?.key ?? "") ? "lg" : "md"}
         footer={
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             {rfqSubmitBlockers.length ? (
@@ -2893,6 +2928,9 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                   <div>
                     <h3 className="text-sm font-semibold">{section.title}</h3>
                     {selected?.key === "terbitkan-laporan" ? <p className="mt-1 text-xs leading-5 text-muted-foreground">Pilih draft laporan akhir yang sudah diperiksa. Periode dan ringkasan laporan akan ditampilkan sebelum diterbitkan.</p> : null}
+                    {selected?.key === "pemeriksaan" ? <p className="mt-1 text-xs leading-5 text-muted-foreground">Pilih jenis pemeriksaan, lalu isi hasil kuantitas, mutu, atau keduanya sesuai pemeriksaan yang dilakukan.</p> : null}
+                    {selected?.key === "tutupRfq" ? <p className="mt-1 text-xs leading-5 text-muted-foreground">Pastikan batas respons telah lewat atau tindak lanjut penawaran selesai. Alasan ini akan tersimpan dalam riwayat audit.</p> : null}
+                    {selected?.key === "bukaKembaliRfq" ? <p className="mt-1 text-xs leading-5 text-muted-foreground">Gunakan bila vendor perlu diberi kesempatan mengirim atau memperbarui penawaran kembali. Cantumkan alasan pembukaan.</p> : null}
                     {selected?.key === "pengiriman" ? <p className="mt-1 text-xs text-muted-foreground">Alokasikan volume kargo ini. Kapal dan jadwal boleh dilengkapi belakangan jika belum diketahui.</p> : null}
                     {selected?.key === "update-pengiriman" ? <p className="mt-1 text-xs text-muted-foreground">Edit detail bukan tahap wajib. Gunakan hanya untuk melengkapi informasi yang belum tersedia atau mencatat perubahan kapal dan jadwal.</p> : null}
                     {selected?.key === "update-pengiriman" ? <p className="mt-1 text-xs text-muted-foreground">Sisa volume kontrak tetap menjadi batas total alokasi seluruh kargo.</p> : null}
@@ -2973,6 +3011,10 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                       const fieldLabel =
                         publishingFinalReport
                           ? "Draft laporan akhir"
+                          : selected?.key === "pemeriksaan" && field.name === "hasilKuantitas"
+                            ? `Hasil kuantitas${plainText(object(inspectionShipment?.kontrak).satuanKontrak || object(detail.perencanaan).satuan) ? ` (${plainText(object(inspectionShipment?.kontrak).satuanKontrak || object(detail.perencanaan).satuan)})` : ""}`
+                          : selected?.key === "penerimaan" && field.name === "kuantitasDiterima"
+                            ? `Kuantitas diterima${plainText(object(receiptShipment?.kontrak).satuanKontrak) ? ` (${plainText(object(receiptShipment?.kontrak).satuanKontrak)})` : ""}`
                           : selectingAppointmentVendor
                             ? "Pilih satu calon Penyedia"
                             : selected?.key === "pemilihan-penyedia" && field.name === "justifikasiPenunjukan"
@@ -3004,10 +3046,11 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                         (selected?.key === "status-pengiriman" && ["entityId", "status"].includes(field.name)) ||
                         (selected?.key === "penyimpanan" && field.name === "penerimaanId") ||
                         (selected?.key === "serah-terima" && field.name === "pengirimanId") ||
+                        (["tutupRfq", "bukaKembaliRfq"].includes(selected?.key ?? "") && field.name === "rfqId") ||
                         (selected?.key === "tagihan" && field.name === "pengirimanIds") ||
                         (field.kind === "json" || field.kind === "textarea") ||
-                        (selected?.key === "pemeriksaan" && ["pengirimanId", "hasilMutu", "catatan"].includes(field.name)) ||
-                        (selected?.key === "penerimaan" && ["pengirimanId", "mutuDiterima", "catatan"].includes(field.name)) ||
+                        (selected?.key === "pemeriksaan" && ["pengirimanId", "hasilKuantitas", "hasilMutu", "catatan"].includes(field.name)) ||
+                        (selected?.key === "penerimaan" && ["pengirimanId", "kuantitasDiterima", "mutuDiterima", "catatan"].includes(field.name)) ||
                         (selected?.key === "rfq" && ["vendorIds", "rfqId", "rfqIds", "alasanPerubahan", "spesifikasi", "syaratPenyerahan", "syaratPembayaran", "dokumenDiminta"].includes(field.name)) ||
                         (selected?.key === "negosiasi" && ["penawaranId", "hasil"].includes(field.name)) ||
                         (selected?.key === "verifikasi" && (isDirectAppointment ? field.name === "catatan" : ["kepatuhan", "hasil", "catatan"].includes(field.name)));
@@ -3028,6 +3071,12 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                           ) : null}
                           {selected?.key === "verifikasi" && isDirectAppointment && field.name === "catatan" ? (
                             <p className="text-xs leading-5 text-muted-foreground">Wajib mencatat dokumen atau sumber yang diperiksa, tanggal pemeriksaan, bukti kewenangan menyediakan/menjual Kargo, pembatasan yang ditemukan, serta keterbatasan dan mitigasi.</p>
+                          ) : null}
+                          {selected?.key === "tutupRfq" && field.name === "alasan" ? (
+                            <p className="text-xs leading-5 text-muted-foreground">Jelaskan mengapa penerimaan penawaran dihentikan. Maksimal 1.000 karakter.</p>
+                          ) : null}
+                          {selected?.key === "bukaKembaliRfq" && field.name === "alasan" ? (
+                            <p className="text-xs leading-5 text-muted-foreground">Jelaskan mengapa penerimaan penawaran perlu dibuka kembali. Maksimal 1.000 karakter.</p>
                           ) : null}
                           {selected?.key === "negosiasi" && field.name === "batasNegosiasi" ? (
                             <p className="min-h-8 text-xs leading-4 text-muted-foreground">Opsional. Harga per satuan untuk acuan internal; tidak dikirim kepada vendor.</p>
@@ -3053,7 +3102,10 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                             <p className="text-xs text-muted-foreground">Catat realisasi volume pengapalan di sini. Hasil pemeriksaan dan kuantitas BAST dicatat terpisah.</p>
                           ) : null}
                           {selected?.key === "pemeriksaan" && field.name === "hasilKuantitas" ? (
-                            <p className="text-xs text-muted-foreground">Masukkan hasil ukur sesuai titik pemeriksaan dalam kontrak. Sebutkan lokasinya di Catatan, misalnya pelabuhan muat atau titik bongkar. Jika berbeda dari alokasi {formatQuantity(inspectionShipment?.volumeRencana, object(inspectionShipment?.kontrak).satuanKontrak)}, jelaskan selisihnya.</p>
+                            <p className="text-xs leading-5 text-muted-foreground">
+                              {inspectionShipment ? `Alokasi rencana: ${formatQuantity(inspectionShipment.volumeRencana, object(inspectionShipment.kontrak).satuanKontrak)}. ` : "Pilih pengiriman untuk melihat alokasi rencana. "}
+                              Masukkan hasil ukur pada titik pemeriksaan sesuai kontrak. Jika berbeda, pilih “Ada catatan” dan jelaskan lokasi serta selisihnya.
+                            </p>
                           ) : null}
                           {selected?.key === "penerimaan" && field.name === "kuantitasDiterima" && receiptShipment ? (
                             <p className="text-xs text-muted-foreground">
@@ -3414,6 +3466,15 @@ function OperationsPanel({ pengadaanId, stage, active, detail: rawDetail, onOpen
                                 required={field.required}
                                 disabled={locked || !permitted}
                               />
+                              {field.name === "rfqId" && selectedLifecycleRfq ? (
+                                <div className="rounded-md border bg-background px-3 py-2.5" aria-live="polite">
+                                  <p className="text-xs font-semibold">{plainText(selectedLifecycleRfq.nomor) || "RFQ"} · Revisi {String(selectedLifecycleRfq.revisi ?? 1)}</p>
+                                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                    {selectedLifecycleRfq.isPublic ? "RFQ publik · terbuka bagi vendor yang memenuhi syarat" : `RFQ vendor · ${plainText(object(selectedLifecycleRfq.vendor).nama) || "vendor"}`}
+                                    {selectedLifecycleRfq.batasRespons ? ` · Batas respons ${deliveryDate(selectedLifecycleRfq.batasRespons)}` : ""}
+                                  </p>
+                                </div>
+                              ) : null}
                               {publishingFinalReport ? selectedFinalReport ? (
                                 <div className="rounded-md border bg-muted/20 px-3 py-2.5" aria-live="polite">
                                   <div className="flex flex-wrap items-start justify-between gap-2">

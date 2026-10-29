@@ -187,6 +187,7 @@ function InvoiceLane({
   paymentStatusOperation,
   active,
   locked,
+  hideAddAction = false,
   onOpen,
 }: {
   title: string;
@@ -200,6 +201,7 @@ function InvoiceLane({
   paymentStatusOperation?: Operation;
   active: boolean;
   locked: boolean;
+  hideAddAction?: boolean;
   onOpen: (operation: Operation, context?: Entity) => void;
 }) {
   const laneInvoices = invoices.filter((invoice) => invoice.arah === direction);
@@ -220,15 +222,15 @@ function InvoiceLane({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">{description}</p>
         </div>
-        {operation ? (
+        {operation && !hideAddAction ? (
           <Button
             type="button"
             size="sm"
-            variant="outline"
+            variant={laneInvoices.length ? "outline" : "default"}
             disabled={!active || locked}
             onClick={() => onOpen(operation, { arah: direction })}
           >
-            <Plus size={15} /> Catat tagihan
+            <Plus size={15} /> {laneInvoices.length ? "Tambah tagihan" : "Catat tagihan"}
           </Button>
         ) : null}
       </header>
@@ -495,6 +497,13 @@ export function SettlementChecklist({
   const relevantInvoices = requiredIncoming
     ? activeInvoices
     : activeInvoices.filter((invoice) => invoice.arah === "keluar");
+  const requiredInvoiceDirections = requiredIncoming
+    ? (["masuk", "keluar"] as const)
+    : (["keluar"] as const);
+  const featuredInvoiceDirection = requiredInvoiceDirections.find(
+    (direction) => !activeInvoices.some((invoice) => invoice.arah === direction),
+  );
+  const featuredInvoiceOperation = operation("tagihan");
   const reconciliationReadiness = getReconciliationReadiness(
     planning,
     invoices,
@@ -581,6 +590,49 @@ export function SettlementChecklist({
         </div>
       </header>
 
+      {featuredInvoiceDirection && featuredInvoiceOperation ? (
+        <section
+          className="mx-4 mt-4 rounded-xl border border-primary/25 bg-primary/[0.035] p-4 sm:mx-5 sm:p-5"
+          aria-label="Langkah tagihan berikutnya"
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                <FileText size={19} />
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  Mulai di sini · {relevantInvoices.length ? "Langkah berikutnya" : "Langkah pertama"}
+                </p>
+                <h3 className="mt-1 text-base font-semibold">
+                  {featuredInvoiceDirection === "masuk"
+                    ? "Catat tagihan dari Penerima Pasokan"
+                    : "Catat tagihan dari Penyedia"}
+                </h3>
+                <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
+                  {featuredInvoiceDirection === "masuk"
+                    ? "Mulai dengan mencatat tagihan sesuai perjanjian atau komitmen. Setelah itu, catat pembayaran kepada Penyedia pada jalur berikutnya."
+                    : "Catat tagihan berdasarkan kontrak Penyedia dan kargo terkait. Setelah disimpan, verifikasi dan terbitkan tagihan, lalu catat pembayarannya."}
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="default"
+              className="shrink-0"
+              disabled={!active || locked}
+              onClick={() =>
+                onOpen(featuredInvoiceOperation, {
+                  arah: featuredInvoiceDirection,
+                })
+              }
+            >
+              <Plus size={16} /> Catat tagihan
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
       {unsupportedRecipientInvoices.length ? (
         <div role="alert" className="mx-4 mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-950 sm:mx-5">
           Ada {unsupportedRecipientInvoices.length} tagihan Penerima Pasokan aktif dari data lama. Pada model impor langsung tagihan ini harus dibatalkan sebelum rekonsiliasi.
@@ -600,6 +652,7 @@ export function SettlementChecklist({
             paymentStatusOperation={operation("status-pembayaran")}
             active={active}
             locked={locked}
+            hideAddAction={featuredInvoiceDirection === "masuk"}
             onOpen={onOpen}
           />
           <div className="border-t" />
@@ -617,6 +670,7 @@ export function SettlementChecklist({
         paymentStatusOperation={operation("status-pembayaran")}
         active={active}
         locked={locked}
+        hideAddAction={featuredInvoiceDirection === "keluar"}
         onOpen={onOpen}
       />
 

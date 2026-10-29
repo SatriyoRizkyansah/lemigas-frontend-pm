@@ -93,19 +93,19 @@ const displayValue = (value: unknown): string => {
 function DetailField({ label, value, long = false }: { label: string; value: unknown; long?: boolean }) {
   const text = displayValue(value);
   return (
-    <div className={long ? "border-b border-border/70 pb-3 last:border-0 last:pb-0" : "grid min-w-0 gap-1 border-b border-border/70 pb-2.5 last:border-0 last:pb-0 sm:grid-cols-[minmax(7rem,0.8fr)_minmax(0,1.2fr)] sm:items-start sm:gap-4"}>
+    <div className={long ? "min-w-0 border-t border-border/60 pt-3 first:border-0 first:pt-0" : "min-w-0 border-b border-border/60 pb-2.5 last:border-0 last:pb-0"}>
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className={long ? "mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground" : "whitespace-pre-wrap break-words text-sm font-medium text-foreground"}>{text}</dd>
+      <dd className={long ? "mt-1.5 whitespace-pre-wrap break-words text-sm leading-6 text-foreground" : "mt-1 whitespace-pre-wrap break-words text-sm font-medium text-foreground"}>{text}</dd>
     </div>
   );
 }
 function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border bg-card p-4 sm:p-5">
-      <header className="mb-4 border-b pb-3">
-        <h3 className="font-semibold">{title}</h3>
+    <section className="rounded-xl border bg-card px-4 py-4 sm:px-5">
+      <header className="mb-3 border-b pb-2.5">
+        <h3 className="text-sm font-semibold">{title}</h3>
       </header>
-      <dl className="grid gap-3">{children}</dl>
+      <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">{children}</dl>
     </section>
   );
 }
@@ -271,39 +271,36 @@ export default function PengadaanPage() {
       <Modal
         open={Boolean(detail)}
         onClose={() => setDetail(null)}
-        title={detail ? `${detail.nomorSurat} — ${detail.judul}` : "Detail pengadaan"}
-        description="Informasi lengkap pengadaan, sumber perencanaan, kargo, strategi, dan riwayat approval."
+        title="Detail pengadaan"
+        description="Informasi pengadaan, sumber perencanaan, kargo, strategi, dan riwayat persetujuan."
         size="xl"
         contentClassName="max-h-[92dvh]"
-        bodyClassName="space-y-6"
+        bodyClassName="space-y-4 bg-muted/10"
       >
         {detail && (
-          <div className="space-y-6">
-            <section className="rounded-xl border bg-muted/20 p-4 sm:p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="mx-auto w-full max-w-5xl space-y-4">
+            <section className="rounded-xl border bg-background p-4 sm:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ringkasan pengadaan</p>
-                  <h3 className="mt-1 break-words text-lg font-semibold">{detail.judul}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{detail.nomorSurat}</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{detail.nomorSurat}</p>
+                  <h3 className="mt-1 break-words text-lg font-semibold tracking-tight">{detail.judul}</h3>
                 </div>
                 <StatusBadge status={detail.status === "selesai" || detail.status === "disetujui" ? "ok" : detail.status === "ditolak" || detail.status === "dibatalkan" ? "danger" : "warn"}>{entityText(detail.status)}</StatusBadge>
               </div>
+              <div className="mt-4 grid gap-3 border-t pt-3 sm:grid-cols-3">
+                <div><p className="text-xs text-muted-foreground">Metode pengadaan</p><p className="mt-1 text-sm font-medium">{entityText(detail.metode)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Prioritas</p><p className="mt-1 text-sm font-medium">{entityText(detail.prioritas)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Total estimasi</p><p className="mt-1 text-sm font-medium">{displayValue(detail.totalEstimasi)}</p></div>
+              </div>
             </section>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-4">
               <DetailSection title="Informasi pengadaan">
                 <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-                  <DetailField label="Nomor pengadaan" value={detail.nomorSurat} />
-                  <DetailField label="Judul" value={detail.judul} />
-                  <DetailField label="Status" value={entityText(detail.status)} />
-                  <DetailField label="Prioritas" value={entityText(detail.prioritas)} />
-                  <DetailField label="Metode pengadaan" value={entityText(detail.metode)} />
-                  <DetailField label="Total estimasi" value={detail.totalEstimasi == null ? undefined : `${detail.totalEstimasi}`} />
                   <DetailField label="Diajukan oleh" value={detail.diajukanOlehUser?.nama} />
                   <DetailField label="Email pengaju" value={detail.diajukanOlehUser?.email} />
                   <DetailField label="Unit kerja" value={detail.unitKerja ?? detail.diajukanOlehUser?.unitKerja} />
                   <DetailField label="Tanggal pengajuan" value={detail.tanggalPengajuan ? dateText(detail.tanggalPengajuan) : undefined} />
                   <DetailField label="Deadline" value={dateText(detail.tanggalDeadline)} />
-                  <DetailField label="Dibuat" value={detail.createdAt ? dateText(detail.createdAt) : undefined} />
                   <DetailField label="Diperbarui" value={detail.updatedAt ? dateText(detail.updatedAt) : undefined} />
                 </div>
                 <div className="mt-4">
@@ -372,35 +369,36 @@ export default function PengadaanPage() {
                 </div>
               </DetailSection>
             </div>
-            {detail.approvalSteps?.length ? (
-              <ModalSection title="Riwayat approval">
-                <ol className="space-y-3">
+            <ModalSection title="Riwayat persetujuan">
+              {detail.approvalSteps?.length ? (
+                <ol className="divide-y divide-border/70">
                   {[...detail.approvalSteps]
                     .sort((a, b) => a.urutan - b.urutan)
                     .map((step) => (
-                      <li key={step.id} className="rounded-lg border bg-background p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="font-semibold">
-                            Tahap {step.urutan}: {step.namaLangkah}
+                      <li key={step.id} className="flex gap-3 py-3 first:pt-0 last:pb-0">
+                        <span className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${step.status === "disetujui" ? "bg-emerald-100 text-emerald-700" : step.status === "ditolak" ? "bg-red-100 text-red-700" : "bg-muted text-muted-foreground"}`}>{step.urutan}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="font-medium">{step.namaLangkah}</p>
+                            <StatusBadge status={step.status === "disetujui" ? "ok" : step.status === "ditolak" ? "danger" : "warn"}>{entityText(step.status)}</StatusBadge>
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {step.penanggungJawabUser?.nama ?? "Belum diproses"}
+                            {step.tanggalKeputusan ? ` · ${dateText(step.tanggalKeputusan)}` : ""}
                           </p>
-                          <StatusBadge status={step.status === "disetujui" ? "ok" : step.status === "ditolak" ? "danger" : "warn"}>{entityText(step.status)}</StatusBadge>
+                          {step.catatan && <p className="mt-2 whitespace-pre-wrap text-sm leading-5">{step.catatan}</p>}
                         </div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {step.penanggungJawabUser?.nama ?? "Belum diproses"}
-                          {step.tanggalKeputusan ? ` · ${dateText(step.tanggalKeputusan)}` : ""}
-                        </p>
-                        {step.catatan && <p className="mt-2 whitespace-pre-wrap text-sm">Catatan: {step.catatan}</p>}
                       </li>
                     ))}
                 </ol>
-              </ModalSection>
-            ) : null}
+              ) : (
+                <p className="rounded-lg border border-dashed px-4 py-5 text-center text-sm text-muted-foreground">Belum ada riwayat persetujuan untuk pengadaan ini.</p>
+              )}
+            </ModalSection>
             {detail.items?.length ? (
               <DetailSection title="Item pengadaan">
                 {detail.items.map((item, index) => (
-                  <div className="sm:col-span-2" key={index}>
-                    <DetailField label={`Item ${index + 1}`} value={item} />
-                  </div>
+                  <DetailField key={index} label={`Item ${index + 1}`} value={item} />
                 ))}
               </DetailSection>
             ) : null}

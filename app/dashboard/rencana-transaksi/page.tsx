@@ -389,6 +389,55 @@ export default function RencanaTransaksiPage() {
   }
   const input = "w-full rounded-md border bg-background px-3 py-2 text-sm";
   const label = "block space-y-1 text-sm font-medium";
+  const detailGroups: [string, [string, unknown][]][] = detail
+    ? [
+        [
+          "Skema pengadaan",
+          [
+            ["Model pelaksanaan", detail.modelPelaksanaan],
+            ["Jenis transaksi", detail.jenisTransaksi],
+            ["Metode seleksi", detail.metodeSeleksi],
+            ["Prioritas", detail.prioritas],
+            ["Importir", detail.pihakImportir],
+            ["Nama importir", detail.namaImportir],
+          ],
+        ],
+        [
+          "Komoditas dan serah terima",
+          [
+            ["Jenis kargo", detail.jenisKargo],
+            ["Volume minimum", detail.volumeMin],
+            ["Volume maksimum", detail.volumeMax],
+            ["Satuan", detail.satuan],
+            ["Titik serah", detail.titikSerah],
+            ["Penerima pasokan", detail.penerimaPasokan],
+          ],
+        ],
+        [
+          "Jadwal dan riwayat",
+          [
+            ["Tanggal pengajuan", detail.tanggalPengajuan ? dateText(detail.tanggalPengajuan) : undefined],
+            ["Batas pengajuan", detail.tanggalDeadline ? dateText(detail.tanggalDeadline) : undefined],
+            ["Estimasi mulai", detail.estimasiMulai ? dateText(detail.estimasiMulai) : undefined],
+            ["Estimasi selesai", detail.estimasiSelesai ? dateText(detail.estimasiSelesai) : undefined],
+            ["Dibuat", detail.createdAt ? dateText(detail.createdAt) : undefined],
+            ["Diperbarui", detail.updatedAt ? dateText(detail.updatedAt) : undefined],
+            ["Disetujui", detail.disetujuiPada ? dateText(detail.disetujuiPada) : undefined],
+          ],
+        ],
+      ]
+    : [];
+  const narrativeDetails: [string, unknown][] = detail
+    ? [
+        ["Deskripsi kebutuhan", detail.deskripsi],
+        ["Spesifikasi mutu", detail.spesifikasiMutu],
+        ["Kesiapan penerima", detail.kesiapanPenerima],
+        ["Analisis pasar", detail.analisisPasar],
+        ["Dasar pemilihan", detail.dasarPemilihan],
+        ["Strategi pengiriman", detail.strategiPengiriman],
+        ["Strategi pembiayaan", detail.strategiPembiayaan],
+      ]
+    : [];
   return (
     <main className="space-y-6">
       <PageHeader
@@ -804,8 +853,8 @@ export default function RencanaTransaksiPage() {
             setDetail(null);
             setRejectStepId(null);
           }}
-          title={`${detail.nomor} — ${detail.judul}`}
-          description="Ringkasan kebutuhan, jadwal, strategi, dan riwayat persetujuan rencana transaksi."
+          title="Detail rencana transaksi"
+          description={`${detail.nomor} · ${detail.judul}`}
           size="xl"
           footer={
             <Button
@@ -819,132 +868,65 @@ export default function RencanaTransaksiPage() {
               Tutup detail
             </Button>
           }
-          contentClassName="max-w-6xl"
+          bodyClassName="space-y-4 bg-muted/10"
         >
-          <div className="space-y-6">
-            <section className="rounded-xl border bg-muted/20 p-4 sm:p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ringkasan rencana</p>
-                  <h3 className="mt-1 break-words text-lg font-semibold">{detail.judul}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{detail.nomor}</p>
+          <div className="space-y-4">
+            <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Status rencana</p>
+                <div className="mt-1">
+                  <StatusBadge status={detail.status === "disetujui" || detail.status === "digenerate" ? "ok" : detail.status === "ditolak" ? "danger" : "warn"}>
+                    {entityText(detail.status)}
+                  </StatusBadge>
                 </div>
-                <span className="rounded-full border bg-background px-3 py-1 text-xs font-semibold capitalize text-foreground">{entityText(detail.status)}</span>
+              </div>
+              {detail.pengadaan?.nomorSurat ? (
+                <div className="text-left sm:text-right">
+                  <p className="text-xs text-muted-foreground">Nomor pengadaan</p>
+                  <p className="mt-0.5 text-sm font-semibold">{detail.pengadaan.nomorSurat}</p>
+                </div>
+              ) : null}
+            </section>
+
+            <section className="overflow-hidden rounded-xl border bg-card">
+              <header className="border-b px-4 py-3 sm:px-5">
+                <h3 className="font-semibold">Detail kebutuhan</h3>
+                <p className="mt-1 text-xs text-muted-foreground">Skema, komoditas, volume, serah terima, dan jadwal rencana.</p>
+              </header>
+              <div className="grid gap-x-6 px-4 sm:grid-cols-2 sm:px-5 lg:grid-cols-3">
+                {detailGroups.map(([title, fields]) => (
+                  <section key={title} className="min-w-0 py-3">
+                    <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
+                    <dl className="divide-y">
+                      {fields.map(([name, value]) => (
+                        <div key={name} className="grid min-w-0 gap-0.5 py-2 first:pt-0 sm:grid-cols-[minmax(6.5rem,0.85fr)_minmax(0,1.15fr)] sm:gap-3">
+                          <dt className="text-xs text-muted-foreground">{name}</dt>
+                          <dd className="break-words text-sm font-medium">
+                            {["Model pelaksanaan", "Importir", "Jenis transaksi", "Metode seleksi", "Prioritas", "Jenis kargo"].includes(name)
+                              ? entityText(String(value ?? ""))
+                              : displayValue(value)}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                ))}
               </div>
             </section>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-2">
-              {(
-                [
-                  [
-                    "Identifikasi dan status",
-                    [
-                      ["Dibuat", detail.createdAt ? dateText(detail.createdAt) : undefined],
-                      ["Diperbarui", detail.updatedAt ? dateText(detail.updatedAt) : undefined],
-                      ["Disetujui pada", detail.disetujuiPada ? dateText(detail.disetujuiPada) : undefined],
-                    ],
-                  ],
-                  [
-                    "Model, transaksi, metode",
-                    [
-                      ["Model pelaksanaan", detail.modelPelaksanaan],
-                      ["Jenis transaksi", detail.jenisTransaksi],
-                      ["Metode seleksi", detail.metodeSeleksi ? entityText(detail.metodeSeleksi) : undefined],
-                    ],
-                  ],
-                  [
-                    "Peran impor",
-                    [
-                      ["Importir", detail.pihakImportir],
-                      ["Nama importir", detail.namaImportir],
-                    ],
-                  ],
-                  [
-                    "Kargo dan volume",
-                    [
-                      ["Jenis kargo", detail.jenisKargo],
-                      ["Volume minimum", detail.volumeMin],
-                      ["Volume maksimum", detail.volumeMax],
-                      ["Satuan", detail.satuan],
-                    ],
-                  ],
-                  [
-                    "Serah terima",
-                    [
-                      ["Titik serah", detail.titikSerah],
-                      ["Penerima pasokan", detail.penerimaPasokan],
-                    ],
-                  ],
-                  [
-                    "Jadwal estimasi",
-                    [
-                      ["Mulai", detail.estimasiMulai ? dateText(detail.estimasiMulai) : undefined],
-                      ["Selesai", detail.estimasiSelesai ? dateText(detail.estimasiSelesai) : undefined],
-                    ],
-                  ],
-                  [
-                    "Dasar dan strategi",
-                    [
-                      ["Dasar pemilihan", detail.dasarPemilihan],
-                      ["Strategi pengiriman", detail.strategiPengiriman],
-                      ["Strategi pembiayaan", detail.strategiPembiayaan],
-                    ],
-                  ],
-                ] as [string, [string, unknown][]][]
-              ).map(([title, fields]) => (
-                <article key={title} className="rounded-xl border bg-card p-4 sm:p-5">
-                  <header className="mb-4 border-b pb-3">
-                    <h3 className="font-semibold">{title}</h3>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      {
-                        {
-                          "Identifikasi dan status": "Nomor referensi, status proses, dan waktu pembaruan rencana.",
-                          "Model, transaksi, metode": "Pendekatan pelaksanaan dan cara transaksi dipilih.",
-                          "Kargo dan volume": "Komoditas yang dibutuhkan beserta rentang volume dan satuannya.",
-                          "Serah terima": "Lokasi serah dan pihak penerima pasokan.",
-                          "Jadwal estimasi": "Perkiraan waktu pelaksanaan dan penyelesaian kebutuhan.",
-                          "Dasar dan strategi": "Pertimbangan pemilihan serta rencana pengiriman dan pembiayaan.",
-                        }[title]
-                      }
-                    </p>
-                  </header>
-                  <dl className="grid gap-3">
-                    {fields.map(([name, value]) => (
-                      <div key={name} className="grid min-w-0 gap-1 border-b border-border/70 pb-2.5 last:border-0 last:pb-0 sm:grid-cols-[minmax(7rem,0.8fr)_minmax(0,1.2fr)] sm:items-start sm:gap-4">
-                        <dt className="text-xs font-medium text-muted-foreground">{name}</dt>
-                        <dd className="break-words text-sm font-medium">{["Model pelaksanaan", "Importir", "Jenis transaksi", "Metode seleksi", "Jenis kargo"].includes(name) ? entityText(String(value ?? "")) : displayValue(value)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </article>
-              ))}
-              {(
-                [
-                  ["Deskripsi", detail.deskripsi],
-                  ["Spesifikasi mutu", detail.spesifikasiMutu],
-                  ["Kesiapan penerima", detail.kesiapanPenerima],
-                  ["Analisis pasar", detail.analisisPasar],
-                ] as [string, unknown][]
-              ).map(([title, value]) => (
-                <article key={title} className="rounded-xl border bg-card p-4 sm:p-5">
-                  <header className="mb-3 border-b pb-3">
-                    <h3 className="font-semibold">{title}</h3>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      {
-                        {
-                          Deskripsi: "Gambaran umum tujuan dan ruang lingkup kebutuhan transaksi.",
-                          "Spesifikasi mutu": "Standar, grade, dan parameter kualitas kargo yang disyaratkan.",
-                          "Kesiapan penerima": "Kesiapan fasilitas, kapasitas, dan jadwal penerimaan pasokan.",
-                          "Analisis pasar": "Kondisi pasokan, permintaan, harga, dan risiko pasar yang menjadi pertimbangan.",
-                        }[title]
-                      }
-                    </p>
-                  </header>
-                  <div className="min-h-12 rounded-md bg-muted/30 p-3">
-                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{displayValue(value)}</p>
+
+            <section className="overflow-hidden rounded-xl border bg-card">
+              <header className="border-b px-4 py-3 sm:px-5">
+                <h3 className="font-semibold">Uraian dan strategi</h3>
+              </header>
+              <dl className="grid gap-x-6 px-4 sm:grid-cols-2 sm:px-5">
+                {narrativeDetails.map(([title, value]) => (
+                  <div key={title} className="min-w-0 border-b py-3 last:border-b-0">
+                    <dt className="text-xs font-medium text-muted-foreground">{title}</dt>
+                    <dd className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed">{displayValue(value)}</dd>
                   </div>
-                </article>
-              ))}
-            </div>
+                ))}
+              </dl>
+            </section>
             <section className="space-y-4 rounded-xl border bg-card p-4 sm:p-5">
               <header className="border-b pb-3">
                 <h3 className="font-semibold">Alur validasi dan persetujuan</h3>
